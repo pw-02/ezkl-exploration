@@ -1,0 +1,19 @@
+
+defaults:
+  - _self_
+  - model: mnist_classifier #mnist_classifier,little_transformer
+  # - override hydra/hydra_logging: disabled  
+  # - override hydra/job_logging: disabled
+
+output_dir: multi-job/outputs
+hydra/job_logging: none
+
+# num_jobs: 1
+# num_devices_per_job: 1
+# seed: 41
+# accelerator: 'gpu'
+# log_dir: mlworklaods/reports
+# log_interval: 10
+# run_training: true
+# run_evaluation: false
+# dataload_only: false

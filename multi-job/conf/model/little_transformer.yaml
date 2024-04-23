@@ -1,0 +1,9 @@
+name: little_transformer
+seq_len: 6
+batch_size: 64
+max_epochs: 0
+max_value: 10
+layer_count: 2
+embed_dim: 128
+num_heads: 4
+ff_dim: 32
