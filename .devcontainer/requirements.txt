@@ -1,0 +1,6 @@
+ezkl-gpu
+onnx
+torch
+torchvision
+lightning
+hydra-core
