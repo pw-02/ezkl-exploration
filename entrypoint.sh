@@ -11,6 +11,6 @@
 git clone https://github.com/pw-02/ezkl-exploration.git
 cd ezkl-exploration
 # Start an interactive shell
-# /bin/bash
+/bin/bash
 #python single-job/launch.py
-python multi-job/launch.py
+# python multi-job/launch.py
