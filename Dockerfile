@@ -59,7 +59,9 @@ RUN /opt/conda/bin/conda config --set ssl_verify False \
 
 # Install requirements
 COPY requirements.txt /tmp/
-RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+# RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+#     && rm /tmp/requirements.txt
+    RUN pip install -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
 # Set PYTHONPATH
