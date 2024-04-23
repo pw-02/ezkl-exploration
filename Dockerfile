@@ -40,6 +40,10 @@ RUN apt-get update
 
 # RUN rustup default nightly
 
+# # Copy the entrypoint script into the container
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 ADD https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh miniconda3.sh
 RUN /bin/bash miniconda3.sh -b -p /opt/conda \
     && rm miniconda3.sh \
@@ -65,3 +69,4 @@ RUN apt-get clean && \
 
 CMD ["/usr/local/bin/entrypoint.sh"]
 
+#CMD ["entrypoint.sh"]
