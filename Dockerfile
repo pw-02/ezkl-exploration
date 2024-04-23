@@ -1,4 +1,6 @@
-FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
+# FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
+
+FROM ubuntu:22.04
 
 ENV PYTHON_VERSION=3.10
 
