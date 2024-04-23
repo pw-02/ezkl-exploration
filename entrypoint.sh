@@ -8,8 +8,8 @@
 
 # Start the grpc service
 
-git clone https://github.com/pw-02/super-ml-workloads.git
-cd super-ml-workloads
+git clone https://github.com/pw-02/ezkl-exploration.git
+cd ezkl-exploration
 # Start an interactive shell
 /bin/bash
 #python server.py
