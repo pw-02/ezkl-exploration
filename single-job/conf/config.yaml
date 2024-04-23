@@ -1,7 +1,7 @@
 
 defaults:
   - _self_
-  - model: mnist_classifier #mnist_classifier,little_transformer
+  - model: little_transformer #mnist_classifier,little_transformer
   # - override hydra/hydra_logging: disabled  
   # - override hydra/job_logging: disabled
 
