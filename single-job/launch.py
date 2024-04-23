@@ -10,6 +10,7 @@ import ezkl
 import time
 from functools import wraps
 
+
 FORMAT = '%(levelname)s %(name)s %(asctime)-15s %(filename)s:%(lineno)d %(message)s'
 logging.basicConfig(format=FORMAT)
 logging.getLogger().setLevel(logging.DEBUG)
@@ -99,19 +100,19 @@ def main(config: DictConfig):
     verify(proof_path,settings_path,vk_path,)
 
 
-@time_function
+# #@time_function
 def verify(proof_path,settings_path,vk_path):
     res = ezkl.verify(proof_path,settings_path,vk_path,)
     assert res == True
     print("verified")
 
-@time_function
+#@time_function
 def prove(witness_path,compiled_model_path,pk_path,proof_path):
     res = ezkl.prove(witness_path,compiled_model_path,pk_path,proof_path, "single",)
     print(res)
     assert os.path.isfile(proof_path)
 
-@time_function
+#@time_function
 def setup(compiled_model_path,vk_path,pk_path,settings_path):
     res = ezkl.setup(compiled_model_path,vk_path,pk_path)
     assert res == True
@@ -119,36 +120,36 @@ def setup(compiled_model_path,vk_path,pk_path,settings_path):
     assert os.path.isfile(pk_path)
     assert os.path.isfile(settings_path)
 
-@time_function    
+#@time_function    
 def mock(witness_path, compiled_model_path):
     res = ezkl.mock(witness_path, compiled_model_path)
     assert res == True
 
-@time_function
+#@time_function
 def gen_witness(data_path, compiled_model_path, witness_path):
     res = ezkl.gen_witness(data_path, compiled_model_path, witness_path)
     assert os.path.isfile(witness_path)
 
-@time_function
+#@time_function
 def get_srs(settings_path):
     res = ezkl.get_srs(settings_path)
 
-@time_function
+#@time_function
 def compile_circuit(model_path,compiled_model_path,settings_path):
     res = ezkl.compile_circuit(model_path, compiled_model_path, settings_path)
     assert res == True
 
-@time_function
+#@time_function
 def calibrate_settings(data_path, model_path,settings_path):
     res = ezkl.calibrate_settings(data_path, model_path, settings_path, "resources")
     assert res == True
 
-@time_function
+#@time_function
 def gen_settings(model_path, settings_path):
     res = ezkl.gen_settings(model_path, settings_path)
     assert res == True
 
-@time_function
+#@time_function
 def gen_iput_data(shape, cal_path):
     data_array = (torch.randn(20, *shape).detach().numpy()).reshape([-1]).tolist()
     data = dict(input_data = [data_array])
@@ -156,7 +157,7 @@ def gen_iput_data(shape, cal_path):
     return data
 
 
-@time_function
+#@time_function
 def export_model_and_data(model, x, model_path, data_path):
     # After training, export to onnx (network.onnx) and create a data file (input.json)
     print(x)
