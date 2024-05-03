@@ -9,12 +9,18 @@
 # docker run --gpus all -it --rm --memory=10gb --cpus=2 pwatters991/ezkl-workloads:1.0
 
 
-# # Run Docker containers with different memory limits
-docker run --gpus all -it --rm --memory=12gb --cpus=20 pwatters991/ezkl-workloads:1.0
-docker run --gpus all -it --rm --memory=10gb --cpus=20 pwatters991/ezkl-workloads:1.0
-docker run --gpus all -it --rm --memory=8gb --cpus=20 pwatters991/ezkl-workloads:1.0
-docker run --gpus all -it --rm --memory=6gb --cpus=20 pwatters991/ezkl-workloads:1.0
-docker run --gpus all -it --rm --memory=4gb --cpus=20 pwatters991/ezkl-workloads:1.0
-docker run --gpus all -it --rm --memory=2gb --cpus=20 pwatters991/ezkl-workloads:1.0
+# # # Run Docker containers with different memory limits
+# docker run --gpus all -it --rm --memory=12gb --cpus=20 pwatters991/ezkl-workloads:1.0
+# docker run --gpus all -it --rm --memory=10gb --cpus=20 pwatters991/ezkl-workloads:1.0
+# docker run --gpus all -it --rm --memory=8gb --cpus=20 pwatters991/ezkl-workloads:1.0
+# docker run --gpus all -it --rm --memory=6gb --cpus=20 pwatters991/ezkl-workloads:1.0
+# docker run --gpus all -it --rm --memory=4gb --cpus=20 pwatters991/ezkl-workloads:1.0
+# docker run --gpus all -it --rm --memory=2gb --cpus=20 pwatters991/ezkl-workloads:1.0
 
 # docker run --gpus all -it --rm pwatters991/ezkl-workloads:1.0
+
+taskset -c 0,8 python launch.py
+taskset -c 0,16 python launch.py
+taskset -c 0,34 python launch.py
+taskset -c 0,32 python launch.py
+taskset -c 0,40 python launch.py
