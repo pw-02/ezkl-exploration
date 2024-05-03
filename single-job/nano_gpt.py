@@ -206,7 +206,7 @@ class GPT(nn.Module):
 
 
 def get_model(num_layers=4, block_size=64, vocab_size=65 ):
-    gptconf = GPTConfig(block_size=block_size, vocab_size=vocab_size, n_layer=num_layers,n_head=3, n_embd=48, dropout=0.0, bias=False)
+    gptconf = GPTConfig(block_size=block_size, vocab_size=vocab_size, n_layer=num_layers,n_head=1, n_embd=24, dropout=0.0, bias=False)
     model = GPT(gptconf)
     print(model.get_num_params())
 
