@@ -70,7 +70,12 @@ def main(config: DictConfig):
         model, shape, data_point =  mnist_classifier.get_model()
     
     elif config.model.name == 'nano_gpt':
-        model, shape, data_point =  nano_gpt.get_model(num_layers=config.model.num_layers)
+        model, shape, data_point =  nano_gpt.get_model(
+            num_layers=config.model.num_layers,
+            block_size=config.model.block_size,
+            vocab_size=config.model.vocab_size,
+            n_head=config.model.n_head,
+            n_embd=config.model.n_embd)
 
 
 
