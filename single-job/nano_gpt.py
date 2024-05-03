@@ -205,13 +205,13 @@ class GPT(nn.Module):
         return idx
 
 
-def get_model(num_layers=4):
-    gptconf = GPTConfig(block_size=64, vocab_size=65, n_layer=num_layers,n_head=4, n_embd=64, dropout=0.0, bias=False)
+def get_model(num_layers=4, block_size=64, vocab_size=65 ):
+    gptconf = GPTConfig(block_size=block_size, vocab_size=vocab_size, n_layer=num_layers,n_head=3, n_embd=48, dropout=0.0, bias=False)
     model = GPT(gptconf)
     print(model.get_num_params())
 
     shape = [1, 64]
-    x = torch.randint(65, (1, 64))
+    x = torch.randint(vocab_size, (1, block_size))
     # torch_out = model(x)
     return model, shape, x
     # trainer = pl.Trainer(enable_progress_bar=True, max_epochs=0)
