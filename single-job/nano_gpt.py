@@ -205,8 +205,8 @@ class GPT(nn.Module):
         return idx
 
 
-def get_model():
-    gptconf = GPTConfig(block_size=64, vocab_size=65, n_layer=4,n_head=4, n_embd=64, dropout=0.0, bias=False)
+def get_model(num_layers=4):
+    gptconf = GPTConfig(block_size=64, vocab_size=65, n_layer=num_layers,n_head=4, n_embd=64, dropout=0.0, bias=False)
     model = GPT(gptconf)
     print(model.get_num_params())
 
