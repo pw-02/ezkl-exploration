@@ -3,6 +3,7 @@ from omegaconf import DictConfig
 import os 
 import little_transformerr
 import mnist_classifier
+import nano_gpt
 import logging
 import torch
 import json
@@ -67,6 +68,9 @@ def main(config: DictConfig):
 
     elif config.model.name == 'mnist_classifier':
         model, shape, data_point =  mnist_classifier.get_model()
+    
+    elif config.model.name == 'nano_gpt':
+        model, shape, data_point =  nano_gpt.get_model()
 
 
 
