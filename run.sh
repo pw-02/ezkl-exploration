@@ -19,8 +19,8 @@
 
 # docker run --gpus all -it --rm pwatters991/ezkl-workloads:1.0
 
-taskset -c 0-7 python launch.py
-taskset -c 0-15 python launch.py
-taskset -c 0-23 python launch.py
-taskset -c 0-31 python launch.py
-taskset -c 0-39 python launch.py
+taskset -c 0-7 python single-job/launch.py
+taskset -c 0-15 python single-job/launch.py
+taskset -c 0-23 python single-job/launch.py
+taskset -c 0-31 python single-job/launch.py
+taskset -c 0-39 python single-job/launch.py
