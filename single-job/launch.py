@@ -57,12 +57,12 @@ def main(config: DictConfig):
     if config.model.name == 'little_transformer':
         model, shape, data_point =  little_transformerr.get_model(
             seq_len=config.model.seq_len,
-            batch_size=config.model.batch_size,
+            block_size=config.model.block_size,
             max_epochs=config.model.max_epochs,
             max_value=config.model.max_value,
-            layer_count=config.model.layer_count,
+            num_layers=config.model.num_layers,
             embed_dim=config.model.embed_dim,
-            num_heads=config.model.num_heads,
+            num_heads=config.model.n_head,
             ff_dim=config.model.ff_dim)
     
 

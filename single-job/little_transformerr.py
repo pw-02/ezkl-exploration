@@ -159,10 +159,10 @@ class LittleTransformer(pl.LightningModule):
       return torch.optim.Adam(self.parameters(), lr=3e-4)
     
 
-def get_model(seq_len=6,batch_size=64, max_epochs=1, max_value=10, layer_count=2, embed_dim=128, num_heads=4, ff_dim=32):
-    model = LittleTransformer(seq_len, max_value, layer_count, embed_dim, num_heads, ff_dim)
+def get_model(seq_len=6,block_size=64, max_epochs=1, max_value=10, num_layers=2, embed_dim=128, n_head=4, ff_dim=32):
+    model = LittleTransformer(seq_len, max_value, num_layers, embed_dim, n_head, ff_dim)
     trainer = pl.Trainer(enable_progress_bar=True, max_epochs=max_epochs)
-    data = AdditionDataModule(batch_size=batch_size)
+    data = AdditionDataModule(block_size=block_size)
     trainer.fit(model, data)
     shape = [1, 6]
     x = torch.zeros(shape, dtype=torch.long)
