@@ -87,7 +87,7 @@ py_run_args.output_visibility = "public"
 py_run_args.param_visibility = "fixed" # private by default
 
 res = ezkl.gen_settings(model_path, settings_path, py_run_args=py_run_args)
-
+print(f'setting: {res}')
 assert res == True
 
 cal_path = os.path.join("calibration.json")
