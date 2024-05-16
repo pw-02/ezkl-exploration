@@ -99,7 +99,7 @@ data = dict(input_data = [data_array])
 # Serialize data into file:
 json.dump(data, open(cal_path, 'w'))
 
-
+print(f'{cal_path}, {model_path}, {settings_path}, "resources"')
 ezkl.calibrate_settings(cal_path, model_path, settings_path, "resources")
 res = ezkl.compile_circuit(model_path, compiled_model_path, settings_path)
 assert res == True
