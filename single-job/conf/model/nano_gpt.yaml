@@ -1,5 +1,5 @@
 name: nano_gpt
-num_layers: 3
+num_layers: 1
 block_size: 64
 n_head: 1
 n_embd: 24
