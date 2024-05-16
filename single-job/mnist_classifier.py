@@ -16,7 +16,8 @@ from torch.nn import CrossEntropyLoss
 from torch.optim import Adam  # Import Adam
 from torch.utils.data import DataLoader
 from torchvision.transforms import ToTensor
-
+import torch
+import torch.nn as nn
 # uncomment for more descriptive logging
 FORMAT = '%(levelname)s %(name)s %(asctime)-15s %(filename)s:%(lineno)d %(message)s'
 logging.basicConfig(format=FORMAT)
@@ -50,6 +51,9 @@ class LeNet(nn.Module):
 
 def normalize_img(image, label):
   return torch.round(image), label
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def get_model(batch_size=64, max_epochs=1):
     
@@ -103,4 +107,4 @@ def get_model(batch_size=64, max_epochs=1):
     # x = train_data_point.cpu().detach().numpy().reshape([-1]).tolist()
     # data = {'input_data': [x]}
 
-    return model, train_data_point.size(), train_data_point
+    return model, train_data_point.size(), train_data_point, count_parameters(model)

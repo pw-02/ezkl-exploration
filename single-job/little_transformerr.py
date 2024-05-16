@@ -157,7 +157,9 @@ class LittleTransformer(pl.LightningModule):
       return torch.optim.Adam(self.parameters(), lr=3e-4)
     else:
       return torch.optim.Adam(self.parameters(), lr=3e-4)
-    
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def get_model(seq_len=6,block_size=64, max_epochs=1, max_value=10, num_layers=2, embed_dim=128, n_head=4, ff_dim=32):
     model = LittleTransformer(seq_len, max_value, num_layers, embed_dim, n_head, ff_dim)
@@ -167,4 +169,4 @@ def get_model(seq_len=6,block_size=64, max_epochs=1, max_value=10, num_layers=2,
     shape = [1, 6]
     x = torch.zeros(shape, dtype=torch.long)
     x = x.reshape(shape)
-    return model, shape, x
+    return model, shape, x,  count_parameters(model)

@@ -214,7 +214,7 @@ def get_model(num_layers=4, block_size=64, vocab_size=65,n_head=1, n_embd=24):
     shape = [1, 64]
     x = torch.randint(vocab_size, (1, block_size))
     # torch_out = model(x)
-    return model, shape, x
+    return model, shape, x, model.get_num_params()
     # trainer = pl.Trainer(enable_progress_bar=True, max_epochs=0)
     # data = AdditionDataModule(batch_size=batch_size)
     # trainer.fit(model, data)
