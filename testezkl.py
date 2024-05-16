@@ -100,7 +100,7 @@ data = dict(input_data = [data_array])
 json.dump(data, open(cal_path, 'w'))
 
 print(f'{cal_path}, {model_path}, {settings_path}, "resources"')
-ezkl.calibrate_settings(cal_path, model_path, settings_path, "resources")
+ezkl.calibrate_settings(cal_path, model_path, settings_path)
 res = ezkl.compile_circuit(model_path, compiled_model_path, settings_path)
 assert res == True
 # srs path
