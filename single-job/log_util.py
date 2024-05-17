@@ -134,7 +134,7 @@ class ResourceMonitor:
 
 # Example usage
 if __name__ == "__main__":
-    log_dir = "./logs"
+    log_dir = "test"
     logger = ExperimentLogger(log_dir)
     
     with ResourceMonitor() as monitor:
@@ -142,8 +142,11 @@ if __name__ == "__main__":
 
     # Log resource data
     resource_data = monitor.resource_data
+    logger.log_value("name", 'test')
     logger.log_value("resource_data", resource_data)
     logger.log_value('mean_cpu', resource_data["cpu_util"]["mean"])
     logger.log_value('max_cpu', resource_data["cpu_util"]["max"])
     logger.log_value('mean_cpu_mem_gb', resource_data["cpu_mem_gb"]["mean"])
     logger.log_value('max_cpu_mem_gb', resource_data["cpu_mem_gb"]["max"])
+
+    logger.flush_log()

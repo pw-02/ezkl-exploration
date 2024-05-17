@@ -5,8 +5,8 @@ defaults:
   - override hydra/hydra_logging: disabled  
   - override hydra/job_logging: disabled
 
-log_dir: single-job/reports 
-output_dir: single-job/outputs
+log_dir: reports 
+output_dir: outputs
 hydra/job_logging: none
 
 # num_jobs: 1
