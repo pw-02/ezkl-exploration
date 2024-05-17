@@ -31,12 +31,12 @@ class ExperimentLogger:
     def flush_log(self):
 
         os.makedirs(self.log_dir, exist_ok=True)
-        file_path = os.path.join(self.log_dir,f"{self.data['name']}_log.tsv")
+        file_path = os.path.join(self.log_dir,f"{self.data['name']}_log.csv")
         
         file_exists = os.path.isfile(file_path)     
         
         with open(file_path, mode='a', newline='') as file:
-            writer = csv.DictWriter(file, fieldnames=self.data.keys(), delimiter='\t')
+            writer = csv.DictWriter(file, fieldnames=self.data.keys())
             
             if not file_exists:
                 writer.writeheader()

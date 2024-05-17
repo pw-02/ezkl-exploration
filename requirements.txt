@@ -4,3 +4,5 @@ torch
 torchvision
 lightning
 hydra-core
+psutil
+pynvml
