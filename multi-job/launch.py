@@ -267,6 +267,9 @@ def export_model_and_data(model, x, model_path, data_path, rank, output_path):
         input_names = ["/AveragePool_output_0"]
         output_names = ["output"]
         onnx.utils.extract_model(model_path, output_path, input_names, output_names)
+    
+
+
 
 if __name__ == "__main__":
     main()
