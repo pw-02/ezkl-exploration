@@ -1,0 +1,2 @@
+onnx_file: examples/onnx/mnist_gan/network.onnx
+input_file: examples/onnx/mnist_gan/input.json

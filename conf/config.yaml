@@ -1,7 +1,7 @@
 
 defaults:
   - _self_
-  - model: mobilenet
+  - model: mobilenet  #mobilenet
 
   # - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled  
