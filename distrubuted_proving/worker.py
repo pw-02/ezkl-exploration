@@ -109,9 +109,11 @@ class WorkerServicer(pb2_grpc.WorkerServicer):
 
         prover = EZKLProver(request.model_path)
 
-        #prover.run_end_to_end_proof()
-        time.sleep(2)
-        result = {'message': 'prove computed and verified'}
+        prover.run_end_to_end_proof()
+        #time.sleep(2)
+        logging.info("Proof computed and verified. Returning response")
+
+        result = {'message': 'Proof computed and verified'}
         # Return response
         return pb2.Message(**result)
     
