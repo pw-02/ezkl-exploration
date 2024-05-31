@@ -10,9 +10,10 @@ import ezkl
 import time
 
 
-def get_num_parameters(model):
+def get_num_parameters(model_path=None, model = None):
     # Load the ONNX model
-    # model = onnx.load(model_path)
+    if not model:
+        model = onnx.load(model_path)
 
     # Initialize the parameter counter
     num_parameters = 0
@@ -91,7 +92,7 @@ def run_inference_on_full_model(model_path, input_path):
     results = run_inference(onnx_model.SerializeToString(), input_data)
     # Print results
     print("Inference results:", results)
-    
+
 def get_model_splits_inputs(model_parts: List[onnx.ModelProto], input_path: str):
     # Load and preprocess the JSON input
     input_data = load_json_input(input_path)
@@ -118,7 +119,7 @@ def split_onnx_model(onnx_model_path, num_splits =2):
     # Split the model into parts
     split_models = []
     start_index = 0
-    print(f'initial_parameter_count: {get_num_parameters(model)}')  # Count parameters before splitting
+    print(f'initial_parameter_count: {get_num_parameters(model=model)}')  # Count parameters before splitting
 
     for i in range(num_splits):
         end_index = min(start_index + nodes_per_split, total_nodes)  # Ensure end index does not exceed total nodes
@@ -149,7 +150,7 @@ def split_onnx_model(onnx_model_path, num_splits =2):
         #  # Update for next split
         start_index = end_index
         prev_part_output_name = part_output_name
-        print(f'split_{i}_parameter_count: {get_num_parameters(part_model)}')
+        print(f'split_{i}_parameter_count: {get_num_parameters(model=part_model)}')
     
     return split_models
 
