@@ -97,21 +97,13 @@ class EZKLProver():
 
 class WorkerServicer(pb2_grpc.WorkerServicer):
 
-    def ProcessTask(self, request, context):
-        logging.info("Received task: %s", request)
-        # Process the task
-        # Simulating processing time
-        time.sleep(2)
-        # Return response
-        return pb2.Task(id=request.id, data="Processed " + request.data)
-    
     def ComputeProof(self, request, context):
         logging.info("Received 'Compute Proof' task")
 
         prover = EZKLProver(request.model_path)
 
         #prover.run_end_to_end_proof()
-        time.sleep(10)
+        time.sleep(20)
         logging.info("Proof computed and verified. Returning response")
 
         result = {'message': 'Proof computed and verified'}
@@ -151,6 +143,6 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser(description="Run gRPC worker")
-    parser.add_argument("--port", type=int, default=50052, help="Port number for the worker to listen on")
+    parser.add_argument("--port", type=int, default=50053, help="Port number for the worker to listen on")
     args = parser.parse_args()
     run_worker(args.port)

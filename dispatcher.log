@@ -63,3 +63,65 @@
 [2024-05-31 07:06:10,961][ZKPProver][INFO] - Worker registered:localhost:50052
 [2024-05-31 07:09:08,903][ZKPProver][INFO] - Worker registered:localhost:50052
 [2024-05-31 07:11:49,610][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:23:15,862][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:23:50,203][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:32:06,954][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:32:08,110][root][ERROR] - Exception in callback <function ZKPProver.send_grpc_request.<locals>.<lambda> at 0x7fa1a7079f30>: <_MultiThreadedRendezvous of RPC that terminated with:
+	status = StatusCode.CANCELLED
+	details = "Channel closed!"
+	debug_error_string = "UNKNOWN:Error received from peer  {created_time:"2024-05-31T07:32:08.109741026+00:00", grpc_status:1, grpc_message:"Channel closed!"}"
+>
+[2024-05-31 07:32:36,238][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:32:53,722][root][ERROR] - Exception in callback <function ZKPProver.send_grpc_request.<locals>.<lambda> at 0x7ff507079d80>: <_MultiThreadedRendezvous of RPC that terminated with:
+	status = StatusCode.CANCELLED
+	details = "Channel closed!"
+	debug_error_string = "UNKNOWN:Error received from peer  {created_time:"2024-05-31T07:32:53.716371429+00:00", grpc_status:1, grpc_message:"Channel closed!"}"
+>
+[2024-05-31 07:35:29,314][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:36:32,573][root][ERROR] - Exception in callback <function ZKPProver.send_grpc_request.<locals>.<lambda> at 0x7f273b67dc60>: <_MultiThreadedRendezvous of RPC that terminated with:
+	status = StatusCode.UNAVAILABLE
+	details = "Socket closed"
+	debug_error_string = "UNKNOWN:Error received from peer  {created_time:"2024-05-31T07:36:03.877818543+00:00", grpc_status:14, grpc_message:"Socket closed"}"
+>
+[2024-05-31 07:36:56,387][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:37:22,237][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:37:34,931][root][ERROR] - Exception in callback <function ZKPProver.send_grpc_request.<locals>.<lambda> at 0x7f196d57dd80>: <_MultiThreadedRendezvous of RPC that terminated with:
+	status = StatusCode.CANCELLED
+	details = "Channel closed!"
+	debug_error_string = "UNKNOWN:Error received from peer  {grpc_message:"Channel closed!", grpc_status:1, created_time:"2024-05-31T07:37:34.930777736+00:00"}"
+>
+[2024-05-31 07:38:24,556][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:38:25,580][root][ERROR] - Exception in callback <function ZKPProver.send_grpc_request.<locals>.<lambda> at 0x7fe015081cf0>: <_MultiThreadedRendezvous of RPC that terminated with:
+	status = StatusCode.CANCELLED
+	details = "Channel closed!"
+	debug_error_string = "UNKNOWN:Error received from peer  {grpc_message:"Channel closed!", grpc_status:1, created_time:"2024-05-31T07:38:25.57962666+00:00"}"
+>
+[2024-05-31 07:38:51,644][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:40:03,693][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:40:07,495][root][ERROR] - Exception in callback <function ZKPProver.send_grpc_request.<locals>.<lambda> at 0x7fae1dd71cf0>: <_MultiThreadedRendezvous of RPC that terminated with:
+	status = StatusCode.CANCELLED
+	details = "Channel closed!"
+	debug_error_string = "UNKNOWN:Error received from peer  {created_time:"2024-05-31T07:40:07.494819816+00:00", grpc_status:1, grpc_message:"Channel closed!"}"
+>
+[2024-05-31 07:42:39,014][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:42:39,928][root][ERROR] - Exception in callback <function ZKPProver.send_grpc_request.<locals>.<lambda> at 0x7f1968765ab0>: <_MultiThreadedRendezvous of RPC that terminated with:
+	status = StatusCode.CANCELLED
+	details = "Channel closed!"
+	debug_error_string = "UNKNOWN:Error received from peer  {grpc_message:"Channel closed!", grpc_status:1, created_time:"2024-05-31T07:42:39.928284244+00:00"}"
+>
+[2024-05-31 07:43:10,902][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:43:14,436][root][ERROR] - Exception in callback <function ZKPProver.send_grpc_request.<locals>.<lambda> at 0x7ff8b847dbd0>: <_MultiThreadedRendezvous of RPC that terminated with:
+	status = StatusCode.CANCELLED
+	details = "Channel closed!"
+	debug_error_string = "UNKNOWN:Error received from peer  {created_time:"2024-05-31T07:43:14.43573781+00:00", grpc_status:1, grpc_message:"Channel closed!"}"
+>
+[2024-05-31 07:43:55,215][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:44:24,274][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:45:43,480][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:45:56,925][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:46:25,458][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:46:42,912][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:49:21,724][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:49:55,972][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:51:56,035][ZKPProver][INFO] - Worker registered:localhost:50052
+[2024-05-31 07:51:56,050][ZKPProver][INFO] - Worker registered:localhost:50053

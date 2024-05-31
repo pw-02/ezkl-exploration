@@ -10,6 +10,24 @@ import ezkl
 import time
 
 
+def get_num_parameters(model_path):
+    # Load the ONNX model
+    model = onnx.load(model_path)
+    
+    # Initialize the parameter counter
+    num_parameters = 0
+    
+    # Iterate through all the initializers (weights, biases, etc.)
+    for initializer in model.graph.initializer:
+        # Get the shape of the parameter
+        param_shape = onnx.numpy_helper.to_array(initializer).shape
+        # Calculate the total number of elements in this parameter
+        param_size = np.prod(param_shape)
+        # Add to the total parameter count
+        num_parameters += param_size
+    
+    return num_parameters
+
 
 def list_layers(onnx_model_path):
     onnx_model = onnx.load(onnx_model_path)

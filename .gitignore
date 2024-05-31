@@ -3,3 +3,5 @@ train
 outputs
 lightning_logs
 dispatcher.log
+distrubuted_proving/tmp/
+dispatcher.log

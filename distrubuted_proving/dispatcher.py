@@ -9,7 +9,7 @@ import shutil
 import queue
 import logging
 from datetime import datetime
-from utils import split_onnx_model, get_model_splits_inputs
+from utils import split_onnx_model, get_model_splits_inputs, get_num_parameters
 import onnx
 import json
 import torch
@@ -62,22 +62,27 @@ class ZKPProver():
         if not os.path.exists(onnx_file):
             raise FileNotFoundError(f"The specified file '{onnx_file}' does not exist.")
             
-        split_models = split_onnx_model(onnx_file, num_splits=2)
+        split_models = split_onnx_model(onnx_file, num_splits=len(self.workers))
         split_inputs = get_model_splits_inputs(split_models, input_file)
-        
-        with ThreadPoolExecutor(max_workers=len(self.workers)) as executor:
-            futures = {executor.submit(self.send_grpc_request, worker, split_models[idx], split_inputs[idx]): worker for idx, worker in self.workers.items()}
-            
-            for future in as_completed(futures):
-                worker = futures[future]
-                try:
-                    response = future.result()
-                    print(f"Received response from worker {worker.address}: {response}")
-                except Exception as exc:
-                    print(f"Worker {worker.address} generated an exception: {exc}")
+        futures = []
+        channels = []
 
-    
-    def send_grpc_request(self, worker:Worker, split_model, split_input):
+        for idx, worker in self.workers.items():
+            channel = grpc.insecure_channel(worker.address)
+            future = self.send_grpc_request(channel, worker, split_models[idx], split_inputs[idx])
+            futures.append(future)
+            channels.append(channel)  # Keep a reference to the channel to prevent it from being closed
+
+        # Wait for all futures to complete
+        for future in futures:
+            future.result()  # This will block until the future is done
+
+        for channel in channels:
+            channel.close()  # Explicitly close the channel when done
+
+        print("All done")
+
+    def send_grpc_request(self, channel, worker: Worker, split_model, split_input):
         try:
             onnx.save(split_model, os.path.join(worker.directory, f'model.onnx'))
             data_tensor = torch.tensor(split_input)
@@ -85,74 +90,37 @@ class ZKPProver():
             data_json = dict(input_data=[data_array])
             json.dump(data_json, open(os.path.join(worker.directory, f'input.json'), 'w'))
 
-            with grpc.insecure_channel(worker.address) as channel:
-                stub = pb2_grpc.WorkerStub(channel)
-                response = stub.ComputeProof(pb2.ProofInfo(model_path=worker.directory, data_path=True))
-                return response
+            stub = pb2_grpc.WorkerStub(channel)
+            future = stub.ComputeProof.future(pb2.ProofInfo(model_path=worker.directory, data_path=True))
+            # Optionally handle the response in a callback if needed
+            # future.add_done_callback(lambda response: print(f"Received response from worker {worker.address}: {response.result()}"))
+            return future
+
         except Exception as e:
             print(f"Error occurred while sending gRPC request to worker {worker.address}: {e}")
-   
-    # def generate_proof(self, onnx_file, input_file):
-    #     if not os.path.exists(onnx_file):
-    #         raise FileNotFoundError(f"The specified file '{onnx_file}' does not exist.")
-            
-    #     split_models = split_onnx_model(onnx_file, num_splits=2)
-    #     split_inputs = get_model_splits_inputs(split_models, input_file)
-        
-    #     for idx, split in enumerate(split_models):
-    #         #save_model_split
-    #         worker:Worker = self.workers[idx]
-    #         onnx.save(split, os.path.join(worker.directory, f'model.onnx'))
-    #         data_tensor = torch.tensor(split_inputs[idx])
+    
+    # def send_grpc_request(self, worker:Worker, split_model, split_input):
+    #     try:
+    #         onnx.save(split_model, os.path.join(worker.directory, f'model.onnx'))
+    #         data_tensor = torch.tensor(split_input)
     #         data_array = data_tensor.detach().numpy().reshape([-1]).tolist()
     #         data_json = dict(input_data=[data_array])
     #         json.dump(data_json, open(os.path.join(worker.directory, f'input.json'), 'w'))
-        
-    #         # Execute gRPC requests concurrently
-    #     with ThreadPoolExecutor(max_workers=len(self.workers)) as executor:
-    #         futures = {executor.submit(self.send_grpc_request, worker): worker for worker in self.workers}
-            
-    #         for future in as_completed(futures):
-    #             worker = futures[future]
-    #             try:
-    #                 response = future.result()
-    #                 print(f"Received response from worker {worker.address}: {response}")
-    #             except Exception as exc:
-    #                 print(f"Worker {worker.address} generated an exception: {exc}")
 
-
-    # def send_grpc_request(self, worker):
-    #     with grpc.insecure_channel(worker.address) as channel:
-    #         stub = pb2_grpc.WorkerStub(channel)
-    #         response = stub.ComputeProof(pb2.ProofInfo(model_path=worker.model_path, data_path=worker.data_path))
-    #         return response
-
-
-
-
-    # def Dispatch(self):
-    #     # Here goes the logic to dispatch tasks to workers
-    #     print("Received task:", request)
-    #     try:
-    #         worker_address = self.worker_queue.get(timeout=5)  # Timeout after 5 seconds
-    #     except queue.Empty:
-    #         print("No available workers.")
-    #         return pb2.Task(id="", data="No available workers.")
-        
-    #     # Forward task to the worker
-    #     with grpc.insecure_channel(worker_address) as channel:
-    #         stub = pb2_grpc.WorkerStub(channel)
-    #         response = stub.ProcessTask(request)
-    #         print("Received response from worker:", response)
-    #         return response
-
-
+    #         with grpc.insecure_channel(worker.address) as channel:
+    #             stub = pb2_grpc.WorkerStub(channel)
+    #             response = stub.ComputeProof(pb2.ProofInfo(model_path=worker.directory, data_path=True))
+    #             return response
+    #     except Exception as e:
+    #         print(f"Error occurred while sending gRPC request to worker {worker.address}: {e}")
+   
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(config: DictConfig):
-    prover = ZKPProver(config=config)
     print(config.model.onnx_file)
     print(config.model.input_file)
+    print(get_num_parameters(config.model.onnx_file))
+    prover = ZKPProver(config=config)
     proof = prover.generate_proof(config.model.onnx_file, config.model.input_file)
 
 

@@ -7,7 +7,7 @@ defaults:
   - override hydra/hydra_logging: disabled  
 
 
-worker_addresses: ["localhost:50052"]
+worker_addresses: ["localhost:50052"] # ["localhost:50052","localhost:50053"]
 working_dir: distrubuted_proving/tmp
 hydra:
   run:
