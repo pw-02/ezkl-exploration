@@ -79,8 +79,10 @@ class ZKPProver():
 
         for channel in channels:
             channel.close()  # Explicitly close the channel when done
-
-        print("All done")
+      
+        print("All done")  
+        while True:
+            time.sleep(10)
 
     def send_grpc_request(self, channel, worker: Worker, split_model, split_input):
         try:
