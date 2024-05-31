@@ -114,16 +114,23 @@ class WorkerServicer(pb2_grpc.WorkerServicer):
     def ComputeProof(self, request, context):
         logging.info("Received 'Compute Proof' task")
 
-        prover = EZKLProver(request.model_path)
+         # Define a function to compute the proof
+        def compute_proof():
+            prover = EZKLProver(request.model_path)
+            prover.run_end_to_end_proof()
+            logging.info("Proof computed and verified")
 
-        prover.run_end_to_end_proof()
-        #time.sleep(10)
-        logging.info("Proof computed and verified. Returning response")
+            # Once the proof is computed, update the response
+            result = {'message': 'Proof computed and verified'}
+            context.set_details(pb2.Message(**result))
 
-        result = {'message': 'Proof computed and verified'}
-        # Return response
-        return pb2.Message(**result)
-    
+        # Start a new thread to compute the proof
+        proof_thread = threading.Thread(target=compute_proof)
+        proof_thread.start()
+
+        # Return the initial response immediately
+        return pb2.Message(message="Proof computation started")
+
     
     def Ping(self, request, context): 
         logging.info("Received Ping Request from %s", request.message)
