@@ -127,17 +127,23 @@ class WorkerServicer(pb2_grpc.WorkerServicer):
 
 
 def run_worker(port):
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
-    pb2_grpc.add_WorkerServicer_to_server(WorkerServicer(), server)
-    server.add_insecure_port('[::]:' + str(port))
-    server.start()
-    logging.info("Worker started...")
-    # # Register with dispatcher
-    # channel = grpc.insecure_channel("localhost:50051")
-    # stub = pb2_grpc.DispatcherStub(channel)
-    # response = stub.RegisterWorker(pb2.WorkerAddress(address="localhost:50052"))  # Change the address as needed
-    # print("Registration response:", response)
-    server.wait_for_termination()
+    try:
+        server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
+        pb2_grpc.add_WorkerServicer_to_server(WorkerServicer(), server)
+        server.add_insecure_port('[::]:' + str(port))
+        server.start()
+        logging.info("Worker started...")
+        # # Register with dispatcher
+        # channel = grpc.insecure_channel("localhost:50051")
+        # stub = pb2_grpc.DispatcherStub(channel)
+        # response = stub.RegisterWorker(pb2.WorkerAddress(address="localhost:50052"))  # Change the address as needed
+        # print("Registration response:", response)
+        server.wait_for_termination()
+    except KeyboardInterrupt:
+        logging.info("Server stopped due to keyboard interrupt")
+        server.stop(0)
+    except Exception as e:
+        logging.exception(f"Error in serve(): {e}")
 
 
 if __name__ == '__main__':
