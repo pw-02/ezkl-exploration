@@ -121,9 +121,9 @@ class WorkerServicer(pb2_grpc.WorkerServicer):
             prover.run_end_to_end_proof()
             logging.info("Proof computed and verified")
 
-            # Once the proof is computed, update the response
-            result = {'message': 'Proof computed and verified'}
-            context.set_details(pb2.Message(**result))
+            # # Once the proof is computed, update the response
+            # result = {'message': 'Proof computed and verified'}
+            # context.set_details(pb2.Message(**result))
 
         # Start a new thread to compute the proof
         proof_thread = threading.Thread(target=compute_proof)

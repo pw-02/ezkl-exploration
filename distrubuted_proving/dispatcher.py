@@ -66,7 +66,7 @@ class ZKPProver():
         split_inputs = get_model_splits_inputs(split_models, input_file)
         futures = []
         channels = []
-
+        
         for idx, worker in self.workers.items():
             channel = grpc.insecure_channel(worker.address)
             future = self.send_grpc_request(channel, worker, split_models[idx], split_inputs[idx])
@@ -80,9 +80,7 @@ class ZKPProver():
         for channel in channels:
             channel.close()  # Explicitly close the channel when done
       
-        print("All done")  
-        while True:
-            time.sleep(10)
+        print("All done") 
 
     def send_grpc_request(self, channel, worker: Worker, split_model, split_input):
         try:
