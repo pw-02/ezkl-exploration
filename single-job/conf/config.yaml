@@ -1,7 +1,7 @@
 
 defaults:
   - _self_
-  - model: mnist_classifier #mnist_classifier,little_transformer #nano_gpt
+  - model: little_transformer #mnist_classifier,little_transformer #nano_gpt
   - override hydra/hydra_logging: disabled  
   - override hydra/job_logging: disabled
 

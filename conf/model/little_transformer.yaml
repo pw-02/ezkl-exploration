@@ -1,0 +1,2 @@
+onnx_file: eexamples/onnx/little_transformer/network.onnx
+input_file: examples/onnx/little_transformer/input.json

@@ -1,0 +1,2 @@
+onnx_file: eexamples/onnx/mnist_classifier/network.onnx
+input_file: examples/onnx/mnist_classifier/input.json

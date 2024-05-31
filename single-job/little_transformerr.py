@@ -164,7 +164,7 @@ def count_parameters(model):
 def get_model(seq_len=6,block_size=64, max_epochs=1, max_value=10, num_layers=2, embed_dim=128, n_head=4, ff_dim=32):
     model = LittleTransformer(seq_len, max_value, num_layers, embed_dim, n_head, ff_dim)
     trainer = pl.Trainer(enable_progress_bar=True, max_epochs=max_epochs)
-    data = AdditionDataModule(block_size=block_size)
+    data = AdditionDataModule()
     trainer.fit(model, data)
     shape = [1, 6]
     x = torch.zeros(shape, dtype=torch.long)

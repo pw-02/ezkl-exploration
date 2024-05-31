@@ -61,7 +61,7 @@ def main(config: DictConfig):
             max_value=config.model.max_value,
             num_layers=config.model.num_layers,
             embed_dim=config.model.embed_dim,
-            num_heads=config.model.n_head,
+            n_head=config.model.n_head,
             ff_dim=config.model.ff_dim
         )
     elif config.model.name == 'mnist_classifier':
