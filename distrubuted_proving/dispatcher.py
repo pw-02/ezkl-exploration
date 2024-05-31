@@ -151,6 +151,8 @@ class ZKPProver():
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(config: DictConfig):
     prover = ZKPProver(config=config)
+    print(config.model.onnx_file)
+    print(config.model.input_file)
     proof = prover.generate_proof(config.model.onnx_file, config.model.input_file)
 
 
