@@ -76,6 +76,7 @@ class EZKLProver():
             print(f'Number Model Parmeters: {num_parameters}')
             self.exp_logger.log_value('num_model_params', num_parameters)
             self.exp_logger.log_env_resources()
+            self.exp_logger.log_value('name', self.model_path)
 
         #   with ResourceMonitor() as monitor:
             for func_name, func in [
