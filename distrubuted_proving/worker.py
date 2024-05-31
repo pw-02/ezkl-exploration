@@ -70,6 +70,7 @@ class EZKLProver():
     
 
     def run_end_to_end_proof(self):
+        
         #   with ResourceMonitor() as monitor:
             for func_name, func in [
                 ('gen_settings', self.gen_settings),

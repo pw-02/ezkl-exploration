@@ -33,11 +33,15 @@ def load_json_input(input_path):
     with open(input_path, 'r') as f:
         input_data = json.load(f)
     # Convert to NumPy array and reshape to (1, 3, 224, 224)
-    input_data = np.array(input_data['input_data'], dtype=np.float32)  # Ensure the data type is float32
-    if input_data.size != 3 * 224 * 224:
-        raise ValueError(f"Input data must be of size {3 * 224 * 224}, but got {input_data.size}")
-    input_data = input_data.reshape(1, 3, 224, 224)
-    return input_data
+    if 'mobilenet' in input_path:
+        input_data = np.array(input_data['input_data'], dtype=np.float32)  # Ensure the data type is float32
+        if input_data.size != 3 * 224 * 224:
+            raise ValueError(f"Input data must be of size {3 * 224 * 224}, but got {input_data.size}")
+        input_data = input_data.reshape(1, 3, 224, 224)
+        return input_data
+    elif 'mnist' in input_path:
+        input_data = np.array(input_data['input_data'], dtype=np.float32)  # Ensure the data type is floa
+        return input_data
 
 def run_inference(model_path, input_data):
     # Initialize ONNX Runtime session
@@ -145,14 +149,17 @@ def run_inference_on_split_model(model_parts: List[onnx.ModelProto], input_path:
 def main():
     print("ONNX version:", onnx.__version__)
 
-    original_model_path = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
-    original_input_path = 'examples/onnx/mobilenet/input.json'   
+    # original_model_path = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
+    # original_input_path = 'examples/onnx/mobilenet/input.json'   
+
+    original_model_path = 'examples/onnx/mnist_gan/network.onnx'
+    original_input_path = 'examples/onnx/mnist_gan/input.json'   
 
     split_models = split_onnx_model(original_model_path, num_splits=2)
 
     run_inference_on_split_model(split_models, original_input_path)
     
-    #run_inference_on_full_model(original_model_path,original_input_path)
+    run_inference_on_full_model(original_model_path,original_input_path)
     # run_inference_on_full_model()
 
 
