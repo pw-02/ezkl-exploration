@@ -144,14 +144,16 @@ class ResourceMonitor:
         self.stop_event.set()
         self.monitor_thread.join()
         
-def print_func_exec_info(func_name: str, duration, monitor: ResourceMonitor):
-        resource_data = monitor.resource_data
-        mean_cpu = resource_data["cpu_util"]["mean"]
-        max_cpu = resource_data["cpu_util"]["max"]
-        mean_cpu_mem_gb = resource_data["cpu_mem_gb"]["mean"]
-        max_cpu_mem_gb = resource_data["cpu_mem_gb"]["max"]
-        print(f'Step: {func_name}\t Duration: {duration:.4f}s\t CPU(mean): {mean_cpu:.2f}%\t '
-              f'CPU(max): {max_cpu:.2f}%\t Mem(mean): {mean_cpu_mem_gb:.2f}GB\t Mem(max): {max_cpu_mem_gb:.2f}GB')
+def print_func_exec_info(func_name: str, duration, monitor: ResourceMonitor = None):
+        # resource_data = monitor.resource_data
+        # mean_cpu = resource_data["cpu_util"]["mean"]
+        # max_cpu = resource_data["cpu_util"]["max"]
+        # mean_cpu_mem_gb = resource_data["cpu_mem_gb"]["mean"]
+        # max_cpu_mem_gb = resource_data["cpu_mem_gb"]["max"]
+        # print(f'Step: {func_name}\t Duration: {duration:.4f}s\t CPU(mean): {mean_cpu:.2f}%\t '
+        #       f'CPU(max): {max_cpu:.2f}%\t Mem(mean): {mean_cpu_mem_gb:.2f}GB\t Mem(max): {max_cpu_mem_gb:.2f}GB')
+        print(f'| Step: {func_name} | Duration: {duration:.4f}s')
+        
 # Example usage
 if __name__ == "__main__":
     log_dir = "test"

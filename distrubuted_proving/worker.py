@@ -11,7 +11,7 @@ import ezkl
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 import os
-from log_utils import ExperimentLogger, time_function
+from log_utils import ExperimentLogger, time_function, print_func_exec_info
 
 
 class EZKLProver():
@@ -82,7 +82,7 @@ class EZKLProver():
                 ('verify', self.verify)
                 ]:
                     execution_time = func()
-                    # print_func_exec_info(func_name, execution_time, monitor)
+                    print_func_exec_info(func_name, execution_time)
                     self.exp_logger.log_value(f'{func_name}(s)', execution_time)
             
                   # Log resource data
@@ -124,15 +124,10 @@ class WorkerServicer(pb2_grpc.WorkerServicer):
     
 
 
-
-
-
-    
-
-def run_worker():
+def run_worker(port):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
     pb2_grpc.add_WorkerServicer_to_server(WorkerServicer(), server)
-    server.add_insecure_port('[::]:50052')
+    server.add_insecure_port('[::]:' + str(port))
     server.start()
     logging.info("Worker started...")
     # # Register with dispatcher
@@ -144,4 +139,9 @@ def run_worker():
 
 
 if __name__ == '__main__':
-    run_worker()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run gRPC worker")
+    parser.add_argument("--port", type=int, default=50052, help="Port number for the worker to listen on")
+    args = parser.parse_args()
+    run_worker(args.port)
