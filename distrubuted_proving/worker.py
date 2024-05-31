@@ -12,6 +12,7 @@ import ezkl
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 import os
 from log_utils import ExperimentLogger, time_function, print_func_exec_info
+from utils import get_num_parameters
 
 
 class EZKLProver():
@@ -71,6 +72,11 @@ class EZKLProver():
 
     def run_end_to_end_proof(self):
         
+            num_parameters =get_num_parameters(self.model_path)
+            print(f'Number Model Parmeters: {num_parameters}')
+            self.exp_logger.log_value('num_model_params', num_parameters)
+            self.exp_logger.log_env_resources()
+
         #   with ResourceMonitor() as monitor:
             for func_name, func in [
                 ('gen_settings', self.gen_settings),
