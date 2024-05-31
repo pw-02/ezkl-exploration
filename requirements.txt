@@ -6,3 +6,5 @@ lightning
 hydra-core
 psutil
 pynvml
+grpcio
+grpcio-tools

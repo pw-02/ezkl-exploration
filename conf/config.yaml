@@ -1,0 +1,21 @@
+
+defaults:
+  - _self_
+  - model: mobilenet
+
+  # - override hydra/job_logging: disabled
+  - override hydra/hydra_logging: disabled  
+
+
+worker_addresses: ["localhost:50052"]
+working_dir: distrubuted_proving/tmp
+hydra:
+  run:
+    dir: .  # Current directory or a specific directory where Ray Tune expects to find it
+  sweep:
+    dir: .  # Same as above
+  output_subdir: null
+  job_logging:
+    level: DISABLE  # Disable job-specific logging
+  hydra_logging:
+    level: DISABLE  # Disable Hydra-specific logging
