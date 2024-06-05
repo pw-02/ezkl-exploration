@@ -6,3 +6,4 @@ psutil
 pynvml
 grpcio
 grpcio-tools
+pynvml
