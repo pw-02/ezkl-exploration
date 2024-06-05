@@ -62,8 +62,9 @@ class ZKPProver():
     def generate_proof(self, onnx_file, input_file):
         if not os.path.exists(onnx_file):
             raise FileNotFoundError(f"The specified file '{onnx_file}' does not exist.")
-            
-        split_models = split_onnx_model(onnx_file, num_splits=2)
+        
+        
+        split_models = split_onnx_model(onnx_file, num_splits=len(self.workers))
         split_inputs = get_model_splits_inputs(split_models, input_file)
         futures = []
         channels = []

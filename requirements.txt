@@ -1,5 +1,5 @@
 ezkl-gpu==10.2.9
-onnxruntime==1.17.1
+onnxruntime==1.18.0
 onnx
 hydra-core
 psutil

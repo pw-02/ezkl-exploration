@@ -14,7 +14,6 @@ def get_num_parameters(model_path=None, model = None):
 
     # Initialize the parameter counter
     num_parameters = 0
-    
     # Iterate through all the initializers (weights, biases, etc.)
     for initializer in model.graph.initializer:
         # Get the shape of the parameter
@@ -67,7 +66,6 @@ def load_json_input(input_path):
         if input_data is None:
             raise ValueError(f"Input data is None")
 
-        
         return input_data
 
 def run_inference(model_path, input_data):
@@ -108,6 +106,9 @@ def split_onnx_model(onnx_model_path, num_splits =2):
 
     model = onnx.load(onnx_model_path)
     model = shape_inference.infer_shapes(model)
+
+    if num_splits <=1:
+        return [model]
 
     # Get the total number of layers in the model
     total_nodes = len(model.graph.node)
