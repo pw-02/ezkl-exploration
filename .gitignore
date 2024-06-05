@@ -1,9 +1,4 @@
-test
-train
 outputs
 lightning_logs
 dispatcher.log
 distrubuted_proving/tmp/
-dispatcher.log
-dispatcher.log
-dispatcher.log

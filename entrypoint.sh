@@ -8,7 +8,7 @@
 
 # Start the grpc service
 
-git clone https://github.com/pw-02/ezkl-exploration.git
+git clone https://github.com/pw-02/ezkl-exploration.git -b v2
 cd ezkl-exploration
 # Start an interactive shell
 /bin/bash

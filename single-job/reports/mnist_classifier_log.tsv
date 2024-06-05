@@ -1,2 +1,0 @@
-name	num_model_params	memory_available_gb	logical_cpu_count	gen_settings(s)	calibrate_settings(s)	compile_circuit(s)	get_srs(s)	gen_witness(s)	setup(s)	prove(s)	verify(s)	mean_cpu	max_cpu	mean_cpu_mem_gb	max_cpu_mem_gb
-mnist_classifier	44426	7.603870391845703	20	0.3504807949066162	25.21044135093689	0.09190678596496582	0.05753135681152344	0.5205998420715332	92.83065676689148	75.07287406921387	0.07812356948852539	23.3125	30.6	3.549	4.5996
