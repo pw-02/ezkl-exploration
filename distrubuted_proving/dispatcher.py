@@ -62,14 +62,14 @@ class ZKPProver():
         if not os.path.exists(onnx_file):
             raise FileNotFoundError(f"The specified file '{onnx_file}' does not exist.")
             
-        split_models = split_onnx_model(onnx_file, num_splits=len(self.workers))
+        split_models = split_onnx_model(onnx_file, num_splits=2)
         split_inputs = get_model_splits_inputs(split_models, input_file)
         futures = []
         channels = []
         
         for idx, worker in self.workers.items():
             channel = grpc.insecure_channel(worker.address)
-            future = self.send_grpc_request(channel, worker, split_models[idx], split_inputs[idx])
+            future = self.send_grpc_request(channel, worker, split_models[1], split_inputs[1])
             futures.append(future)
             channels.append(channel)  # Keep a reference to the channel to prevent it from being closed
 
