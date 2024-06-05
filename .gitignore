@@ -2,3 +2,4 @@ outputs
 lightning_logs
 dispatcher.log
 distrubuted_proving/tmp/
+data/

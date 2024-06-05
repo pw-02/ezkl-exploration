@@ -13,7 +13,9 @@ logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 import os
 from log_utils import ExperimentLogger, time_function, print_func_exec_info
 from utils import get_num_parameters
-
+import datetime
+import onnx
+from utils import split_onnx_model, get_model_splits_inputs, get_num_parameters
 
 class EZKLProver():
     def __init__(self, worker_dir:str):
@@ -117,7 +119,29 @@ class WorkerServicer(pb2_grpc.WorkerServicer):
 
          # Define a function to compute the proof
         def compute_proof():
-            prover = EZKLProver(request.model_path)
+            import numpy as np
+            import json
+
+            # Format the date and time as a string
+            directory_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Specify the path for the new directory
+            directory_path = os.path.join("data", directory_name)
+            # Create the directory
+            os.makedirs(directory_path, exist_ok = True)
+
+            onnx_file = request.model_path
+            input_file = request.data_path
+            split_models = split_onnx_model(onnx_file, num_splits=1)
+            split_inputs = get_model_splits_inputs(split_models, input_file)
+
+            onnx.save(split_models[0], os.path.join(directory_path, f'model.onnx'))
+            data_array = np.array(split_inputs[0])
+            reshaped_array = data_array.reshape(-1)
+            data_list = reshaped_array.tolist()
+            data_json = dict(input_data=[data_list])
+            json.dump(data_json, open(os.path.join(directory_path, f'input.json'), 'w'))
+
+            prover = EZKLProver(directory_path)
             prover.run_end_to_end_proof()
             logging.info("Proof computed and verified")
 

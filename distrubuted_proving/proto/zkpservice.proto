@@ -15,7 +15,7 @@ service Worker {
 
 message ProofInfo{
  string model_path = 1;
- bool data_path = 2;
+ string data_path = 2;
 }
 
 

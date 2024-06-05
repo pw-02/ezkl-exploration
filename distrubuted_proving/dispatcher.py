@@ -71,7 +71,7 @@ class ZKPProver():
         
         for idx, worker in self.workers.items():
             channel = grpc.insecure_channel(worker.address)
-            future = self.send_grpc_request(channel, worker, split_models[idx], split_inputs[idx])
+            future = self.send_grpc_request(channel, worker, split_models[idx], split_inputs[idx], onnx_file=onnx_file, data_path=input_file)
             futures.append(future)
             channels.append(channel)  # Keep a reference to the channel to prevent it from being closed
 
@@ -84,19 +84,19 @@ class ZKPProver():
       
         print("All done") 
 
-    def send_grpc_request(self, channel, worker: Worker, split_model, split_input):
+    def send_grpc_request(self, channel, worker: Worker, split_model, split_input, onnx_file, data_path):
         try:
-            onnx.save(split_model, os.path.join(worker.directory, f'model.onnx'))
-            data_array = np.array(split_input)
-            reshaped_array = data_array.reshape(-1)
-            data_list = reshaped_array.tolist()
-            # data_tensor = torch.tensor(split_input)
-            # data_array = data_tensor.detach().numpy().reshape([-1]).tolist()
-            data_json = dict(input_data=[data_list])
-            json.dump(data_json, open(os.path.join(worker.directory, f'input.json'), 'w'))
+            # onnx.save(split_model, os.path.join(worker.directory, f'model.onnx'))
+            # data_array = np.array(split_input)
+            # reshaped_array = data_array.reshape(-1)
+            # data_list = reshaped_array.tolist()
+            # # data_tensor = torch.tensor(split_input)
+            # # data_array = data_tensor.detach().numpy().reshape([-1]).tolist()
+            # data_json = dict(input_data=[data_list])
+            # json.dump(data_json, open(os.path.join(worker.directory, f'input.json'), 'w'))
 
             stub = pb2_grpc.WorkerStub(channel)
-            future = stub.ComputeProof.future(pb2.ProofInfo(model_path=worker.directory, data_path=True))
+            future = stub.ComputeProof.future(pb2.ProofInfo(model_path=onnx_file, data_path=data_path))
             # Optionally handle the response in a callback if needed
             # future.add_done_callback(lambda response: print(f"Received response from worker {worker.address}: {response.result()}"))
             return future
