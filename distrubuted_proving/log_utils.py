@@ -5,7 +5,6 @@ from collections import defaultdict
 from typing import Dict, Any
 import numpy as np
 import psutil
-import torch.cuda
 import csv
 import os
 from functools import wraps

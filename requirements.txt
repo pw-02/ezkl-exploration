@@ -1,10 +1,8 @@
-ezkl-gpu
+ezkl-gpu==10.2.9
 onnx
-torch
-torchvision
-lightning
 hydra-core
 psutil
 pynvml
 grpcio
 grpcio-tools
+psutil

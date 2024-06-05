@@ -4,10 +4,7 @@ import numpy as np
 import json
 from onnx import helper
 from onnx import shape_inference, ModelProto
-import torch
 from typing import List
-import ezkl
-import time
 
 
 def get_num_parameters(model_path=None, model = None):
