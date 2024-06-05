@@ -24,9 +24,7 @@
       python distrubuted_proving/worker.py --port 50052
       ```
 
-      to start a worker service on port 50052. You can change the port number if necessary. If successful, a 'Worker started' message will appear in the terminal like below:
-
-      ![Worker started](C:\Users\pw\AppData\Roaming\Typora\typora-user-images\image-20240604222557810.png)
+      to start a worker service on port 50052. You can change the port number if necessary. If successful, a 'Worker started' message will appear in the terminal
 
    (Optional) An arbitrary number of workers can be launched by repeating the steps above. Workers can be run from any server/machine available in the cluster.
 
@@ -46,7 +44,7 @@
 
       to view the config file. You do not need to make any changes to this file as the values can be set via the command line when launching a job, but there are two key settings to be aware of:
 
-      - **model** - This is the name of the model to generate a proof for. The default is `mnist_classifier`. Other options include `mobilenet`, `mnist_gan`, `mnist_classifier`, `little_transformer`. The directory `/ezkl-exploration/conf/model` contains a .yaml file for each of these models and within it is a file path pointing to the model ONNX file and an example input. You should not need to modify these.
+      - **model** - This is the name of the model to generate a proof for. The default is `mnist_classifier`. Other options include `mobilenet`, `mnist_gan`, `little_transformer`. The directory `/ezkl-exploration/conf/model` contains a .yaml file for each of these models and within it is a file path pointing to the model ONNX file and an example input. You should not need to modify these.
       - **worker_addresses** - This is a list of worker addresses which the dispatcher will submit proving tasks to. By default, we assume that a single worker is running on `localhost:50052`. If the worker is running on a different machine/port, add the correct `hostname:port`. If the worker is running on the same machine but inside a different Docker container, get the hostname of that container (step 2.2) and set the worker address accordingly. For example, if the output of step 2.2 is `172.17.0.2` and the worker is running on port `50052`, then the address will be `172.17.0.2:50052`.
       - If there are multiple workers, add all their addresses to the list.
 
