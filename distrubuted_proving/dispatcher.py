@@ -13,6 +13,7 @@ from utils import split_onnx_model, get_model_splits_inputs, get_num_parameters
 import onnx
 import json
 import numpy as np
+from onnx import shape_inference, ModelProto
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
@@ -63,7 +64,6 @@ class ZKPProver():
         if not os.path.exists(onnx_file):
             raise FileNotFoundError(f"The specified file '{onnx_file}' does not exist.")
         
-        
         split_models = split_onnx_model(onnx_file, num_splits=len(self.workers))
         split_inputs = get_model_splits_inputs(split_models, input_file)
         futures = []
@@ -84,41 +84,21 @@ class ZKPProver():
       
         print("All done") 
 
-    def send_grpc_request(self, channel, worker: Worker, split_model, split_input, onnx_file, data_path):
+    def send_grpc_request(self, channel, worker: Worker, onnx_model:ModelProto, model_input, onnx_file, data_path):
         try:
-            # onnx.save(split_model, os.path.join(worker.directory, f'model.onnx'))
-            # data_array = np.array(split_input)
-            # reshaped_array = data_array.reshape(-1)
-            # data_list = reshaped_array.tolist()
-            # # data_tensor = torch.tensor(split_input)
-            # # data_array = data_tensor.detach().numpy().reshape([-1]).tolist()
-            # data_json = dict(input_data=[data_list])
-            # json.dump(data_json, open(os.path.join(worker.directory, f'input.json'), 'w'))
-
+            
+            model_bytes = onnx_model.SerializeToString()
+            data_array = np.array(model_input)
+            reshaped_array = data_array.reshape(-1)
+            data_list = reshaped_array.tolist()
+            model_input = dict(input_data=[data_list])
             stub = pb2_grpc.WorkerStub(channel)
-            future = stub.ComputeProof.future(pb2.ProofInfo(model_path=onnx_file, data_path=data_path))
-            # Optionally handle the response in a callback if needed
-            # future.add_done_callback(lambda response: print(f"Received response from worker {worker.address}: {response.result()}"))
+            future = stub.ComputeProof.future(pb2.ProofData(model_bytes=model_bytes, model_input=json.dumps(model_input)))
             return future
 
         except Exception as e:
             print(f"Error occurred while sending gRPC request to worker {worker.address}: {e}")
     
-    # def send_grpc_request(self, worker:Worker, split_model, split_input):
-    #     try:
-    #         onnx.save(split_model, os.path.join(worker.directory, f'model.onnx'))
-    #         data_tensor = torch.tensor(split_input)
-    #         data_array = data_tensor.detach().numpy().reshape([-1]).tolist()
-    #         data_json = dict(input_data=[data_array])
-    #         json.dump(data_json, open(os.path.join(worker.directory, f'input.json'), 'w'))
-
-    #         with grpc.insecure_channel(worker.address) as channel:
-    #             stub = pb2_grpc.WorkerStub(channel)
-    #             response = stub.ComputeProof(pb2.ProofInfo(model_path=worker.directory, data_path=True))
-    #             return response
-    #     except Exception as e:
-    #         print(f"Error occurred while sending gRPC request to worker {worker.address}: {e}")
-   
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(config: DictConfig):

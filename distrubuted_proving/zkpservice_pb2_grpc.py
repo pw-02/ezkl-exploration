@@ -5,7 +5,7 @@ import warnings
 
 import zkpservice_pb2 as zkpservice__pb2
 
-GRPC_GENERATED_VERSION = '1.64.1'
+GRPC_GENERATED_VERSION = '1.64.0'
 GRPC_VERSION = grpc.__version__
 EXPECTED_ERROR_RELEASE = '1.65.0'
 SCHEDULED_RELEASE_DATE = 'June 25, 2024'
@@ -56,7 +56,7 @@ class WorkerStub(object):
                 _registered_method=True)
         self.ComputeProof = channel.unary_unary(
                 '/Worker/ComputeProof',
-                request_serializer=zkpservice__pb2.ProofInfo.SerializeToString,
+                request_serializer=zkpservice__pb2.ProofData.SerializeToString,
                 response_deserializer=zkpservice__pb2.Message.FromString,
                 _registered_method=True)
 
@@ -102,7 +102,7 @@ def add_WorkerServicer_to_server(servicer, server):
             ),
             'ComputeProof': grpc.unary_unary_rpc_method_handler(
                     servicer.ComputeProof,
-                    request_deserializer=zkpservice__pb2.ProofInfo.FromString,
+                    request_deserializer=zkpservice__pb2.ProofData.FromString,
                     response_serializer=zkpservice__pb2.Message.SerializeToString,
             ),
     }
@@ -190,7 +190,7 @@ class Worker(object):
             request,
             target,
             '/Worker/ComputeProof',
-            zkpservice__pb2.ProofInfo.SerializeToString,
+            zkpservice__pb2.ProofData.SerializeToString,
             zkpservice__pb2.Message.FromString,
             options,
             channel_credentials,

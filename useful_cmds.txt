@@ -18,7 +18,8 @@ docker run --gpus all -it --rm --memory=10gb --cpus=20 pwatters991/ezkl-workload
 
 pip install ezkl-gpu==10.2.9
 
-python -m grpc_tools.protoc --proto_path=. ./zkpservice.proto --python_out=. --grpc_python_out=.
+python -m grpc_tools.protoc --proto_path=. ./zkpservice.proto --python_out=/. --grpc_python_out=.
+python -m grpc_tools.protoc --proto_path=. zkpservice.proto --python_out=.. --grpc_python_out=..
 
 export PYTHONPATH="/home/pwatters/projects/ezkl-exploration/:$PYTHONPATH"
 

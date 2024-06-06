@@ -5,7 +5,7 @@ import json
 from onnx import helper
 from onnx import shape_inference, ModelProto
 from typing import List
-
+from onnx import ModelProto
 
 def get_num_parameters(model_path=None, model = None):
     # Load the ONNX model

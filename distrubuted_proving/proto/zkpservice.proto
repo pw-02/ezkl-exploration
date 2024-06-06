@@ -10,14 +10,13 @@ service Dispatcher {
 service Worker {
     rpc ProcessTask(Task) returns (Task) {}
     rpc Ping(Message) returns (MessageResponse);
-    rpc ComputeProof(ProofInfo) returns (Message) {}
+    rpc ComputeProof(ProofData) returns (Message) {}
     }
 
-message ProofInfo{
- string model_path = 1;
- string data_path = 2;
+message ProofData{
+bytes model_bytes = 1;
+string model_input = 2;
 }
-
 
 message Message{
  string message = 1;
