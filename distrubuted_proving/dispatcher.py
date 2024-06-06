@@ -59,7 +59,9 @@ class ZKPProver():
 
 
     def generate_proof(self, onnx_file, input_file):
-        split_models = split_onnx_model(onnx_file, num_splits=len(self.workers))
+        # split_models = split_onnx_model(onnx_file, num_splits=self.number_workers)
+        split_models = split_onnx_model(onnx_file, n_parts=2)
+
         split_inputs = get_model_splits_inputs(split_models, input_file)
         # Combine items into tuples
         model_data_splits = list(zip(split_models, split_inputs))
@@ -69,13 +71,14 @@ class ZKPProver():
         monitor_thread.start()  
 
         for idx, (model, model_input) in enumerate(model_data_splits):
-            worker:Worker = self.next_available_worker(idx)
-            worker.channel = grpc.insecure_channel(worker.address)
-            worker_response = self.send_grpc_request(worker, model, model_input)
-            if 'computation started' in worker_response:
-                logging.info(f"Started processing split {idx+1} on worker {worker.address}")
-                worker.current_split = idx
-                worker.is_free  = False 
+            if idx == 1:
+                worker:Worker = self.next_available_worker(idx)
+                worker.channel = grpc.insecure_channel(worker.address)
+                worker_response = self.send_grpc_request(worker, model, model_input)
+                if 'computation started' in worker_response:
+                    logging.info(f"Started processing split {idx+1} on worker {worker.address}")
+                    worker.current_split = idx
+                    worker.is_free  = False 
 
         logging.info("All splits have been dispatched.")
         # Wait for the monitoring thread to finish

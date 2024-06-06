@@ -6,6 +6,7 @@ from onnx import helper
 from onnx import shape_inference, ModelProto
 from typing import List
 from onnx import ModelProto
+from onnx_split import split_onnx
 
 def get_num_parameters(model_path=None, model = None):
     # Load the ONNX model
@@ -88,6 +89,14 @@ def run_inference_on_full_model(model_path, input_path):
     # Print results
     print("Inference results:", results)
 
+def split_onnx_model(onnx_model_path, n_parts):
+    onnx_model = onnx.load(onnx_model_path)
+    onnx_model = shape_inference.infer_shapes(onnx_model)
+    output = split_onnx(onnx_model, n_parts=n_parts, cut_points=None, verbose=0, stats=False, fLOG=None)
+    return output
+
+
+
 def get_model_splits_inputs(model_parts: List[onnx.ModelProto], input_path: str):
     # Load and preprocess the JSON input
     input_data = load_json_input(input_path)
@@ -98,11 +107,10 @@ def get_model_splits_inputs(model_parts: List[onnx.ModelProto], input_path: str)
         inputs.append(input_for_next_part)
         results = run_inference(model_part.SerializeToString(), input_for_next_part)
         input_for_next_part = results[0]  # Assuming the output is the first element of results
-
     return inputs
 
 
-def split_onnx_model(onnx_model_path, num_splits =2):
+def split_onnx_mode_oldl(onnx_model_path, num_splits =2):
 
     model = onnx.load(onnx_model_path)
     model = shape_inference.infer_shapes(model)
@@ -177,16 +185,19 @@ def run_inference_on_split_model(model_parts: List[onnx.ModelProto], input_path:
 def main():
     print("ONNX version:", onnx.__version__)
 
-    # original_model_path = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
-    # original_input_path = 'examples/onnx/mobilenet/input.json'   
+    original_model_path = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
+    original_input_path = 'examples/onnx/mobilenet/input.json'   
 
-    original_model_path = 'examples/onnx/mnist_gan/network.onnx'
-    original_input_path = 'examples/onnx/mnist_gan/input.json'
+    # original_model_path = 'examples/onnx/mnist_gan/network.onnx'
+    # original_input_path = 'examples/onnx/mnist_gan/input.json'
 
     # original_model_path = 'examples/onnx/little_transformer/network.onnx'
     # original_input_path = 'examples/onnx/little_transformer/input.json'   
 
-    split_models = split_onnx_model(original_model_path, num_splits=2)
+    split_models = test_split(original_model_path, n_parts=2)
+
+
+    # split_models = split_onnx_model(original_model_path, num_splits=2)
     run_inference_on_split_model(split_models, original_input_path)
     
     run_inference_on_full_model(original_model_path,original_input_path)
