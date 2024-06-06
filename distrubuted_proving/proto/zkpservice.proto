@@ -11,12 +11,22 @@ service Worker {
     rpc ProcessTask(Task) returns (Task) {}
     rpc Ping(Message) returns (MessageResponse);
     rpc ComputeProof(ProofData) returns (Message) {}
+    rpc GetWorkerStatus(Message) returns (WorkerStatusResponse) {}
+
     }
+
+message WorkerStatusResponse{
+ string message = 1;
+ bool isbusy = 2;
+}
+
 
 message ProofData{
 bytes model_bytes = 1;
 string model_input = 2;
 }
+
+
 
 message Message{
  string message = 1;

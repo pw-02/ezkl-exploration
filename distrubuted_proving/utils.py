@@ -91,11 +91,11 @@ def run_inference_on_full_model(model_path, input_path):
 def get_model_splits_inputs(model_parts: List[onnx.ModelProto], input_path: str):
     # Load and preprocess the JSON input
     input_data = load_json_input(input_path)
-    inputs = {}
+    inputs = []
     # Run inference sequentially on each part
     input_for_next_part = input_data
     for i, model_part in enumerate(model_parts):
-        inputs[i] = input_for_next_part
+        inputs.append(input_for_next_part)
         results = run_inference(model_part.SerializeToString(), input_for_next_part)
         input_for_next_part = results[0]  # Assuming the output is the first element of results
 

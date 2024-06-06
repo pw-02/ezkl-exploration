@@ -106,6 +106,9 @@ class EZKLProver():
             
 
 class WorkerServicer(pb2_grpc.WorkerServicer):
+    def __init__(self):
+        self.is_busy = False
+        self.status = 'awaiting work'
 
     def ProcessTask(self, request, context):
         logging.info("Received task: %s", request)
@@ -115,11 +118,21 @@ class WorkerServicer(pb2_grpc.WorkerServicer):
         # Return response
         return pb2.Task(id=request.id, data="Processed " + request.data)
     
+    def GetWorkerStatus(self, request, context):
+        if self.is_busy:
+            return pb2.WorkerStatusResponse(message="Proof still being computed", isbusy=self.is_busy)
+        else:
+            return pb2.WorkerStatusResponse(message="Proof computation finished", isbusy=self.is_busy)
+
+
+
     def ComputeProof(self, request, context):
         logging.info("Received 'Compute Proof' task")
 
          # Define a function to compute the proof
         def compute_proof():
+            self.is_busy = True
+
             import numpy as np
             import json
 
@@ -138,7 +151,7 @@ class WorkerServicer(pb2_grpc.WorkerServicer):
             prover = EZKLProver(directory_path)
             prover.run_end_to_end_proof()
             logging.info("Proof computed and verified")
-
+            self.is_busy = False
             # # Once the proof is computed, update the response
             # result = {'message': 'Proof computed and verified'}
             # context.set_details(pb2.Message(**result))
@@ -146,10 +159,10 @@ class WorkerServicer(pb2_grpc.WorkerServicer):
         # Start a new thread to compute the proof
         proof_thread = threading.Thread(target=compute_proof)
         proof_thread.start()
-
+        # compute_proof()
         # Return the initial response immediately
         return pb2.Message(message="Proof computation started")
-
+        #return pb2.Message(message="Proof computed successsfully")
 
     
     def Ping(self, request, context): 
