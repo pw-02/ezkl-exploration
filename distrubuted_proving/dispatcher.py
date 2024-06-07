@@ -87,7 +87,7 @@ class ZKPProver():
         monitor_thread.start()
 
         for idx, (model, model_input) in enumerate(model_data_splits):
-            if get_num_parameters(model=model) > 208067:
+            if get_num_parameters(model=model) > 208067 and idx > 1:
                 model_bytes = model.SerializeToString()
                 os.makedirs('tmp', exist_ok=True)
                 model_save_path = os.path.join('tmp', f'{idx}_mnist_gan_model.onnx')
