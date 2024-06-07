@@ -13,7 +13,7 @@ import threading
 import os
 import json
 import onnx
-from grpc import Channel 
+
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger("ZKPProver")
@@ -24,7 +24,7 @@ class Worker():
         self.id = id
         self.address = address
         self.is_free = True
-        self.channel:Channel = None
+        self.channel = None
         self.current_model_part: ModelPart = None
 
 class ModelPart():   
@@ -78,19 +78,12 @@ class ZKPProver():
 
         if not n_parts:
             n_parts = self.number_of_workers
-        
-        logging.info(f'Initial model parameter count: {get_num_parameters(model=onnx_file)}')
+
         split_models = split_onnx_model(onnx_file, n_parts=n_parts, max_parameters_threshold=208067)
-        logging.info(f'Total model parts after splitting: {len(split_models)}')
-        for idx, part_model in  enumerate(split_models):
-            logging.info(f'Part {idx+1} parameter Count: {get_num_parameters(model=part_model)}')
-
-        logging.info(f'Total model parameter count after splitting: {sum(get_num_parameters(model=part_model) for part_model in split_models)}')
-
         split_inputs = get_model_splits_inputs(split_models, input_file)
         model_data_splits = list(zip(split_models, split_inputs))
         # Start the monitoring thread
-        monitor_thread = threading.Thread(target=self.monitor_progress, args=(len(model_data_splits),))
+        monitor_thread = threading.Thread(target=self.monitor_progress, args=(n_parts,))
         monitor_thread.start()
 
         for idx, (model, model_input) in enumerate(model_data_splits):
@@ -142,7 +135,7 @@ class ZKPProver():
             for worker in self.workers:
                 if not worker.is_free:
                     # Check if the channel is already closed or in an error state
-                    if worker.channel is None:
+                    if worker.channel is None or worker.channel._state.code != grpc.ChannelConnectivity.CONNECTING:
                         worker.channel = grpc.insecure_channel(worker.address)
                     stub = pb2_grpc.WorkerStub(worker.channel)
                     try:
@@ -172,38 +165,10 @@ def main(config: DictConfig):
     
     print(f'model path: {config.model.onnx_file}')
     print(f'model input: {config.model.input_file}')
-    # print(f'# model parameters: {get_num_parameters(model_path=config.model.onnx_file)}')
+    print(f'# model parameters: {get_num_parameters(model_path=config.model.onnx_file)}')
     prover = ZKPProver(config=config)
     prover.generate_proof(config.model.onnx_file, config.model.input_file, config.num_model_parts)
 
 
 if __name__ == '__main__':
     main()
-
-
-
-   # def generate_proof(self, onnx_file, input_file):
-    #     # split_models = split_onnx_model(onnx_file, num_splits=self.number_workers)
-    #     split_models = split_onnx_model(onnx_file, n_parts=2)
-    #     split_inputs = get_model_splits_inputs(split_models, input_file)
-    #     model_data_splits = list(zip(split_models, split_inputs))
-        
-    #     monitor_thread = threading.Thread(target=self.monitor_progress)
-    #     monitor_thread.start()  
-
-    #     for idx, (model, model_input) in enumerate(model_data_splits):
-    #         self.model_parts.append(ModelPart(idx=idx))
-
-    #     for idx, (model, model_input) in enumerate(model_data_splits):
-    #         worker:Worker = self.next_available_worker(idx)
-    #         worker.channel = grpc.insecure_channel(worker.address)
-    #         worker_response = self.send_grpc_request(worker, model, model_input)
-    #         if 'computation started' in worker_response:
-    #             logging.info(f"Started processing split {idx+1} on worker {worker.address}")
-    #             worker.current_split = idx
-    #             worker.is_free  = False 
-
-    #     logging.info("All splits have been dispatched.")
-    #     # Wait for the monitoring thread to finish
-    #     monitor_thread.join()
-    #     logging.info("All splits have been processed. Job done. Shutting Down")
