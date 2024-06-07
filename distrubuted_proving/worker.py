@@ -179,7 +179,7 @@ def run_worker(port):
         pb2_grpc.add_WorkerServicer_to_server(WorkerServicer(), server)
         server.add_insecure_port('[::]:' + str(port))
         server.start()
-        logging.info("Worker started...")
+        logging.info(f"Worker started on port {port}...")
         # # Register with dispatcher
         # channel = grpc.insecure_channel("localhost:50051")
         # stub = pb2_grpc.DispatcherStub(channel)
