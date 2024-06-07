@@ -13,7 +13,7 @@ import threading
 import os
 import json
 import onnx
-
+from grpc import Channel 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger("ZKPProver")
@@ -24,7 +24,7 @@ class Worker():
         self.id = id
         self.address = address
         self.is_free = True
-        self.channel = None
+        self.channel:Channel = None
         self.current_model_part: ModelPart = None
 
 class ModelPart():   
@@ -135,7 +135,7 @@ class ZKPProver():
             for worker in self.workers:
                 if not worker.is_free:
                     # Check if the channel is already closed or in an error state
-                    if worker.channel is None or worker.channel._state.code != grpc.ChannelConnectivity.CONNECTING:
+                    if worker.channel is None:
                         worker.channel = grpc.insecure_channel(worker.address)
                     stub = pb2_grpc.WorkerStub(worker.channel)
                     try:
