@@ -55,7 +55,7 @@ class ZKPProver():
             # Log a message if all workers are busy
             logging.info(f"All workers are busy. Waiting for a worker to become available to process {split_idx}.")
             # Add a short delay before checking again to avoid busy-waiting
-            time.sleep(5)  # Adjust th
+            time.sleep(10)  # Adjust th
 
 
     def generate_proof(self, onnx_file, input_file):
@@ -71,14 +71,13 @@ class ZKPProver():
         monitor_thread.start()  
 
         for idx, (model, model_input) in enumerate(model_data_splits):
-            if idx == 1:
-                worker:Worker = self.next_available_worker(idx)
-                worker.channel = grpc.insecure_channel(worker.address)
-                worker_response = self.send_grpc_request(worker, model, model_input)
-                if 'computation started' in worker_response:
-                    logging.info(f"Started processing split {idx+1} on worker {worker.address}")
-                    worker.current_split = idx
-                    worker.is_free  = False 
+            worker:Worker = self.next_available_worker(idx)
+            worker.channel = grpc.insecure_channel(worker.address)
+            worker_response = self.send_grpc_request(worker, model, model_input)
+            if 'computation started' in worker_response:
+                logging.info(f"Started processing split {idx+1} on worker {worker.address}")
+                worker.current_split = idx
+                worker.is_free  = False 
 
         logging.info("All splits have been dispatched.")
         # Wait for the monitoring thread to finish
