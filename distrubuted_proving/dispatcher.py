@@ -83,7 +83,7 @@ class ZKPProver():
         split_inputs = get_model_splits_inputs(split_models, input_file)
         model_data_splits = list(zip(split_models, split_inputs))
         # Start the monitoring thread
-        monitor_thread = threading.Thread(target=self.monitor_progress, args=(n_parts,))
+        monitor_thread = threading.Thread(target=self.monitor_progress)
         monitor_thread.start()
 
         for idx, (model, model_input) in enumerate(model_data_splits):
@@ -137,12 +137,12 @@ class ZKPProver():
         except Exception as e:
             print(f"Error occurred while sending gRPC request to worker {worker.address}: {e}")
     
-    def monitor_progress(self, total_parts):
+    def monitor_progress(self):
         time.sleep(10)  # Check every 5 seconds
         while True:  # Continuously monitor
             all_proofs_ready = all(part.computed_proof is not None for part in self.model_parts)
 
-            if all_proofs_ready and len(self.model_parts) == total_parts:
+            if all_proofs_ready and all(worker.is_free for worker in self.workers):
                 logging.info("All proofs are computed. Exiting monitor_progress.")
                 break  # Exit the loop if all proofs are computed
 
