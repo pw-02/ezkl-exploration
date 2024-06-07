@@ -93,6 +93,9 @@ def split_onnx_model(onnx_model_path, n_parts):
     onnx_model = onnx.load(onnx_model_path)
     onnx_model = shape_inference.infer_shapes(onnx_model)
     output = split_onnx(onnx_model, n_parts=n_parts, cut_points=None, verbose=0, stats=False, fLOG=None)
+    
+    for idx, part_model in enumerate(output):
+        print(f'split_{idx}_parameter_count: {get_num_parameters(model=part_model)}')
     return output
 
 
@@ -194,7 +197,7 @@ def main():
     # original_model_path = 'examples/onnx/little_transformer/network.onnx'
     # original_input_path = 'examples/onnx/little_transformer/input.json'   
 
-    split_models = test_split(original_model_path, n_parts=2)
+    split_models = split_onnx_model(original_model_path, n_parts=2)
 
 
     # split_models = split_onnx_model(original_model_path, num_splits=2)
