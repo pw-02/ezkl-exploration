@@ -42,13 +42,15 @@ class ZKPProver():
         self.model_parts:List[ModelPart] = []
         
     def confirm_connections(self, worker_addresses):
+        max_message_length = 2**31 - 1  # This is 2,147,483,647 bytes (~2GB)
+
         for worker_address in worker_addresses:
             try:
                 with grpc.insecure_channel(
                     worker_address,
                     options=[
-                        ('grpc.max_send_message_length', 9313926),
-                        ('grpc.max_receive_message_length', 9313926),
+                        ('grpc.max_send_message_length', max_message_length),
+                        ('grpc.max_receive_message_length', max_message_length),
                     ]
                 ) as channel:
                     stub = pb2_grpc.WorkerStub(channel)

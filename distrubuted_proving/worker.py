@@ -185,10 +185,12 @@ class WorkerServicer(pb2_grpc.WorkerServicer):
 
 def run_worker(port):
     try:
+        max_message_length = 2**31 - 1  # This is 2,147,483,647 bytes (~2GB)
+
         server = grpc.server(futures.ThreadPoolExecutor(max_workers=1),
                              options=[
-                                 ('grpc.max_send_message_length', 9313926),
-                                 ('grpc.max_receive_message_length', 9313926),
+                                 ('grpc.max_send_message_length', max_message_length),
+                                 ('grpc.max_receive_message_length', max_message_length),
                             ])
         pb2_grpc.add_WorkerServicer_to_server(WorkerServicer(), server)
         server.add_insecure_port('[::]:' + str(port))
