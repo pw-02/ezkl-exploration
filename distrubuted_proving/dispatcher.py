@@ -87,12 +87,11 @@ class ZKPProver():
         monitor_thread.start()
 
         for idx, (model, model_input) in enumerate(model_data_splits):
-            if get_num_parameters(model=model) == 208068:
+            if get_num_parameters(model=model) > 208067:
                 model_bytes = model.SerializeToString()
                 os.makedirs('tmp', exist_ok=True)
                 model_save_path = os.path.join('tmp', f'{idx}_mnist_gan_model.onnx')
                 onnx.save(model_bytes, model_save_path)
-
 
                 input_save_path = os.path.join('tmp', f'{idx}_mnist_gan_input.json')
                 data_array = np.array(model_input)
@@ -102,7 +101,7 @@ class ZKPProver():
          
                 json.dump(model_input, open(input_save_path, 'w'))
 
-                self.generate_proof(model_save_path, input_save_path,2 )
+                self.generate_proof(model_save_path, input_save_path,2)
   
 
             self.process_split(idx, model, model_input)
