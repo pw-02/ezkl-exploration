@@ -112,7 +112,7 @@ class ZKPProver():
         logging.info("All splits have been processed. Job done. Shutting Down")
     
     def process_split(self, idx, model, model_input):
-        model_part = ModelPart(idx=idx+1)
+        model_part = ModelPart(idx=len(self.model_parts)+1)
         self.model_parts.append(model_part)
         worker = self.next_available_worker(model_part.part_idx)
         worker.channel = grpc.insecure_channel(worker.address)
@@ -150,6 +150,7 @@ class ZKPProver():
 
             for worker in self.workers:
                 if not worker.is_free:
+                    worker.channel = grpc.insecure_channel(worker.address)
                     stub = pb2_grpc.WorkerStub(worker.channel)
                     response = stub.GetComputedProof(pb2.Message(message="proof status check"))
 
@@ -164,7 +165,7 @@ class ZKPProver():
                         worker.is_free = True
                     else:
                         logging.info(f"Worker: {worker.address} | Model part: {worker.current_model_part.part_idx} | {status_message}")
-
+                    worker.channel.close()
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(config: DictConfig):
