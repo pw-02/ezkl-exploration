@@ -47,8 +47,8 @@ class ZKPProver():
                 with grpc.insecure_channel(
                     worker_address,
                     options=[
-                        ('grpc.max_send_message_length', 7116370),
-                        ('grpc.max_receive_message_length', 7116370),
+                        ('grpc.max_send_message_length', 9313926),
+                        ('grpc.max_receive_message_length', 9313926),
                     ]
                 ) as channel:
                     stub = pb2_grpc.WorkerStub(channel)
