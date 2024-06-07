@@ -80,7 +80,8 @@ class ZKPProver():
             n_parts = self.number_of_workers
         
         logging.info(f'Total model parameter count before splitting: {get_num_parameters(model=onnx_file)}')
-        split_models = split_onnx_model(onnx_file, n_parts=n_parts, max_parameters_threshold=208067)
+        # split_models = split_onnx_model(onnx_file, n_parts=n_parts, max_parameters_threshold=208067)
+        split_models = split_onnx_model(onnx_file, n_parts=n_parts)
         logging.info(f'Total model parts: {len(split_models)}')
         for idx, part_model in  enumerate(split_models):
             logging.info(f'Part {idx+1} Parameter Count: {get_num_parameters(model=part_model)}')
