@@ -90,6 +90,8 @@ def run_inference_on_full_model(model_path, input_path):
     print("Inference results:", results)
 
 def split_onnx_model(onnx_model_path, n_parts):
+    print(f'Inital parameter_count: {get_num_parameters(model_path=onnx_model_path)}')
+
     onnx_model = onnx.load(onnx_model_path)
     onnx_model = shape_inference.infer_shapes(onnx_model)
     output = split_onnx(onnx_model, n_parts=n_parts, cut_points=None, verbose=0, stats=False, fLOG=None)
@@ -188,14 +190,23 @@ def run_inference_on_split_model(model_parts: List[onnx.ModelProto], input_path:
 def main():
     print("ONNX version:", onnx.__version__)
 
-    original_model_path = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
-    original_input_path = 'examples/onnx/mobilenet/input.json'   
+    # original_model_path = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
+    # original_input_path = 'examples/onnx/mobilenet/input.json'   
+    
+    # original_model_path = 'examples/onnx/random_forest/network.onnx'
+    # original_input_path = 'examples/onnx/random_forest/input.json'
+
+    # original_model_path = 'examples/onnx/mnist_classifier/network.onnx'
+    # original_input_path = 'examples/onnx/mnist_classifier/input.json'
 
     # original_model_path = 'examples/onnx/mnist_gan/network.onnx'
     # original_input_path = 'examples/onnx/mnist_gan/input.json'
 
     # original_model_path = 'examples/onnx/little_transformer/network.onnx'
     # original_input_path = 'examples/onnx/little_transformer/input.json'   
+
+    original_model_path = 'examples/onnx/shuffle_net/shufflenet-7.onnx'
+    original_input_path = 'examples/onnx/mobilenet/input.json'
 
     split_models = split_onnx_model(original_model_path, n_parts=2)
 

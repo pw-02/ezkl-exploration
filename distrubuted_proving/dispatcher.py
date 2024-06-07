@@ -79,22 +79,6 @@ class ZKPProver():
         monitor_thread.start()
 
         for idx, (model, model_input) in enumerate(model_data_splits):
-            if get_num_parameters(model=model) == 208068:
-                model_bytes = model.SerializeToString()
-                os.makedirs('tmp', exist_ok=True)
-                model_save_path = os.path.join('tmp', f'{idx}_model.onnx')
-                onnx.save(model_bytes, model_save_path)
-
-
-                input_save_path = os.path.join('tmp', f'{idx}_input.json')
-                data_array = np.array(model_input)
-                reshaped_array = data_array.reshape(-1)
-                data_list = reshaped_array.tolist()
-                model_input = dict(input_data=[data_list])
-         
-                json.dump(model_input, open(input_save_path, 'w'))
-
-                self.generate_proof(model_save_path, input_save_path,2 )
             self.process_split(idx, model, model_input)
 
         logging.info("All splits have been dispatched.")

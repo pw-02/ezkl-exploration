@@ -1,0 +1,2 @@
+onnx_file: examples/onnx/shuffle_net/shufflenet-7.onnx
+input_file: examples/onnx/shuffle_net/input.json
