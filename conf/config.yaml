@@ -5,7 +5,7 @@ defaults:
   # - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled  
 
-num_model_parts: 8 #set to 'null' to set it to the number of workers
+num_model_parts: 4 #set to 'null' to set it to the number of workers
 worker_addresses: ["127.0.1.1:50052"] #["localhost:50052"] 
 working_dir: distrubuted_proving/tmp
 hydra:
