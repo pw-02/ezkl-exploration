@@ -44,7 +44,13 @@ class ZKPProver():
     def confirm_connections(self, worker_addresses):
         for worker_address in worker_addresses:
             try:
-                with grpc.insecure_channel(worker_address) as channel:
+                with grpc.insecure_channel(
+                    worker_address,
+                    options=[
+                        ('grpc.max_send_message_length', 7116370),
+                        ('grpc.max_receive_message_length', 7116370),
+                    ]
+                ) as channel:
                     stub = pb2_grpc.WorkerStub(channel)
                     response = stub.Ping(pb2.Message(message='dispatcher'))
                     if response.received:

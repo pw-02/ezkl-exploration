@@ -185,7 +185,11 @@ class WorkerServicer(pb2_grpc.WorkerServicer):
 
 def run_worker(port):
     try:
-        server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
+        server = grpc.server(futures.ThreadPoolExecutor(max_workers=1),
+                             options=[
+                                 ('grpc.max_send_message_length', 7116370),
+                                 ('grpc.max_receive_message_length', 7116370),
+                            ])
         pb2_grpc.add_WorkerServicer_to_server(WorkerServicer(), server)
         server.add_insecure_port('[::]:' + str(port))
         server.start()
