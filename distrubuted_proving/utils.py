@@ -8,10 +8,10 @@ from typing import List
 from onnx import ModelProto
 from onnx_split import split_onnx
 
-def get_num_parameters(model_path=None, model = None):
+def get_num_parameters(model = None):
     # Load the ONNX model
-    if not model:
-        model = onnx.load(model_path)
+    if isinstance(model, str):
+        model = onnx.load(model)
 
     # Initialize the parameter counter
     num_parameters = 0

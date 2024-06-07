@@ -79,7 +79,7 @@ class ZKPProver():
         if not n_parts:
             n_parts = self.number_of_workers
         
-        logging.info(f'Initial parameter count: {get_num_parameters(onnx_file=onnx_file)}')
+        logging.info(f'Initial parameter count: {get_num_parameters(model=onnx_file)}')
         split_models = split_onnx_model(onnx_file, n_parts=n_parts, max_parameters_threshold=208067)
         
         logging.info(f'Total parameter count after splitting: {sum(get_num_parameters(model=part_model) for part_model in split_models)}')
