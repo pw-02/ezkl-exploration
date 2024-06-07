@@ -64,10 +64,10 @@ def load_json_input(input_path):
             raise ValueError(f"Input data must be of size {1 * 28 * 28}, but got {input_data.size}")
         input_data = input_data.reshape(1, 1, 28, 28)
 
-        if input_data is None:
-            raise ValueError(f"Input data is None")
+    if input_data is None:
+        raise ValueError(f"Input data is None")
 
-        return input_data
+    return input_data
 
 def run_inference(model_path, input_data):
     # Initialize ONNX Runtime session
@@ -205,7 +205,7 @@ def main():
     # original_model_path = 'examples/onnx/little_transformer/network.onnx'
     # original_input_path = 'examples/onnx/little_transformer/input.json'   
 
-    original_model_path = 'examples/onnx/shuffle_net/shufflenet-v2-12.onnx'
+    original_model_path = 'examples/onnx/efficient_net/efficientnet-lite4-11.onnx'
     original_input_path = 'examples/onnx/shuffle_net/input.json'
 
     split_models = split_onnx_model(original_model_path, n_parts=2)
