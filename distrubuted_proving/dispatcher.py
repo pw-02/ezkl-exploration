@@ -78,8 +78,13 @@ class ZKPProver():
 
         if not n_parts:
             n_parts = self.number_of_workers
-
+        
+        logging.info(f'Initial parameter count: {get_num_parameters(onnx_file=onnx_file)}')
         split_models = split_onnx_model(onnx_file, n_parts=n_parts, max_parameters_threshold=208067)
+        
+        logging.info(f'Total parameter count after splitting: {sum(get_num_parameters(model=part_model) for part_model in split_models)}')
+        logging.info(f'Total Parts: {len(split_models)}')
+
         split_inputs = get_model_splits_inputs(split_models, input_file)
         model_data_splits = list(zip(split_models, split_inputs))
         # Start the monitoring thread
@@ -165,7 +170,7 @@ def main(config: DictConfig):
     
     print(f'model path: {config.model.onnx_file}')
     print(f'model input: {config.model.input_file}')
-    print(f'# model parameters: {get_num_parameters(model_path=config.model.onnx_file)}')
+    # print(f'# model parameters: {get_num_parameters(model_path=config.model.onnx_file)}')
     prover = ZKPProver(config=config)
     prover.generate_proof(config.model.onnx_file, config.model.input_file, config.num_model_parts)
 

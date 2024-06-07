@@ -97,7 +97,6 @@ def split_onnx_model(onnx_model_path, n_parts, max_parameters_threshold=np.inf):
     else:
         onnx_model = onnx_model_path
         # onnx_model = shape_inference.infer_shapes(onnx_model)
-    print(f'Initial parameter count: {get_num_parameters(model=onnx_model)}')
 
     parts = split_onnx(onnx_model, n_parts=n_parts, cut_points=None, verbose=0, stats=False, fLOG=None)
     updated_parts = []
@@ -109,9 +108,8 @@ def split_onnx_model(onnx_model_path, n_parts, max_parameters_threshold=np.inf):
             updated_parts.extend(sub_parts)
         else:
             updated_parts.append(part_model)
-        print(f'split_{idx}_parameter_count: {get_num_parameters(model=part_model)}')
+        print(f'split_{len(updated_parts)}_parameter_count: {get_num_parameters(model=part_model)}')
 
-    print(f'Total parameter count after splitting: {sum(get_num_parameters(model=part_model) for part_model in updated_parts)}')
     return updated_parts
 
 
