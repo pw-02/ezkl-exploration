@@ -19,6 +19,7 @@ from utils import split_onnx_model, get_model_splits_inputs, get_num_parameters
 from onnx import ModelProto
 import numpy as np
 import json
+from log_utils import ResourceMonitor
 
 class EZKLProver():
     def __init__(self, worker_dir:str):
@@ -76,14 +77,14 @@ class EZKLProver():
     
 
     def run_end_to_end_proof(self):
-        
+        with ResourceMonitor() as monitor:
+
             num_parameters =get_num_parameters(self.model_path)
             print(f'Number Model Parmeters: {num_parameters}')
             self.exp_logger.log_value('num_model_params', num_parameters)
             self.exp_logger.log_env_resources()
             self.exp_logger.log_value('name', 'report')
 
-        #   with ResourceMonitor() as monitor:
             for func_name, func in [
                 ('gen_settings', self.gen_settings),
                 ('calibrate_settings', self.calibrate_settings),
@@ -98,12 +99,12 @@ class EZKLProver():
                     print_func_exec_info(func_name, execution_time)
                     self.exp_logger.log_value(f'{func_name}(s)', execution_time)
             
-                  # Log resource data
-            # resource_data = monitor.resource_data
-            # self.exp_logger.log_value('mean_cpu', resource_data["cpu_util"]["mean"])
-            # self.exp_logger.log_value('max_cpu', resource_data["cpu_util"]["max"])
-            # self.exp_logger.log_value('mean_cpu_mem_gb', resource_data["cpu_mem_gb"]["mean"])
-            # self.exp_logger.log_value('max_cpu_mem_gb', resource_data["cpu_mem_gb"]["max"])
+            # Log resource data
+            resource_data = monitor.resource_data
+            self.exp_logger.log_value('mean_cpu', resource_data["cpu_util"]["mean"])
+            self.exp_logger.log_value('max_cpu', resource_data["cpu_util"]["max"])
+            self.exp_logger.log_value('mean_cpu_mem_gb', resource_data["cpu_mem_gb"]["mean"])
+            self.exp_logger.log_value('max_cpu_mem_gb', resource_data["cpu_mem_gb"]["max"])
             self.exp_logger.flush_log()
             return self.proof_path
             
