@@ -108,7 +108,6 @@ def split_onnx_model(onnx_model_path, n_parts, max_parameters_threshold=np.inf):
             updated_parts.extend(sub_parts)
         else:
             updated_parts.append(part_model)
-        print(f'split_{len(updated_parts)}_parameter_count: {get_num_parameters(model=part_model)}')
 
     return updated_parts
 
