@@ -24,3 +24,5 @@ python -m grpc_tools.protoc --proto_path=. zkpservice.proto --python_out=.. --gr
 export PYTHONPATH="/home/pwatters/projects/ezkl-exploration/:$PYTHONPATH"
 
 python distrubuted_proving/worker.py --port 50053
+
+python distrubuted_proving/dispatcher.py

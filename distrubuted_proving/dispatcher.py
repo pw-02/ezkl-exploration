@@ -70,7 +70,7 @@ class ZKPProver():
         if not n_parts:
             n_parts = self.number_of_workers
 
-        split_models = split_onnx_model(onnx_file, n_parts=2)
+        split_models = split_onnx_model(onnx_file, n_parts=n_parts)
         split_inputs = get_model_splits_inputs(split_models, input_file)
         model_data_splits = list(zip(split_models, split_inputs))
         
