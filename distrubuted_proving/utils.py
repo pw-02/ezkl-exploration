@@ -49,7 +49,7 @@ def load_json_input(input_path):
     with open(input_path, 'r') as f:
         input_data = json.load(f)
     # Convert to NumPy array and reshape to (1, 3, 224, 224)
-    if 'mobilenet' in input_path:
+    if 'net' in input_path:
         input_data = np.array(input_data['input_data'], dtype=np.float32)  # Ensure the data type is float32
         if input_data.size != 3 * 224 * 224:
             raise ValueError(f"Input data must be of size {3 * 224 * 224}, but got {input_data.size}")
@@ -206,7 +206,7 @@ def main():
     # original_input_path = 'examples/onnx/little_transformer/input.json'   
 
     original_model_path = 'examples/onnx/shuffle_net/shufflenet-7.onnx'
-    original_input_path = 'examples/onnx/mobilenet/input.json'
+    original_input_path = 'examples/onnx/shuffle_net/input.json'
 
     split_models = split_onnx_model(original_model_path, n_parts=2)
 
