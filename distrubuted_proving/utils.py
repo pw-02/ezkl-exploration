@@ -89,16 +89,31 @@ def run_inference_on_full_model(model_path, input_path):
     # Print results
     print("Inference results:", results)
 
-def split_onnx_model(onnx_model_path, n_parts):
-    print(f'Inital parameter_count: {get_num_parameters(model_path=onnx_model_path)}')
+def split_onnx_model(onnx_model_path, n_parts, max_parameters_threshold=np.inf):
 
-    onnx_model = onnx.load(onnx_model_path)
-    onnx_model = shape_inference.infer_shapes(onnx_model)
-    output = split_onnx(onnx_model, n_parts=n_parts, cut_points=None, verbose=0, stats=False, fLOG=None)
-    
-    for idx, part_model in enumerate(output):
+    if isinstance(onnx_model_path,str):
+        onnx_model = onnx.load(onnx_model_path)
+        onnx_model = shape_inference.infer_shapes(onnx_model)
+    else:
+        onnx_model = onnx_model_path
+        # onnx_model = shape_inference.infer_shapes(onnx_model)
+    print(f'Initial parameter count: {get_num_parameters(model=onnx_model)}')
+
+    parts = split_onnx(onnx_model, n_parts=n_parts, cut_points=None, verbose=0, stats=False, fLOG=None)
+    updated_parts = []
+
+    for idx, part_model in enumerate(parts):
+        if get_num_parameters(model=part_model) > max_parameters_threshold and idx > 0:
+            # Recursively split the part
+            sub_parts = split_onnx_model(part_model, 2, max_parameters_threshold)
+            updated_parts.extend(sub_parts)
+        else:
+            updated_parts.append(part_model)
         print(f'split_{idx}_parameter_count: {get_num_parameters(model=part_model)}')
-    return output
+
+    print(f'Total parameter count after splitting: {sum(get_num_parameters(model=part_model) for part_model in updated_parts)}')
+    return updated_parts
+
 
 
 

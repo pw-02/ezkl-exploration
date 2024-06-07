@@ -79,31 +79,30 @@ class ZKPProver():
         if not n_parts:
             n_parts = self.number_of_workers
 
-        split_models = split_onnx_model(onnx_file, n_parts=n_parts)
+        split_models = split_onnx_model(onnx_file, n_parts=n_parts, max_parameters_threshold=208067)
         split_inputs = get_model_splits_inputs(split_models, input_file)
         model_data_splits = list(zip(split_models, split_inputs))
         # Start the monitoring thread
-        monitor_thread = threading.Thread(target=self.monitor_progress)
+        monitor_thread = threading.Thread(target=self.monitor_progress, args=(n_parts,))
         monitor_thread.start()
 
         for idx, (model, model_input) in enumerate(model_data_splits):
-            if get_num_parameters(model=model) > 208067 and idx > 1:
-                model_bytes = model.SerializeToString()
-                os.makedirs('tmp', exist_ok=True)
-                model_save_path = os.path.join('tmp', f'{idx}_mnist_gan_model.onnx')
-                onnx.save(model_bytes, model_save_path)
+            # if get_num_parameters(model=model) > 208067 and idx > 1:
+            #     model_bytes = model.SerializeToString()
+            #     os.makedirs('tmp', exist_ok=True)
+            #     model_save_path = os.path.join('tmp', f'{idx}_mnist_gan_model.onnx')
+            #     onnx.save(model_bytes, model_save_path)
 
-                input_save_path = os.path.join('tmp', f'{idx}_mnist_gan_input.json')
-                data_array = np.array(model_input)
-                reshaped_array = data_array.reshape(-1)
-                data_list = reshaped_array.tolist()
-                model_input = dict(input_data=[data_list])
+            #     input_save_path = os.path.join('tmp', f'{idx}_mnist_gan_input.json')
+            #     data_array = np.array(model_input)
+            #     reshaped_array = data_array.reshape(-1)
+            #     data_list = reshaped_array.tolist()
+            #     model_input = dict(input_data=[data_list])
          
-                json.dump(model_input, open(input_save_path, 'w'))
+            #     json.dump(model_input, open(input_save_path, 'w'))
 
-                self.generate_proof(model_save_path, input_save_path,2)
+            #     self.generate_proof(model_save_path, input_save_path,2)
   
-
             self.process_split(idx, model, model_input)
 
         logging.info("All splits have been dispatched.")
@@ -137,12 +136,12 @@ class ZKPProver():
         except Exception as e:
             print(f"Error occurred while sending gRPC request to worker {worker.address}: {e}")
     
-    def monitor_progress(self):
+    def monitor_progress(self, total_parts):
         time.sleep(10)  # Check every 5 seconds
         while True:  # Continuously monitor
             all_proofs_ready = all(part.computed_proof is not None for part in self.model_parts)
 
-            if all_proofs_ready and all(worker.is_free for worker in self.workers):
+            if all_proofs_ready and len(self.model_parts) == total_parts:
                 logging.info("All proofs are computed. Exiting monitor_progress.")
                 break  # Exit the loop if all proofs are computed
 
