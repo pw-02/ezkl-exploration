@@ -12,6 +12,7 @@ from typing import List
 import threading
 import os
 import json
+import onnx
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
@@ -78,6 +79,14 @@ class ZKPProver():
         monitor_thread.start()
 
         for idx, (model, model_input) in enumerate(model_data_splits):
+            if idx == 2:
+                model_bytes = model.SerializeToString()
+                model_save_path = os.path.join('tmp', f'{idx}_model.onnx')
+                onnx.save(model_bytes, model_save_path)
+                input_save_path = os.path.join('tmp', f'{idx}_input.json')
+                json.dump(model_input, open(input_save_path, 'w'))
+
+                self.generate_proof(model_save_path, input_save_path)
             self.process_split(idx, model, model_input)
 
         logging.info("All splits have been dispatched.")
