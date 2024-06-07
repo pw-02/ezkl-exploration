@@ -205,7 +205,7 @@ def main():
     # original_model_path = 'examples/onnx/little_transformer/network.onnx'
     # original_input_path = 'examples/onnx/little_transformer/input.json'   
 
-    original_model_path = 'examples/onnx/shuffle_net/shufflenet-7.onnx'
+    original_model_path = 'examples/onnx/shuffle_net/shufflenet-v2-12.onnx'
     original_input_path = 'examples/onnx/shuffle_net/input.json'
 
     split_models = split_onnx_model(original_model_path, n_parts=2)
