@@ -94,7 +94,7 @@ class ZKPProver():
          
                 json.dump(model_input, open(input_save_path, 'w'))
 
-                self.generate_proof(model_save_path, input_save_path,n_parts )
+                self.generate_proof(model_save_path, input_save_path,2 )
             self.process_split(idx, model, model_input)
 
         logging.info("All splits have been dispatched.")
