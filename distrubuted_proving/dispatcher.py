@@ -83,26 +83,11 @@ class ZKPProver():
         split_inputs = get_model_splits_inputs(split_models, input_file)
         model_data_splits = list(zip(split_models, split_inputs))
         # Start the monitoring thread
-        monitor_thread = threading.Thread(target=self.monitor_progress, args=(n_parts,))
+        monitor_thread = threading.Thread(target=self.monitor_progress, args=(len(model_data_splits),))
         monitor_thread.start()
 
         for idx, (model, model_input) in enumerate(model_data_splits):
-            # if get_num_parameters(model=model) > 208067 and idx > 1:
-            #     model_bytes = model.SerializeToString()
-            #     os.makedirs('tmp', exist_ok=True)
-            #     model_save_path = os.path.join('tmp', f'{idx}_mnist_gan_model.onnx')
-            #     onnx.save(model_bytes, model_save_path)
 
-            #     input_save_path = os.path.join('tmp', f'{idx}_mnist_gan_input.json')
-            #     data_array = np.array(model_input)
-            #     reshaped_array = data_array.reshape(-1)
-            #     data_list = reshaped_array.tolist()
-            #     model_input = dict(input_data=[data_list])
-         
-            #     json.dump(model_input, open(input_save_path, 'w'))
-
-            #     self.generate_proof(model_save_path, input_save_path,2)
-  
             self.process_split(idx, model, model_input)
 
         logging.info("All splits have been dispatched.")
@@ -149,22 +134,25 @@ class ZKPProver():
 
             for worker in self.workers:
                 if not worker.is_free:
-                    worker.channel = grpc.insecure_channel(worker.address)
+                    # Check if the channel is already closed or in an error state
+                    if worker.channel is None or worker.channel._state.code != grpc.ChannelConnectivity.CONNECTING:
+                        worker.channel = grpc.insecure_channel(worker.address)
                     stub = pb2_grpc.WorkerStub(worker.channel)
-                    response = stub.GetComputedProof(pb2.Message(message="proof status check"))
-
-                    status_message = response.status_message
-                    proof = response.proof
-
-                    if len(proof) > 1:
-                        logging.info(f"Worker: {worker.address} | Model part: {worker.current_model_part.part_idx} | {status_message} | Proof Size: {len(proof)}")
-                        # Update the corresponding ModelPart object
-                        worker.current_model_part.computed_proof = proof
-                        worker.current_model_part = None
-                        worker.is_free = True
-                    else:
-                        logging.info(f"Worker: {worker.address} | Model part: {worker.current_model_part.part_idx} | {status_message}")
-                    worker.channel.close()
+                    try:
+                        response = stub.GetComputedProof(pb2.Message(message="proof status check"))
+                        status_message = response.status_message
+                        proof = response.proof
+                        if len(proof) > 1:
+                            logging.info(f"Worker: {worker.address} | Model part: {worker.current_model_part.part_idx} | {status_message} | Proof Size: {len(proof)}")
+                            # Update the corresponding ModelPart object
+                            worker.current_model_part.computed_proof = proof
+                            worker.current_model_part = None
+                            worker.is_free = True
+                        else:
+                            logging.info(f"Worker: {worker.address} | Model part: {worker.current_model_part.part_idx} | {status_message}")
+                    except grpc.RpcError as e:
+                        logging.error(f"Error occurred while communicating with worker: {worker.address}. Error: {e}")
+    
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(config: DictConfig):
