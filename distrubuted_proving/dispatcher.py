@@ -73,21 +73,16 @@ class ZKPProver():
         split_models = split_onnx_model(onnx_file, n_parts=n_parts)
         split_inputs = get_model_splits_inputs(split_models, input_file)
         model_data_splits = list(zip(split_models, split_inputs))
-        
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            futures = [executor.submit(self.process_split, idx, model, model_input) for idx, (model, model_input) in enumerate(model_data_splits)]
+        # Start the monitoring thread
+        monitor_thread = threading.Thread(target=self.monitor_progress, args=(n_parts,))
+        monitor_thread.start()
 
-            # Start the monitoring thread
-            monitor_thread = threading.Thread(target=self.monitor_progress)
-            monitor_thread.start()
+        for idx, (model, model_input) in enumerate(model_data_splits):
+            self.process_split(idx, model, model_input)
 
-            # Wait for all tasks to complete
-            for future in as_completed(futures):
-                future.result()
-
-            # Wait for the monitoring thread to finish
-            monitor_thread.join()
-
+        logging.info("All splits have been dispatched.")
+        # Wait for the monitoring thread to finish
+        monitor_thread.join()
         logging.info("All splits have been processed. Job done. Shutting Down")
     
     def process_split(self, idx, model, model_input):
@@ -116,12 +111,12 @@ class ZKPProver():
         except Exception as e:
             print(f"Error occurred while sending gRPC request to worker {worker.address}: {e}")
     
-    def monitor_progress(self):
+    def monitor_progress(self, total_parts):
         time.sleep(10)  # Check every 5 seconds
         while True:  # Continuously monitor
             all_proofs_ready = all(part.computed_proof is not None for part in self.model_parts)
 
-            if all_proofs_ready:
+            if all_proofs_ready and len(self.model_parts) == total_parts:
                 logging.info("All proofs are computed. Exiting monitor_progress.")
                 break  # Exit the loop if all proofs are computed
 
