@@ -81,6 +81,7 @@ class ZKPProver():
         for idx, (model, model_input) in enumerate(model_data_splits):
             if idx == 2:
                 model_bytes = model.SerializeToString()
+                os.makedirs('tmp', exist_ok=True)
                 model_save_path = os.path.join('tmp', f'{idx}_model.onnx')
                 onnx.save(model_bytes, model_save_path)
                 input_save_path = os.path.join('tmp', f'{idx}_input.json')
