@@ -24,14 +24,22 @@ class Worker():
         self.address = address
         self.is_free = True
         self.channel = None
-        self.current_split = None
+        self.current_model_part: ModelPart = None
+
+class ModelPart():   
+    def __init__(self, idx: int):
+         self.part_idx = idx
+         self.computed_witness = None
+         self.computed_proof = None
+         self.is_completed = False
 
 class ZKPProver():
     def __init__(self, config: DictConfig):
         self.workers:List[Worker] = []
         self.confirm_connections(config.worker_addresses)
-        self.number_workers = len(self.workers) #plus one becuase this node also acts as a worker
-    
+        self.number_of_workers = len(self.workers) #plus one becuase this node also acts as a worker
+        self.model_parts:List[ModelPart] = []
+        
     def confirm_connections(self, worker_addresses):
         for worker_address in worker_addresses:
             try:
@@ -53,37 +61,47 @@ class ZKPProver():
                 if worker.is_free:
                     return worker
             # Log a message if all workers are busy
-            logging.info(f"All workers are busy. Waiting for a worker to become available to process {split_idx}.")
+            logging.info(f"All workers are busy. Waiting for a worker to become available to process model part {split_idx}")
             # Add a short delay before checking again to avoid busy-waiting
-            time.sleep(10)  # Adjust th
+            time.sleep(30)  # Adjust th
+    
+    def generate_proof(self, onnx_file, input_file,n_parts = None ):
 
+        if not n_parts:
+            n_parts = self.number_of_workers
 
-    def generate_proof(self, onnx_file, input_file):
-        # split_models = split_onnx_model(onnx_file, num_splits=self.number_workers)
         split_models = split_onnx_model(onnx_file, n_parts=2)
-
         split_inputs = get_model_splits_inputs(split_models, input_file)
-        # Combine items into tuples
         model_data_splits = list(zip(split_models, split_inputs))
-        total_splits = len(model_data_splits)
-        # Start a separate thread to monitor the workers' status
-        monitor_thread = threading.Thread(target=self.monitor_workers, args=(total_splits,))
-        monitor_thread.start()  
-
-        for idx, (model, model_input) in enumerate(model_data_splits):
-            worker:Worker = self.next_available_worker(idx)
-            worker.channel = grpc.insecure_channel(worker.address)
-            worker_response = self.send_grpc_request(worker, model, model_input)
-            if 'computation started' in worker_response:
-                logging.info(f"Started processing split {idx+1} on worker {worker.address}")
-                worker.current_split = idx
-                worker.is_free  = False 
-
-        logging.info("All splits have been dispatched.")
-        # Wait for the monitoring thread to finish
-        monitor_thread.join()
-        logging.info("All splits have been processed. Job done. Shutting Down")
         
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            futures = [executor.submit(self.process_split, idx, model, model_input) for idx, (model, model_input) in enumerate(model_data_splits)]
+
+            # Start the monitoring thread
+            monitor_thread = threading.Thread(target=self.monitor_progress)
+            monitor_thread.start()
+
+            # Wait for all tasks to complete
+            for future in as_completed(futures):
+                future.result()
+
+            # Wait for the monitoring thread to finish
+            monitor_thread.join()
+
+        logging.info("All splits have been processed. Job done. Shutting Down")
+    
+    def process_split(self, idx, model, model_input):
+        model_part = ModelPart(idx=idx+1)
+        self.model_parts.append(model_part)
+        worker = self.next_available_worker(model_part.part_idx)
+        worker.channel = grpc.insecure_channel(worker.address)
+        worker_response = self.send_grpc_request(worker, model, model_input)
+
+        if 'computation started' in worker_response:
+            logging.info(f"Started processing model part {model_part.part_idx} on worker {worker.address}")
+            worker.current_model_part = model_part
+            worker.is_free = False
+
     def send_grpc_request(self, worker: Worker, onnx_model:ModelProto, model_input):
 
         try:
@@ -98,39 +116,34 @@ class ZKPProver():
         except Exception as e:
             print(f"Error occurred while sending gRPC request to worker {worker.address}: {e}")
     
+    def monitor_progress(self):
+        time.sleep(10)  # Check every 5 seconds
+        while True:  # Continuously monitor
+            all_proofs_ready = all(part.computed_proof is not None for part in self.model_parts)
 
-    
-    def monitor_workers(self, total_splits):
-        splits_processed = []
-        while len(splits_processed) < total_splits:
-            time.sleep(5)
+            if all_proofs_ready:
+                logging.info("All proofs are computed. Exiting monitor_progress.")
+                break  # Exit the loop if all proofs are computed
+
+            time.sleep(5)  # Check every 5 seconds
+
             for worker in self.workers:
                 if not worker.is_free:
-
                     stub = pb2_grpc.WorkerStub(worker.channel)
-                    response = stub.GetWorkerStatus(pb2.Message(message="status check"))
-                    logging.info(f"Worker: {worker.address}, Status: {response.message}, Is Busy: {response.isbusy}, Processing Split: {worker.current_split}")
+                    response = stub.GetComputedProof(pb2.Message(message="proof status check"))
 
-                    worker_busy = response.isbusy  # Replace this with actual check
-                    if not worker_busy: #worker finished
-                        splits_processed.append(worker.current_split)
+                    status_message = response.status_message
+                    proof = response.proof
+
+                    if len(proof) > 1:
+                        logging.info(f"Worker: {worker.address} | Model part: {worker.current_model_part.part_idx} | {status_message} | Proof Size: {len(proof)}")
+                        # Update the corresponding ModelPart object
+                        worker.current_model_part.computed_proof = proof
+                        worker.current_model_part = None
                         worker.is_free = True
-                        worker.current_split = None     
+                    else:
+                        logging.info(f"Worker: {worker.address} | Model part: {worker.current_model_part.part_idx} | {status_message}")
 
-    # def send_grpc_request(self, worker: Worker, onnx_model:ModelProto, model_input):
-    #     try:
-    #         model_bytes = onnx_model.SerializeToString()
-    #         data_array = np.array(model_input)
-    #         reshaped_array = data_array.reshape(-1)
-    #         data_list = reshaped_array.tolist()
-    #         model_input = dict(input_data=[data_list])
-    #         stub = pb2_grpc.WorkerStub(channel)
-    #         future = stub.ComputeProof.future(pb2.ProofData(model_bytes=model_bytes, model_input=json.dumps(model_input)))
-    #         return future
-
-    #     except Exception as e:
-    #         print(f"Error occurred while sending gRPC request to worker {worker.address}: {e}")
-    
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(config: DictConfig):
@@ -145,8 +158,36 @@ def main(config: DictConfig):
     print(f'model input: {config.model.input_file}')
     print(f'# model parameters: {get_num_parameters(model_path=config.model.onnx_file)}')
     prover = ZKPProver(config=config)
-    proof = prover.generate_proof(config.model.onnx_file, config.model.input_file)
+    prover.generate_proof(config.model.onnx_file, config.model.input_file, config.num_model_parts)
 
 
 if __name__ == '__main__':
     main()
+
+
+
+   # def generate_proof(self, onnx_file, input_file):
+    #     # split_models = split_onnx_model(onnx_file, num_splits=self.number_workers)
+    #     split_models = split_onnx_model(onnx_file, n_parts=2)
+    #     split_inputs = get_model_splits_inputs(split_models, input_file)
+    #     model_data_splits = list(zip(split_models, split_inputs))
+        
+    #     monitor_thread = threading.Thread(target=self.monitor_progress)
+    #     monitor_thread.start()  
+
+    #     for idx, (model, model_input) in enumerate(model_data_splits):
+    #         self.model_parts.append(ModelPart(idx=idx))
+
+    #     for idx, (model, model_input) in enumerate(model_data_splits):
+    #         worker:Worker = self.next_available_worker(idx)
+    #         worker.channel = grpc.insecure_channel(worker.address)
+    #         worker_response = self.send_grpc_request(worker, model, model_input)
+    #         if 'computation started' in worker_response:
+    #             logging.info(f"Started processing split {idx+1} on worker {worker.address}")
+    #             worker.current_split = idx
+    #             worker.is_free  = False 
+
+    #     logging.info("All splits have been dispatched.")
+    #     # Wait for the monitoring thread to finish
+    #     monitor_thread.join()
+    #     logging.info("All splits have been processed. Job done. Shutting Down")

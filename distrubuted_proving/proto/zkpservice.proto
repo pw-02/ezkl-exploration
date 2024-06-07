@@ -12,8 +12,16 @@ service Worker {
     rpc Ping(Message) returns (MessageResponse);
     rpc ComputeProof(ProofData) returns (Message) {}
     rpc GetWorkerStatus(Message) returns (WorkerStatusResponse) {}
-
+    rpc GetComputedProof(Message) returns (ProofStatusResponse) {}
     }
+
+
+message ProofStatusResponse{
+ string status_message = 1;
+ int32 status_id = 2; //1 = In progress, 2 = Completed, 3 = Error 
+ bytes proof = 3;
+}
+
 
 message WorkerStatusResponse{
  string message = 1;

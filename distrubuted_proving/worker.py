@@ -17,6 +17,8 @@ import datetime
 import onnx
 from utils import split_onnx_model, get_model_splits_inputs, get_num_parameters
 from onnx import ModelProto
+import numpy as np
+import json
 
 class EZKLProver():
     def __init__(self, worker_dir:str):
@@ -103,12 +105,14 @@ class EZKLProver():
             # self.exp_logger.log_value('mean_cpu_mem_gb', resource_data["cpu_mem_gb"]["mean"])
             # self.exp_logger.log_value('max_cpu_mem_gb', resource_data["cpu_mem_gb"]["max"])
             self.exp_logger.flush_log()
+            return self.proof_path
             
 
 class WorkerServicer(pb2_grpc.WorkerServicer):
     def __init__(self):
-        self.is_busy = False
         self.status = 'awaiting work'
+        self.is_busy = False
+        self.computed_proof = None
 
     def ProcessTask(self, request, context):
         logging.info("Received task: %s", request)
@@ -118,24 +122,28 @@ class WorkerServicer(pb2_grpc.WorkerServicer):
         # Return response
         return pb2.Task(id=request.id, data="Processed " + request.data)
     
+    
     def GetWorkerStatus(self, request, context):
-        if self.is_busy:
-            return pb2.WorkerStatusResponse(message="Proof still being computed", isbusy=self.is_busy)
+        if self.computed_proof is None:
+            return pb2.WorkerStatusResponse(message="Proof still being computed", isbusy=True)
         else:
+            logging.info("Computed proof returned to dispacther. Worker is now free")
             return pb2.WorkerStatusResponse(message="Proof computation finished", isbusy=self.is_busy)
-
-
+    
+    def GetComputedProof(self, request, context):
+        if self.computed_proof is None:
+            return pb2.ProofStatusResponse(status_message="Proof is still being computed", status_id=1, proof = None)
+        else:
+            logging.info("Computed proof returned to dispacther. Worker is now free for more proving tasks")
+            proof_response = pb2.ProofStatusResponse(status_message="Proof computed", status_id=1, proof = self.computed_proof)
+            self.computed_proof = None  # Reset computed_proof for future requests
+            return proof_response
 
     def ComputeProof(self, request, context):
         logging.info("Received 'Compute Proof' task")
-
+        
          # Define a function to compute the proof
         def compute_proof():
-            self.is_busy = True
-
-            import numpy as np
-            import json
-
             # Format the date and time as a string
             directory_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             directory_path = os.path.join("data", directory_name)
@@ -149,18 +157,20 @@ class WorkerServicer(pb2_grpc.WorkerServicer):
             json.dump(model_input, open(os.path.join(directory_path, f'input.json'), 'w'))
 
             prover = EZKLProver(directory_path)
-            prover.run_end_to_end_proof()
+            proof_path = prover.run_end_to_end_proof()
+            
+            with open(proof_path, "rb") as file:
+                self.computed_proof = file.read()
+
             logging.info("Proof computed and verified")
-            self.is_busy = False
             # # Once the proof is computed, update the response
             # result = {'message': 'Proof computed and verified'}
             # context.set_details(pb2.Message(**result))
 
-        # Start a new thread to compute the proof
+        # Return initial response and start a new thread to compute the proof
         proof_thread = threading.Thread(target=compute_proof)
         proof_thread.start()
-        # compute_proof()
-        # Return the initial response immediately
+       
         return pb2.Message(message="Proof computation started")
         #return pb2.Message(message="Proof computed successsfully")
 
