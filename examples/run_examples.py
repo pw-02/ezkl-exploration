@@ -111,9 +111,11 @@ if __name__ == "__main__":
     import csv
     print('started')
     output_folder = "examples/outputs"
+    os.makedirs(output_folder,exist_ok=True)
     times = {}
     examples = get_examples()
     end = time.perf_counter()
+    print(len(examples))
     for example in examples:
         model_File, input_file = example
         data_dict = test_examples(model_File, input_file, output_folder)
@@ -128,3 +130,4 @@ if __name__ == "__main__":
                 writer.writeheader()  # Write header only if the file is new
                 writer.writerow(data_dict)  # Write data as a new row
         end = time.perf_counter()
+    print('ended')
