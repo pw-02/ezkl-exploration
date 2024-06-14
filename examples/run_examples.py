@@ -128,6 +128,6 @@ if __name__ == "__main__":
             writer = csv.DictWriter(f, fieldnames=data_dict.keys())
             if not file_exists:
                 writer.writeheader()  # Write header only if the file is new
-                writer.writerow(data_dict)  # Write data as a new row
+            writer.writerow(data_dict)  # Write data as a new row
         end = time.perf_counter()
     print('ended')
