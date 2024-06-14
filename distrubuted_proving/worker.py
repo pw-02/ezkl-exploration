@@ -87,13 +87,13 @@ class EZKLProver():
 
             for func_name, func in [
                 ('gen_settings', self.gen_settings),
-                ('calibrate_settings', self.calibrate_settings),
-                ('compile_circuit', self.compile_circuit),
-                ('get_srs', self.get_srs),
-                ('gen_witness', self.gen_witness),
-                ('setup', self.setup),
-                ('prove', self.prove),
-                ('verify', self.verify)
+                # ('calibrate_settings', self.calibrate_settings),
+                # ('compile_circuit', self.compile_circuit),
+                # ('get_srs', self.get_srs),
+                # ('gen_witness', self.gen_witness),
+                # ('setup', self.setup),
+                # ('prove', self.prove),
+                # ('verify', self.verify)
                 ]:
                     execution_time = func()
                     print_func_exec_info(func_name, execution_time)
