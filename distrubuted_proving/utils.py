@@ -100,7 +100,6 @@ def split_onnx_model(onnx_model_path, n_parts, max_parameters_threshold=np.inf):
 
     parts = split_onnx(onnx_model, n_parts=n_parts, cut_points=None, verbose=0, stats=False, fLOG=None)
     updated_parts = []
-
     for idx, part_model in enumerate(parts):
         if get_num_parameters(model=part_model) > max_parameters_threshold and idx > 0:
             # Recursively split the part
@@ -108,7 +107,6 @@ def split_onnx_model(onnx_model_path, n_parts, max_parameters_threshold=np.inf):
             updated_parts.extend(sub_parts)
         else:
             updated_parts.append(part_model)
-
     return updated_parts
 
 
@@ -211,16 +209,16 @@ def main():
     # original_model_path = 'examples/onnx/mnist_classifier/network.onnx'
     # original_input_path = 'examples/onnx/mnist_classifier/input.json'
 
-    # original_model_path = 'examples/onnx/mnist_gan/network.onnx'
-    # original_input_path = 'examples/onnx/mnist_gan/input.json'
+    original_model_path = 'examples/onnx/mnist_gan/network.onnx'
+    original_input_path = 'examples/onnx/mnist_gan/input.json'
 
     # original_model_path = 'examples/onnx/little_transformer/network.onnx'
     # original_input_path = 'examples/onnx/little_transformer/input.json'   
 
-    original_model_path = 'examples/onnx/efficient_net/efficientnet-lite4-11.onnx'
-    original_input_path = 'examples/onnx/shuffle_net/input.json'
+    # original_model_path = 'examples/onnx/efficient_net/efficientnet-lite4-11.onnx'
+    # original_input_path = 'examples/onnx/shuffle_net/input.json'
 
-    split_models = split_onnx_model(original_model_path, n_parts=2)
+    split_models = split_onnx_model(original_model_path, n_parts=4)
 
 
     # split_models = split_onnx_model(original_model_path, num_splits=2)

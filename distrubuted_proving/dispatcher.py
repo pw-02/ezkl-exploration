@@ -159,6 +159,7 @@ class ZKPProver():
                         else:
                             logging.info(f"Worker: {worker.address} | Model part: {worker.current_model_part.part_idx} | {status_message}")
                     except grpc.RpcError as e:
+                        worker.channel = None
                         logging.error(f"Error occurred while communicating with worker: {worker.address}. Error: {e}")
     
 
