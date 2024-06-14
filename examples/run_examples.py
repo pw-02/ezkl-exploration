@@ -115,7 +115,6 @@ if __name__ == "__main__":
     times = {}
     examples = get_examples()
     end = time.perf_counter()
-    print(len(examples))
     for example in examples:
         model_File, input_file = example
         data_dict = test_examples(model_File, input_file, output_folder)
