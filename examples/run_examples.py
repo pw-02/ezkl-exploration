@@ -107,37 +107,24 @@ def test_examples(model_file, input_file, folder_path):
     return data_dict
 
 
-
-
 if __name__ == "__main__":
-        import csv
-        output_folder = "examples/outputs"
-        times = {}
-        examples = get_examples()
-        end = time.perf_counter()
-        for example in examples:
-             model_File, input_file = example
-             data_dict = test_examples(model_File, input_file, output_folder)
-             data_dict['name'] = os.path.basename(os.path.dirname(model_File))
-             data_dict['total_time'] = time.perf_counter() - end
-             csv_file = 'data.csv'
-             file_exists = os.path.isfile(csv_file)
+    import csv
+    print('started')
+    output_folder = "examples/outputs"
+    times = {}
+    examples = get_examples()
+    end = time.perf_counter()
+    for example in examples:
+        model_File, input_file = example
+        data_dict = test_examples(model_File, input_file, output_folder)
+        data_dict['name'] = os.path.basename(os.path.dirname(model_File))
+        data_dict['total_time'] = time.perf_counter() - end
+        csv_file = 'data.csv'
+        file_exists = os.path.isfile(csv_file)
 
-             with open(csv_file, 'a', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=data_dict.keys())
-                if not file_exists:
-                    writer.writeheader()  # Write header only if the file is new
+        with open(csv_file, 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=data_dict.keys())
+            if not file_exists:
+                writer.writeheader()  # Write header only if the file is new
                 writer.writerow(data_dict)  # Write data as a new row
-             end = time.perf_counter()
-             
-        
-       # Define the CSV file path
-
-       # Convert dictionary to DataFrame
-        # df = pd.DataFrame(times)
-
-        # # Define the CSV file path
-        # csv_file_path = 'data.csv'
-
-        # # Save DataFrame to CSV
-        # df.to_csv(csv_file_path, index=False)
+        end = time.perf_counter()
