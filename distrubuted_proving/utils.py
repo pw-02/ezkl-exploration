@@ -6,7 +6,7 @@ from onnx import helper
 from onnx import shape_inference, ModelProto
 from typing import List
 from onnx import ModelProto
-from onnx_split import split_onnx
+from onnx_split import split_onnx, get_all_cut_points
 
 def get_num_parameters(model = None):
     # Load the ONNX model
@@ -89,7 +89,7 @@ def run_inference_on_full_model(model_path, input_path):
     # Print results
     print("Inference results:", results)
 
-def split_onnx_model(onnx_model_path, n_parts, max_parameters_threshold=np.inf):
+def split_onnx_model(onnx_model_path, n_parts, max_parameters_threshold=np.inf, verbose=0, stats=False):
 
     if isinstance(onnx_model_path,str):
         onnx_model = onnx.load(onnx_model_path)
@@ -98,12 +98,12 @@ def split_onnx_model(onnx_model_path, n_parts, max_parameters_threshold=np.inf):
         onnx_model = onnx_model_path
         # onnx_model = shape_inference.infer_shapes(onnx_model)
 
-    parts = split_onnx(onnx_model, n_parts=n_parts, cut_points=None, verbose=0, stats=False, fLOG=None)
+    parts = split_onnx(onnx_model, n_parts=n_parts, cut_points=None, verbose=verbose, stats=stats, fLOG=None)
     updated_parts = []
     for idx, part_model in enumerate(parts):
         if get_num_parameters(model=part_model) > max_parameters_threshold and idx > 0:
             # Recursively split the part
-            sub_parts = split_onnx_model(part_model, 2, max_parameters_threshold)
+            sub_parts = split_onnx_model(part_model, 2, max_parameters_threshold, verbose=verbose, stats=stats)
             updated_parts.extend(sub_parts)
         else:
             updated_parts.append(part_model)
@@ -187,21 +187,53 @@ def run_inference_on_split_model(model_parts: List[onnx.ModelProto], input_path:
     for i, model_part in enumerate(model_parts):
         print(f"Running inference on part {i + 1}...")
         results = run_inference(model_part.SerializeToString(), input_for_next_part)
-        print(f"Inference results for part {i + 1}:", results)
+        #print(f"Inference results for part {i + 1}:", results)
         
         # Prepare the output of this part as the input for the next part
         input_for_next_part = results[0]  # Assuming the output is the first element of results
 
     # The final results after running inference on all parts
     final_results = input_for_next_part
-    print("Final inference results:", final_results)
+    #print("Final inference results:", final_results)
     return final_results
+
+
+def get_all_possible_cut_points(onnx_model_path, verbose=0, stats=False):
+    if isinstance(onnx_model_path,str):
+        onnx_model = onnx.load(onnx_model_path)
+        onnx_model = shape_inference.infer_shapes(onnx_model)
+    else:
+        onnx_model = onnx_model_path
+        # onnx_model = shape_inference.infer_shapes(onnx_model)
+    
+    cutting_points = get_all_cut_points(onnx_model, verbose=verbose)
+    return cutting_points
+
+
+def split_at_provided_cut_points(onnx_model_path, cut_points_provided, verbose=0, stats=False):
+    if isinstance(onnx_model_path,str):
+        onnx_model = onnx.load(onnx_model_path)
+        onnx_model = shape_inference.infer_shapes(onnx_model)
+    else:
+        onnx_model = onnx_model_path
+        # onnx_model = shape_inference.infer_shapes(onnx_model)
+    
+    parts = split_onnx(onnx_model, n_parts=None, cut_points=cut_points_provided, verbose=verbose, stats=stats, fLOG=None)
+    return parts
+
+def save_parts_as_onnx_files(original_model_path, model_parts: List[onnx.ModelProto]):
+    for i, model_part in enumerate(model_parts):
+        part_path = f"{original_model_path}_part_{i+1}.onnx"
+        print(f"saving: {part_path}...")
+        part_binary_string = model_part.SerializeToString()
+        with open(part_path, "wb") as file:
+            file.write(part_binary_string)
 
 def main():
     print("ONNX version:", onnx.__version__)
 
-    # original_model_path = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
-    # original_input_path = 'examples/onnx/mobilenet/input.json'   
+    original_model_path = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
+    original_input_path = 'examples/onnx/mobilenet/input.json'   
     
     # original_model_path = 'examples/onnx/random_forest/network.onnx'
     # original_input_path = 'examples/onnx/random_forest/input.json'
@@ -209,8 +241,8 @@ def main():
     # original_model_path = 'examples/onnx/mnist_classifier/network.onnx'
     # original_input_path = 'examples/onnx/mnist_classifier/input.json'
 
-    original_model_path = 'examples/onnx/mnist_gan/network.onnx'
-    original_input_path = 'examples/onnx/mnist_gan/input.json'
+    # original_model_path = 'examples/onnx/mnist_gan/network.onnx'
+    # original_input_path = 'examples/onnx/mnist_gan/input.json'
 
     # original_model_path = 'examples/onnx/little_transformer/network.onnx'
     # original_input_path = 'examples/onnx/little_transformer/input.json'   
@@ -218,13 +250,24 @@ def main():
     # original_model_path = 'examples/onnx/efficient_net/efficientnet-lite4-11.onnx'
     # original_input_path = 'examples/onnx/shuffle_net/input.json'
 
-    split_models = split_onnx_model(original_model_path, n_parts=4)
+    # original_model_path = 'examples/onnx/nanoGPT/gptneox_Opset16.onnx'
+    # original_input_path = 'examples/onnx/nanoGPT/input.json'  
 
+    #split_models = split_onnx_model(original_model_path, n_parts=4, max_parameters_threshold=np.inf, verbose=20, stats=False)
 
+    cut_points = get_all_possible_cut_points(original_model_path, verbose=0, stats=False)
+    print(f"All possible split points({len(cut_points)}): {cut_points}\n")
+
+    verbose = 1
+    split_models = split_at_provided_cut_points(original_model_path, cut_points_provided=cut_points, verbose=verbose, stats=False)
     # split_models = split_onnx_model(original_model_path, num_splits=2)
-    run_inference_on_split_model(split_models, original_input_path)
     
+    run_inference_on_split_model(split_models, original_input_path)
     run_inference_on_full_model(original_model_path,original_input_path)
+
+    save_parts_as_onnx_files(original_model_path, split_models)
+    
+    
     # run_inference_on_full_model()
 
 

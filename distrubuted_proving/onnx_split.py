@@ -1038,7 +1038,11 @@ class OnnxSplitting:
             new_model.doc_string = model.doc_string
         return new_model, extra_inputs
 
-
+def get_all_cut_points(onnx_model, verbose=0):
+    spl_onnx = OnnxSplitting(onnx_model, verbose=verbose,
+                            doc_string=False, fLOG=print)
+    return spl_onnx.cutting_points
+    
 def split_onnx(onnx_model, n_parts=None, cut_points=None,
                verbose=0, stats=False, doc_string=False,
                fLOG=None):
