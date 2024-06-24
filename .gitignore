@@ -3,3 +3,5 @@ lightning_logs
 dispatcher.log
 distrubuted_proving/tmp/
 data/
+test_parts/
+test_parts/*

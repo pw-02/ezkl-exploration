@@ -120,29 +120,7 @@ def extract_model(
             onnx.checker.check_model(output_path)
     return extracted
 
-
-
-def run_inference_on_split_model(onnx_model, json_input, n_parts, itermediate_outputs):
-    model = onnx.load(onnx_model)
-    nodes = model.graph.node
-    node_info = {}
-    initializers = {init.name for init in model.graph.initializer}
-    # constants = get_constants(model)
-
-    # const_nodes = {node.name for node in model.graph.node if 'Constant' in node.name}
-    # const_outputs = {node.name for node in model.graph.node if 'Constant' in node.name}
-    # const_inputs = {node.name for node in model.graph.node if 'Constant' in node.name}
-
-    #'Constant_output_0'
-    # Collect node information, ignoring initializers
-    node_info = {}
-    for node in nodes:
-        node_inputs = [input for input in node.input if input not in initializers and 'Constant' not in input]
-        node_outputs = [output for output in node.output if output not in initializers and 'Constant' not in output]
-        if node_inputs and node_outputs:
-            node_info[node.name] = (node_inputs, node_outputs)
-    
-    def divide_nodes_into_parts(node_info, parts_count):
+def divide_nodes_into_parts(node_info, parts_count, debug = False):
         node_names = list(node_info.keys())
         total_nodes = len(node_names)
         part_size = total_nodes // parts_count
@@ -155,20 +133,32 @@ def run_inference_on_split_model(onnx_model, json_input, n_parts, itermediate_ou
             part_names = node_names[start_index:end_index]
             part = [(name, node_info[name][0], node_info[name][1]) for name in part_names]
             parts.append(part)
-        # Print the nodes in each part
-        for i, part in enumerate(parts):
-            print(f"Part {i+1}:")
-            for info in part:
-                print(f"Node Name: {info[0]}, Input: {info[1]}, Output: {info[2]}")
-            print()
+        if debug:
+            # Print the nodes in each part
+            for i, part in enumerate(parts):
+                print(f"Part {i+1}:")
+                for info in part:
+                    print(f"Node Name: {info[0]}, Input: {info[1]}, Output: {info[2]}")
+                print()
         return parts
 
-    # def extract_sub_model(input_path, output_path, input_names, output_names):  
-    #         onnx.utils.extract_model(input_path, output_path, input_names, output_names)
+def run_inference_on_split_model(onnx_model, json_input, n_parts, itermediate_outputs):
+    model = onnx.load(onnx_model)
+    nodes = model.graph.node
+    node_info = {}
+    initializers = {init.name for init in model.graph.initializer}
+
+    node_info = {}
+    for node in nodes:
+        node_inputs = [input for input in node.input if input not in initializers and 'Constant' not in input]
+        node_outputs = [output for output in node.output if output not in initializers and 'Constant' not in output]
+        if node_inputs and node_outputs:
+            node_info[node.name] = (node_inputs, node_outputs)
 
     parts = divide_nodes_into_parts(node_info, n_parts)
 
     model_parts = []
+
     output_paths = [f"test_parts/part{i+1}_model.onnx" for i in range(n_parts)]
 
     for i, part in enumerate(parts):
@@ -176,7 +166,7 @@ def run_inference_on_split_model(onnx_model, json_input, n_parts, itermediate_ou
 
         first_node_in_part_info = node_info[part[0][0]]
         input_names = [name for name in first_node_in_part_info[0] ]
-        
+
         part_outputs = set()
         for p in part:
             node_name = p[0]
@@ -193,7 +183,6 @@ def run_inference_on_split_model(onnx_model, json_input, n_parts, itermediate_ou
 
         last_node_in_part_info = node_info[part[-1][0]]
         output_names = [name for name in last_node_in_part_info[1]]
-
         sub_model = extract_model(onnx_model, input_names, output_names,output_paths[i])
         model_parts.append(sub_model)
     
@@ -201,18 +190,17 @@ def run_inference_on_split_model(onnx_model, json_input, n_parts, itermediate_ou
         input_data = load_json_input(json_input)
         print(f"Running inference on part {i + 1}...")
         session = ort.InferenceSession(model_part.SerializeToString())
+        
         input_names = [input.name for input in session.get_inputs()]
+        
         if i == 0:
             itermediate_outputs[input_names[0]] = input_data
-        
         assert all(name in itermediate_outputs for name in input_names), "Input data dictionary keys must match the model input names."
         infer_input = {}
         for name in input_names:
             infer_input[name] = itermediate_outputs[name]
-
+            
         results = session.run(None, infer_input)
-        if len(results) > 1:
-            pass
         
         print(f"Inference results for part {i + 1}:", results)
     return results
@@ -234,7 +222,7 @@ if __name__ == "__main__":
 
     split_model_output = run_inference_on_split_model(model,
                                                       input,
-                                                      6,
+                                                      321,
                                                       intermediate_results)
     print(f'split model result:{split_model_output}')
 
