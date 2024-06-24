@@ -53,22 +53,25 @@ def get_intermediate_outputs(onnx_model, json_input):
     for node in nodes:
         all_node_outputs.extend([output for output in node.output if '/' in output])
 
-    shape_info = onnx.shape_inference.infer_shapes(model)
+    shape_info = onnx.shape_inference.infer_shapes(model)   
+    errors = []
+    ok = []
+    for idx,i_out in enumerate(shape_info.graph.value_info):
+        try:
+            model.graph.output.extend([i_out])
+            session = ort.InferenceSession(model.SerializeToString())
+            ok.append((idx, i_out.name))
+        except Exception as e:
+            errors.append((idx, i_out.name, str(e)))
+    if errors:
+        print("Errors occurred while extending model outputs:")
+        for error in errors:
+            print(f"Error at index {error[0]} with output name '{error[1]}': {error[2]}")
 
-    intermediate_outputs = [
-            helper.make_tensor_value_info(
-                value_info.name, value_info.type.tensor_type.elem_type, 
-                [dim.dim_value for dim in value_info.type.tensor_type.shape.dim]
-            ) for value_info in shape_info.graph.value_info
-        ]
-
-    model.graph.output.extend(intermediate_outputs)
-    
     # Load and preprocess the JSON input
     input_data = load_json_input(json_input)
 
     # Run inference
-    session = ort.InferenceSession(model.SerializeToString())
     input_name = session.get_inputs()[0].name
     results = session.run(None, {input_name: input_data})
     
@@ -83,7 +86,7 @@ def extract_model(
     input_names: list[str],
     output_names: list[str],
     output_path: str = None,
-    check_model: bool = True,
+    check_model: bool = False,
 ) -> None:
     """Extracts sub-model from an ONNX model.
 
@@ -166,6 +169,7 @@ def run_inference_on_split_model(onnx_model, json_input, n_parts, itermediate_ou
     parts = divide_nodes_into_parts(node_info, n_parts)
 
     model_parts = []
+    output_paths = [f"test_parts/part{i+1}_model.onnx" for i in range(n_parts)]
 
     for i, part in enumerate(parts):
         print(f"Part: {i+1}")
@@ -189,7 +193,8 @@ def run_inference_on_split_model(onnx_model, json_input, n_parts, itermediate_ou
 
         last_node_in_part_info = node_info[part[-1][0]]
         output_names = [name for name in last_node_in_part_info[1]]
-        sub_model = extract_model(onnx_model, input_names, output_names)
+
+        sub_model = extract_model(onnx_model, input_names, output_names,output_paths[i])
         model_parts.append(sub_model)
     
     for i, model_part in enumerate(model_parts):
@@ -223,6 +228,7 @@ if __name__ == "__main__":
     # input = 'examples/onnx/mnist_gan/input.json'
 
     full_model_result = run_inference(model, input)
+    print(f'full model result:{full_model_result}')
     #get the output tensor(s) of every node node in the model during inference
     intermediate_results = get_intermediate_outputs(model,input)
 
@@ -230,4 +236,5 @@ if __name__ == "__main__":
                                                       input,
                                                       6,
                                                       intermediate_results)
-    
+    print(f'split model result:{split_model_output}')
+
