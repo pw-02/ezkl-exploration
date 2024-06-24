@@ -1,0 +1,45 @@
+version 1.0;
+
+fragment tract_core_properties(
+) -> (properties: (string, tensor<scalar>)[])
+{
+  properties = [("tract_nnef_ser_version", "0.21.6-pre"), ("tract_nnef_format_version", "beta1")];
+}
+
+graph network(input_1) -> (_23) {
+  input_1 = external(shape = [1, 1, 32, 32]);
+  conv1_weight_0 = variable<scalar>(label = "conv1.weight.0", shape = [6, 1, 3, 3]);
+  conv1_bias_0 = [0.040680766, -0.06265144, 0.32689142, 0.12525082, 0.1526463, -0.012306213];
+  __conv1_Conv_conv = conv(input_1, conv1_weight_0, conv1_bias_0, dilation = [1, 1], stride = [1, 1], border = "constant", groups = 1, padding = [(0, 0), (0, 0)]);
+  __conv1_Conv = __conv1_Conv_conv;
+  __Relu_low_cst = [[[[0.0]]]];
+  __Relu_low = max(__conv1_Conv, __Relu_low_cst);
+  __MaxPool = max_pool(__Relu_low, size = [1, 1, 2, 2], dilation = [1, 1, 1, 1], stride = [1, 1, 2, 2], border = "ignore", padding = [(0, 0), (0, 0), (0, 0), (0, 0)]);
+  conv2_weight_0 = variable<scalar>(label = "conv2.weight.0", shape = [16, 6, 3, 3]);
+  conv2_bias_0 = variable<scalar>(label = "conv2.bias.0", shape = [16]);
+  __conv2_Conv_conv = conv(__MaxPool, conv2_weight_0, conv2_bias_0, dilation = [1, 1], stride = [1, 1], border = "constant", groups = 1, padding = [(0, 0), (0, 0)]);
+  __conv2_Conv = __conv2_Conv_conv;
+  __Relu_1_low = max(__conv2_Conv, __Relu_low_cst);
+  __MaxPool_1 = max_pool(__Relu_1_low, size = [1, 1, 2, 2], dilation = [1, 1, 1, 1], stride = [1, 1, 2, 2], border = "ignore", padding = [(0, 0), (0, 0), (0, 0), (0, 0)]);
+  __Reshape_0 = reshape(__MaxPool_1, shape = [576], axis_start = 1, axis_count = 3);
+  fc1_weight_0 = variable<scalar>(label = "fc1.weight.0", shape = [120, 576]);
+  __fc1_Gemm_ab_einsum = matmul(__Reshape_0, fc1_weight_0, transposeA = false, transposeB = true);
+  __fc1_Gemm_ab = squeeze(__fc1_Gemm_ab_einsum, axes = [0]);
+  __fc1_Gemm_c_add_axis_1 = variable<scalar>(label = "/fc1/Gemm.c_add_axis_1", shape = [120]);
+  __fc1_Gemm = add(__fc1_Gemm_ab, __fc1_Gemm_c_add_axis_1);
+  __Relu_2_low_cst = [0.0];
+  __Relu_2_low = max(__fc1_Gemm, __Relu_2_low_cst);
+  __fc2_Gemm_ab_add_m = unsqueeze(__Relu_2_low, axes = [0]);
+  fc2_weight_0 = variable<scalar>(label = "fc2.weight.0", shape = [84, 120]);
+  __fc2_Gemm_ab_einsum = matmul(__fc2_Gemm_ab_add_m, fc2_weight_0, transposeA = false, transposeB = true);
+  __fc2_Gemm_ab = squeeze(__fc2_Gemm_ab_einsum, axes = [0]);
+  __fc2_Gemm_c_add_axis_1 = variable<scalar>(label = "/fc2/Gemm.c_add_axis_1", shape = [84]);
+  __fc2_Gemm = add(__fc2_Gemm_ab, __fc2_Gemm_c_add_axis_1);
+  __Relu_3_low = max(__fc2_Gemm, __Relu_2_low_cst);
+  __fc3_Gemm_ab_add_m = unsqueeze(__Relu_3_low, axes = [0]);
+  fc3_weight_0 = variable<scalar>(label = "fc3.weight.0", shape = [10, 84]);
+  __fc3_Gemm_ab = matmul(__fc3_Gemm_ab_add_m, fc3_weight_0, transposeA = false, transposeB = true);
+  __fc3_Gemm_c_add_axis_1 = variable<scalar>(label = "/fc3/Gemm.c_add_axis_1", shape = [1, 10]);
+  __fc3_Gemm = add(__fc3_Gemm_ab, __fc3_Gemm_c_add_axis_1);
+  _23 = __fc3_Gemm;
+}

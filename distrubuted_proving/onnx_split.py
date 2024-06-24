@@ -475,7 +475,7 @@ class OnnxSplitting:
             elif node.op_type == "Constant":
                 key = self._key(idn, node)
                 small_tensors[key] = False
-
+        # small_tensors.clear()
         # adjacency matrix
         no_cutting = (
             set(small_tensors) |
@@ -533,7 +533,7 @@ class OnnxSplitting:
             connex_id = set(connex.values())
             if len(connex_id) == 2:
                 cutting_points.append(name)
-
+            # cutting_points.append(name)
             # put back the links
             for a, b in keys:
                 adja[a, b] = 1

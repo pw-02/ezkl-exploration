@@ -1,4 +1,5 @@
 import onnx
+import onnx.onnx_cpp2py_export
 import onnxruntime as ort
 import numpy as np
 import json
@@ -6,7 +7,7 @@ from onnx import helper
 from onnx import shape_inference, ModelProto
 from typing import List
 from onnx import ModelProto
-from onnx_split import split_onnx
+from distrubuted_proving.onnx_split import split_onnx, OnnxSplitting
 
 def get_num_parameters(model = None):
     # Load the ONNX model
@@ -25,14 +26,6 @@ def get_num_parameters(model = None):
         num_parameters += param_size
     
     return num_parameters
-
-
-def list_layers(onnx_model_path):
-    onnx_model = onnx.load(onnx_model_path)
-    layers = []
-    for node in onnx_model.graph.node:
-        layers.append(node.name)
-    return layers
 
 def load_onnx_model(model_path):
     # Load the ONNX model
@@ -69,13 +62,40 @@ def load_json_input(input_path):
 
     return input_data
 
-def run_inference(model_path, input_data):
-    # Initialize ONNX Runtime session
-    session = ort.InferenceSession(model_path)
-    input_name = session.get_inputs()[0].name
-    output_names = [output.name for output in session.get_outputs()]
-    results = session.run(None, {input_name: input_data})
-    return results
+def run_inference_on_split_model(model_parts: List[onnx.ModelProto], input_path: str):
+
+    inputs_dict = {}
+    # Load and preprocess the JSON input
+    input_data = load_json_input(input_path)
+    # Run inference sequentially on each part
+    for i, model_part in enumerate(model_parts):
+        print(f"Running inference on part {i + 1}...")
+        session = ort.InferenceSession(model_part.SerializeToString())
+        input_names = [input.name for input in session.get_inputs()]
+
+        if i == 0:
+            inputs_dict[input_names[0]] = input_data
+
+        assert all(name in inputs_dict for name in input_names), "Input data dictionary keys must match the model input names."
+
+        infer_input = {}
+        for name in input_names:
+            infer_input[name] = inputs_dict[name]
+
+        output_names = [output.name for output in session.get_outputs()]
+
+        results = session.run(output_names, infer_input)
+        if len(results) > 1:
+            pass
+        for name in output_names:
+            inputs_dict[name] = results[0]  # Assuming the output is the first element of results
+
+        print(f"Inference results for part {i + 1}:", results)
+
+    # The final results after running inference on all parts
+    final_results = results[0]
+    print("Final inference results:", final_results)
+    return final_results
 
 
 def run_inference_on_full_model(model_path, input_path):
@@ -85,11 +105,27 @@ def run_inference_on_full_model(model_path, input_path):
     # Load and preprocess the JSON input
     input_data = load_json_input(input_path)
     # Run inference
-    results = run_inference(onnx_model.SerializeToString(), input_data)
+    session = ort.InferenceSession(onnx_model.SerializeToString())
+    input_name = session.get_inputs()[0].name
+    results = session.run(None, {input_name: input_data})
     # Print results
-    print("Inference results:", results)
+    print("Inference results:", results[0])
+    return results[0]
 
-def split_onnx_model(onnx_model_path, n_parts, max_parameters_threshold=np.inf):
+def split_onnx_model(onnx_model_path, n_parts=np.inf):
+    def select_cut_points(cutting_points, n_parts):
+        # Ensure n_parts is at least 1
+        n_parts = max(1, n_parts)
+        # Total number of cutting points
+        total_points = len(cutting_points)
+        if n_parts >= total_points:
+            # If n_parts is greater than or equal to total points, return all cutting points
+            return cutting_points
+        # Calculate the indices to pick
+        step = total_points / n_parts
+        selected_indices = [int(step * i) for i in range(1, n_parts)]
+        selected_cut_points = [cutting_points[i] for i in selected_indices]
+        return selected_cut_points
 
     if isinstance(onnx_model_path,str):
         onnx_model = onnx.load(onnx_model_path)
@@ -97,135 +133,78 @@ def split_onnx_model(onnx_model_path, n_parts, max_parameters_threshold=np.inf):
     else:
         onnx_model = onnx_model_path
         # onnx_model = shape_inference.infer_shapes(onnx_model)
+    spl_onnx = OnnxSplitting(onnx_model, verbose=1, doc_string=False, fLOG=print)
+    cut_points = select_cut_points(spl_onnx.cutting_points, n_parts)
 
-    parts = split_onnx(onnx_model, n_parts=n_parts, cut_points=None, verbose=0, stats=False, fLOG=None)
-    updated_parts = []
-    for idx, part_model in enumerate(parts):
-        if get_num_parameters(model=part_model) > max_parameters_threshold and idx > 0:
-            # Recursively split the part
-            sub_parts = split_onnx_model(part_model, 2, max_parameters_threshold)
-            updated_parts.extend(sub_parts)
-        else:
-            updated_parts.append(part_model)
-    return updated_parts
+    parts = split_onnx(onnx_model, n_parts=2, cut_points=None, verbose=1, stats=False, fLOG=print)
 
+    return parts
 
+# def split_onnx_mode_oldl(onnx_model_path, num_splits =2):
 
+#     model = onnx.load(onnx_model_path)
+#     model = shape_inference.infer_shapes(model)
 
-def get_model_splits_inputs(model_parts: List[onnx.ModelProto], input_path: str):
-    # Load and preprocess the JSON input
-    input_data = load_json_input(input_path)
-    inputs = []
-    # Run inference sequentially on each part
-    input_for_next_part = input_data
-    for i, model_part in enumerate(model_parts):
-        inputs.append(input_for_next_part)
-        results = run_inference(model_part.SerializeToString(), input_for_next_part)
-        input_for_next_part = results[0]  # Assuming the output is the first element of results
-    return inputs
+#     if num_splits <=1:
+#         return [model]
 
+#     # Get the total number of layers in the model
+#     total_nodes = len(model.graph.node)
+#     nodes_per_split = total_nodes // num_splits  # Calculate the number of layers per split
 
-def split_onnx_mode_oldl(onnx_model_path, num_splits =2):
+#     # Split the model into parts
+#     split_models = []
+#     start_index = 0
+#     print(f'initial_parameter_count: {get_num_parameters(model=model)}')  # Count parameters before splitting
 
-    model = onnx.load(onnx_model_path)
-    model = shape_inference.infer_shapes(model)
-
-    if num_splits <=1:
-        return [model]
-
-    # Get the total number of layers in the model
-    total_nodes = len(model.graph.node)
-    nodes_per_split = total_nodes // num_splits  # Calculate the number of layers per split
-
-    # Split the model into parts
-    split_models = []
-    start_index = 0
-    print(f'initial_parameter_count: {get_num_parameters(model=model)}')  # Count parameters before splitting
-
-    for i in range(num_splits):
-        end_index = min(start_index + nodes_per_split, total_nodes)  # Ensure end index does not exceed total nodes
+#     for i in range(num_splits):
+#         end_index = min(start_index + nodes_per_split, total_nodes)  # Ensure end index does not exceed total nodes
         
-        part_nodes = model.graph.node[start_index:end_index]
-        next_nodes = model.graph.node[end_index:end_index+nodes_per_split]
+#         part_nodes = model.graph.node[start_index:end_index]
+#         next_nodes = model.graph.node[end_index:end_index+nodes_per_split]
 
-        # Collect initializers that are used as inputs in the next split
-        split_input_names = [inp for node in part_nodes for inp in node.input]
-        part_initializers = [init for init in model.graph.initializer if init.name in split_input_names]
+#         # Collect initializers that are used as inputs in the next split
+#         split_input_names = [inp for node in part_nodes for inp in node.input]
+#         part_initializers = [init for init in model.graph.initializer if init.name in split_input_names]
 
-        # Get the output name of the last node of this part
-        part_output_name = part_nodes[-1].output[0] if part_nodes else None
+#         # Get the output name of the last node of this part
+#         part_output_name = part_nodes[-1].output[0] if part_nodes else None
 
-        # Create a new ONNX graph for this part
-        part_graph = helper.make_graph(
-            part_nodes,
-            model.graph.name,
-            model.graph.input if i == 0 else [helper.make_tensor_value_info(prev_part_output_name, onnx.TensorProto.FLOAT, None)],
-            [helper.make_tensor_value_info(part_output_name, onnx.TensorProto.FLOAT, None)] if part_output_name else [],
-            part_initializers
-        )
+#         # Create a new ONNX graph for this part
+#         part_graph = helper.make_graph(
+#             part_nodes,
+#             model.graph.name,
+#             model.graph.input if i == 0 else [helper.make_tensor_value_info(prev_part_output_name, onnx.TensorProto.FLOAT, None)],
+#             [helper.make_tensor_value_info(part_output_name, onnx.TensorProto.FLOAT, None)] if part_output_name else [],
+#             part_initializers
+#         )
 
-         # Create ONNX model for this part
-        part_model = helper.make_model(part_graph)
-        split_models.append(part_model)
+#          # Create ONNX model for this part
+#         part_model = helper.make_model(part_graph)
+#         split_models.append(part_model)
 
-        #  # Update for next split
-        start_index = end_index
-        prev_part_output_name = part_output_name
-        print(f'split_{i}_parameter_count: {get_num_parameters(model=part_model)}')
+#         #  # Update for next split
+#         start_index = end_index
+#         prev_part_output_name = part_output_name
+#         print(f'split_{i}_parameter_count: {get_num_parameters(model=part_model)}')
     
-    return split_models
+#     return split_models
 
-
-
-def run_inference_on_split_model(model_parts: List[onnx.ModelProto], input_path: str):
-
-    # Load and preprocess the JSON input
-    input_data = load_json_input(input_path)
-
-    # Run inference sequentially on each part
-    input_for_next_part = input_data
-    for i, model_part in enumerate(model_parts):
-        print(f"Running inference on part {i + 1}...")
-        results = run_inference(model_part.SerializeToString(), input_for_next_part)
-        print(f"Inference results for part {i + 1}:", results)
-        
-        # Prepare the output of this part as the input for the next part
-        input_for_next_part = results[0]  # Assuming the output is the first element of results
-
-    # The final results after running inference on all parts
-    final_results = input_for_next_part
-    print("Final inference results:", final_results)
-    return final_results
 
 def main():
-    print("ONNX version:", onnx.__version__)
 
-    # original_model_path = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
-    # original_input_path = 'examples/onnx/mobilenet/input.json'   
+    original_model_path = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
+    original_input_path = 'examples/onnx/mobilenet/input.json'
+    split_models = split_onnx_model(original_model_path, n_parts=100)
+
+    full_model_result =  run_inference_on_full_model(original_model_path,original_input_path)
+
+    split_model_result = run_inference_on_split_model(split_models, original_input_path)
     
-    # original_model_path = 'examples/onnx/random_forest/network.onnx'
-    # original_input_path = 'examples/onnx/random_forest/input.json'
-
-    # original_model_path = 'examples/onnx/mnist_classifier/network.onnx'
-    # original_input_path = 'examples/onnx/mnist_classifier/input.json'
-
-    original_model_path = 'examples/onnx/mnist_gan/network.onnx'
-    original_input_path = 'examples/onnx/mnist_gan/input.json'
-
-    # original_model_path = 'examples/onnx/little_transformer/network.onnx'
-    # original_input_path = 'examples/onnx/little_transformer/input.json'   
-
-    # original_model_path = 'examples/onnx/efficient_net/efficientnet-lite4-11.onnx'
-    # original_input_path = 'examples/onnx/shuffle_net/input.json'
-
-    split_models = split_onnx_model(original_model_path, n_parts=4)
-
-
-    # split_models = split_onnx_model(original_model_path, num_splits=2)
-    run_inference_on_split_model(split_models, original_input_path)
-    
-    run_inference_on_full_model(original_model_path,original_input_path)
     # run_inference_on_full_model()
+
+    if split_model_result == full_model_result:
+        return True
 
 
 
