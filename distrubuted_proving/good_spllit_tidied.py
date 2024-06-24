@@ -29,8 +29,10 @@ def load_json_input(input_path):
 
     if input_data is None:
         raise ValueError(f"Input data is None")
-
-    return input_data
+    if 'input_data' in input_data:
+        return input_data['input_data']
+    else:
+        return input_data
 
 
 def run_inference(model_path, input_file):
@@ -45,20 +47,22 @@ def get_intermediate_outputs(onnx_model, json_input):
     model = onnx.load(onnx_model)
     nodes = model.graph.node
     all_node_outputs = []
+    shape_info = shape_inference.infer_shapes(model)
 
     # Collect all node outputs
     for node in nodes:
-        all_node_outputs.extend([output for output in node.output])
+        all_node_outputs.extend([output for output in node.output if '/' in output])
 
-    value_info_protos = []
     shape_info = onnx.shape_inference.infer_shapes(model)
-    
-    # Add value_info of intermediate nodes to model's outputs
-    for idx, node in enumerate(shape_info.graph.value_info):
-        if node.name in all_node_outputs:
-            value_info_protos.append(helper.make_tensor_value_info(node.name, node.type.tensor_type.elem_type, 
-                                                                   [dim.dim_value for dim in node.type.tensor_type.shape.dim]))
-    model.graph.output.extend(value_info_protos)
+
+    intermediate_outputs = [
+            helper.make_tensor_value_info(
+                value_info.name, value_info.type.tensor_type.elem_type, 
+                [dim.dim_value for dim in value_info.type.tensor_type.shape.dim]
+            ) for value_info in shape_info.graph.value_info
+        ]
+
+    model.graph.output.extend(intermediate_outputs)
     
     # Load and preprocess the JSON input
     input_data = load_json_input(json_input)
@@ -119,9 +123,19 @@ def run_inference_on_split_model(onnx_model, json_input, n_parts, itermediate_ou
     model = onnx.load(onnx_model)
     nodes = model.graph.node
     node_info = {}
+    initializers = {init.name for init in model.graph.initializer}
+    # constants = get_constants(model)
+
+    # const_nodes = {node.name for node in model.graph.node if 'Constant' in node.name}
+    # const_outputs = {node.name for node in model.graph.node if 'Constant' in node.name}
+    # const_inputs = {node.name for node in model.graph.node if 'Constant' in node.name}
+
+    #'Constant_output_0'
+    # Collect node information, ignoring initializers
+    node_info = {}
     for node in nodes:
-        node_inputs = [input for input in node.input]
-        node_outputs = [output for output in node.output]
+        node_inputs = [input for input in node.input if input not in initializers and 'Constant' not in input]
+        node_outputs = [output for output in node.output if output not in initializers and 'Constant' not in output]
         if node_inputs and node_outputs:
             node_info[node.name] = (node_inputs, node_outputs)
     
@@ -151,14 +165,13 @@ def run_inference_on_split_model(onnx_model, json_input, n_parts, itermediate_ou
 
     parts = divide_nodes_into_parts(node_info, n_parts)
 
-    output_paths = [f"test_parts/part{i+1}_model.onnx" for i in range(n_parts)]
     model_parts = []
 
     for i, part in enumerate(parts):
         print(f"Part: {i+1}")
 
         first_node_in_part_info = node_info[part[0][0]]
-        input_names = [name for name in first_node_in_part_info[0]  if not 'Constant' in name and not 'classifier' in name and not name.startswith('onnx::') and not name.startswith('classifier')]
+        input_names = [name for name in first_node_in_part_info[0] ]
         
         part_outputs = set()
         for p in part:
@@ -169,13 +182,13 @@ def run_inference_on_split_model(onnx_model, json_input, n_parts, itermediate_ou
         for p in part:
             node_name = p[0]
             for input_name in node_info[node_name][0]:
-                if input_name not in part_outputs and not input_name.startswith('onnx::') and not 'Constant' in input_name and not 'classifier' in input_name:
+                if input_name not in part_outputs:
                     if input_name not in input_names:
                         input_names.append(input_name)
 
 
         last_node_in_part_info = node_info[part[-1][0]]
-        output_names = [name for name in last_node_in_part_info[1] if not name.startswith('onnx::') and not name.startswith('onnx::')]
+        output_names = [name for name in last_node_in_part_info[1]]
         sub_model = extract_model(onnx_model, input_names, output_names)
         model_parts.append(sub_model)
     
@@ -201,14 +214,20 @@ def run_inference_on_split_model(onnx_model, json_input, n_parts, itermediate_ou
 
 
 if __name__ == "__main__":
-    onnx_model = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
-    json_input = 'examples/onnx/mobilenet/input.json'
-    full_model_result = run_inference(onnx_model, json_input)
-    #get the output tensor(s) of every node node in the model during inference
-    intermediate_results = get_intermediate_outputs(onnx_model,json_input)
+    model = 'examples/onnx/nanoGPT/network.onnx'
+    input = 'examples/onnx/nanoGPT/input.json'
+    
+    # model = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
+    # input = 'examples/onnx/mobilenet/input.json'
+    # model = 'examples/onnx/mnist_gan/network.onnx'
+    # input = 'examples/onnx/mnist_gan/input.json'
 
-    split_model_output = run_inference_on_split_model(onnx_model,
-                                                      json_input,
-                                                      65,
+    full_model_result = run_inference(model, input)
+    #get the output tensor(s) of every node node in the model during inference
+    intermediate_results = get_intermediate_outputs(model,input)
+
+    split_model_output = run_inference_on_split_model(model,
+                                                      input,
+                                                      6,
                                                       intermediate_results)
     
