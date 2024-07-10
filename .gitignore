@@ -3,11 +3,11 @@ lightning_logs
 dispatcher.log
 examples
 two_inpus_test
+split_model_output
 data
+model_to_circuit_relationship
 test_parts
 test_outputs
-*/onnx_models/*
-model_to_circuit_relationship/*
 *pk
 *vk
 *pf
