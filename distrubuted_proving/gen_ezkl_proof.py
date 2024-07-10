@@ -222,6 +222,6 @@ def main():
 if __name__ == '__main__':
    
 
-   prover = EZKLProver("split_model_output/10")
+   prover = EZKLProver("examples/onnx/residual_block")
    prover.run_end_to_end_proof()
    print('Done')
