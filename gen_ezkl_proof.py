@@ -1,20 +1,11 @@
-import grpc
-import grpc
-import zkpservice_pb2_grpc as pb2_grpc
-import zkpservice_pb2 as pb2
-import time
-import threading
-from concurrent import futures
+
 import logging
-from datetime import datetime
 import ezkl
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 import os
 from distrubuted_proving.log_utils import ExperimentLogger, time_function, print_func_exec_info
 from distrubuted_proving.utils import get_num_parameters
-import datetime
-import onnx
 from distrubuted_proving.utils import get_num_parameters
 from onnx import ModelProto
 import numpy as np
@@ -108,116 +99,6 @@ class EZKLProver():
             self.exp_logger.flush_log()
             return self.proof_path
             
-
-class WorkerServicer(pb2_grpc.WorkerServicer):
-    def __init__(self):
-        self.status = 'awaiting work'
-        self.is_busy = False
-        self.computed_proof = None
-
-    def ProcessTask(self, request, context):
-        logging.info("Received task: %s", request)
-        # Process the task
-        # Simulating processing time
-        time.sleep(2)
-        # Return response
-        return pb2.Task(id=request.id, data="Processed " + request.data)
-    
-    
-    def GetWorkerStatus(self, request, context):
-        if self.computed_proof is None:
-            return pb2.WorkerStatusResponse(message="Proof still being computed", isbusy=True)
-        else:
-            logging.info("Computed proof returned to dispacther. Worker is now free")
-            return pb2.WorkerStatusResponse(message="Proof computation finished", isbusy=self.is_busy)
-    
-    def GetComputedProof(self, request, context):
-        if self.computed_proof is None:
-            return pb2.ProofStatusResponse(status_message="Proof is still being computed", status_id=1, proof = None)
-        else:
-            logging.info("Computed proof returned to dispacther. Worker is now free for more proving tasks")
-            proof_response = pb2.ProofStatusResponse(status_message="Proof computed", status_id=1, proof = self.computed_proof)
-            self.computed_proof = None  # Reset computed_proof for future requests
-            return proof_response
-
-    def ComputeProof(self, request, context):
-        logging.info("Received 'Compute Proof' task")
-        
-         # Define a function to compute the proof
-        def compute_proof():
-            # Format the date and time as a string
-            directory_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            directory_path = os.path.join("data", directory_name)
-            os.makedirs(directory_path, exist_ok = True)
-
-            received_model = ModelProto()
-            received_model.ParseFromString(request.model_bytes)
-            onnx.save(received_model, os.path.join(directory_path, f'model.onnx'))
-            model_input = json.loads(request.model_input)
-
-            json.dump(model_input, open(os.path.join(directory_path, f'input.json'), 'w'))
-
-            prover = EZKLProver(directory_path)
-            proof_path = prover.run_end_to_end_proof()
-            
-            with open(proof_path, "rb") as file:
-                self.computed_proof = file.read()
-
-            logging.info("Proof computed and verified")
-            # # Once the proof is computed, update the response
-            # result = {'message': 'Proof computed and verified'}
-            # context.set_details(pb2.Message(**result))
-
-        # Return initial response and start a new thread to compute the proof
-        proof_thread = threading.Thread(target=compute_proof)
-        proof_thread.start()
-       
-        return pb2.Message(message="Proof computation started")
-        #return pb2.Message(message="Proof computed successsfully")
-
-    
-    def Ping(self, request, context): 
-        logging.info("Received Ping Request from %s", request.message)
-        # Return response
-        result = {'message': 'pong', 'received': True}
-        return pb2.MessageResponse(**result)
-    
-
-
-def run_worker(port):
-    try:
-        max_message_length = 2**31 - 1  # This is 2,147,483,647 bytes (~2GB)
-
-        server = grpc.server(futures.ThreadPoolExecutor(max_workers=8),
-                             options=[
-                                 ('grpc.max_send_message_length', max_message_length),
-                                 ('grpc.max_receive_message_length', max_message_length),
-                            ])
-        pb2_grpc.add_WorkerServicer_to_server(WorkerServicer(), server)
-        server.add_insecure_port('[::]:' + str(port))
-        server.start()
-        logging.info(f"Worker started on port {port}...")
-        # # Register with dispatcher
-        # channel = grpc.insecure_channel("localhost:50051")
-        # stub = pb2_grpc.DispatcherStub(channel)
-        # response = stub.RegisterWorker(pb2.WorkerAddress(address="localhost:50052"))  # Change the address as needed
-        # print("Registration response:", response)
-        server.wait_for_termination()
-    except KeyboardInterrupt:
-        logging.info("Server stopped due to keyboard interrupt")
-        server.stop(0)
-    except Exception as e:
-        logging.exception(f"Error in serve(): {e}")
-
-
-def main():
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Run gRPC worker")
-    parser.add_argument("--port", type=int, default=50052, help="Port number for the worker to listen on")
-    args = parser.parse_args()
-    run_worker(args.port)
-
 
 if __name__ == '__main__':
    
