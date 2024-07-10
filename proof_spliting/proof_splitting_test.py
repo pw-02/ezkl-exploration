@@ -29,8 +29,8 @@ def get_run_args():
     run_args.param_visibility = "fixed"
     run_args.output_visibility = "polycommit"
     run_args.input_scale = 2
-    run_args.logrows = 8
-    return None
+    # run_args.logrows = 20
+    return run_args
     
 def execute_proof_split(sub_model_configs:List[SubModelConfig]):
     run_args = get_run_args()
