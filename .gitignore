@@ -1,7 +1,6 @@
 outputs
 lightning_logs
 dispatcher.log
-examples
 two_inpus_test
 split_model_output
 data
