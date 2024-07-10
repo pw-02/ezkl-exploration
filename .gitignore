@@ -1,7 +1,13 @@
 outputs
 lightning_logs
 dispatcher.log
-distrubuted_proving/tmp/
-data/
-test_parts/
-test_parts/*
+examples
+two_inpus_test
+data
+test_parts
+test_outputs
+*/onnx_models/*
+model_to_circuit_relationship/*
+*pk
+*vk
+*pf

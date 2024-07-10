@@ -1,7 +1,7 @@
 
 defaults:
   - _self_
-  - model: mnist_gan  #mobilenet, mnist_gan, mnist_classifier, little_transformer
+  - model: mobilenet  #mobilenet, mnist_gan, mnist_classifier, little_transformer
   # - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled  
 

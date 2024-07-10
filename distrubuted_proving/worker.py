@@ -11,15 +11,15 @@ import ezkl
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 import os
-from log_utils import ExperimentLogger, time_function, print_func_exec_info
-from utils import get_num_parameters
+from distrubuted_proving.log_utils import ExperimentLogger, time_function, print_func_exec_info
+from distrubuted_proving.utils import get_num_parameters
 import datetime
 import onnx
-from utils import split_onnx_model, get_model_splits_inputs, get_num_parameters
+from distrubuted_proving.utils import get_num_parameters
 from onnx import ModelProto
 import numpy as np
 import json
-from log_utils import ResourceMonitor
+from distrubuted_proving.log_utils import ResourceMonitor
 
 class EZKLProver():
     def __init__(self, worker_dir:str):
@@ -210,10 +210,16 @@ def run_worker(port):
         logging.exception(f"Error in serve(): {e}")
 
 
-if __name__ == '__main__':
+def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Run gRPC worker")
     parser.add_argument("--port", type=int, default=50052, help="Port number for the worker to listen on")
     args = parser.parse_args()
     run_worker(args.port)
+
+
+if __name__ == '__main__':
+   prover = EZKLProver("two_inpus_test")
+   prover.run_end_to_end_proof()
+   print('Done')

@@ -5,7 +5,8 @@ import zkpservice_pb2 as pb2
 import hydra
 from omegaconf import DictConfig
 import logging
-from utils import split_onnx_model, get_model_splits_inputs, get_num_parameters
+from utils import  get_num_parameters
+from split_model import get_split_models_and_inputs
 import numpy as np
 from onnx import shape_inference, ModelProto
 from typing import List
@@ -25,11 +26,11 @@ class Worker():
         self.address = address
         self.is_free = True
         self.channel:Channel = None
-        self.current_model_part: ModelPart = None
+        self.assigned_model_part: SubModel = None
 
-class ModelPart():   
+class SubModel ():   
     def __init__(self, idx: int):
-         self.part_idx = idx
+         self.id = idx
          self.computed_witness = None
          self.computed_proof = None
          self.is_completed = False
@@ -39,7 +40,7 @@ class ZKPProver():
         self.workers:List[Worker] = []
         self.confirm_connections(config.worker_addresses)
         self.number_of_workers = len(self.workers) #plus one becuase this node also acts as a worker
-        self.model_parts:List[ModelPart] = []
+        self.model_parts:List[SubModel] = []
         
     def confirm_connections(self, worker_addresses):
         max_message_length = 2**31 - 1  # This is 2,147,483,647 bytes (~2GB)
@@ -74,37 +75,38 @@ class ZKPProver():
             # Add a short delay before checking again to avoid busy-waiting
             time.sleep(30)  # Adjust th
     
-    def generate_proof(self, onnx_file, input_file,n_parts = None ):
+    def generate_proof(self, onnx_file, json_input_file, n_parts = None ):
 
         if not n_parts:
             n_parts = self.number_of_workers
         
         logging.info(f'Total model parameter count before splitting: {get_num_parameters(model=onnx_file)}')
-        # split_models = split_onnx_model(onnx_file, n_parts=n_parts, max_parameters_threshold=208067)
-        split_models = split_onnx_model(onnx_file, n_parts=n_parts)
+
+        split_models = get_split_models_and_inputs(split_models, json_input_file, n_parts)
         logging.info(f'Total model parts: {len(split_models)}')
+        counter  =0
         for idx, part_model in  enumerate(split_models):
-            logging.info(f'Part {idx+1} Parameter Count: {get_num_parameters(model=part_model)}')
+            model_part_param_count = get_num_parameters(model=part_model)
+            logging.info(f'Part {idx+1} Parameter Count: {model_part_param_count}')
+            counter += model_part_param_count
+        logging.info(f'Total model parameter count after splitting: {counter}')
 
-        logging.info(f'Total model parameter count after splitting: {sum(get_num_parameters(model=part_model) for part_model in split_models)}')
 
-        split_inputs = get_model_splits_inputs(split_models, input_file)
-        model_data_splits = list(zip(split_models, split_inputs))
-        # Start the monitoring thread
-        monitor_thread = threading.Thread(target=self.monitor_progress, args=(len(model_data_splits),))
-        monitor_thread.start()
+        # # Start the monitoring thread
+        # monitor_thread = threading.Thread(target=self.monitor_progress, args=(len(split_models),))
+        # monitor_thread.start()
 
-        for idx, (model, model_input) in enumerate(model_data_splits):
+        # for idx, (model, model_input) in enumerate(split_models):
 
-            self.process_split(idx, model, model_input)
+        #     self.process_split(idx, model, model_input)
 
-        logging.info("All splits have been dispatched.")
-        # Wait for the monitoring thread to finish
-        monitor_thread.join()
-        logging.info("All splits have been processed. Job done. Shutting Down")
+        # logging.info("All splits have been dispatched.")
+        # # Wait for the monitoring thread to finish
+        # monitor_thread.join()
+        # logging.info("All splits have been processed. Job done. Shutting Down")
     
     def process_split(self, idx, model, model_input):
-        model_part = ModelPart(idx=len(self.model_parts)+1)
+        model_part = SubModel(idx=len(self.model_parts)+1)
         self.model_parts.append(model_part)
         worker = self.next_available_worker(model_part.part_idx)
         worker.channel = grpc.insecure_channel(worker.address)

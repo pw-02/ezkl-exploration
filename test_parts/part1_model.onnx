@@ -1,16 +1,0 @@
-onnx.utils.extract_model:§
-'
-input/Shape_output_0/Shape"ShapeExtracted from {main_graph}Z!
-input
-
-
-batch_size
-@b
-/Shape_output_0
-
-
-j
-/Shape_output_0
-
-
-B
