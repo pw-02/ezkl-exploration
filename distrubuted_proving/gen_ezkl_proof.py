@@ -221,10 +221,7 @@ def main():
 
 if __name__ == '__main__':
    
-   model = ''
-   input = ''
 
-
-   prover = EZKLProver("two_inpus_test")
+   prover = EZKLProver("split_model_output/10")
    prover.run_end_to_end_proof()
    print('Done')

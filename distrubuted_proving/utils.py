@@ -67,6 +67,9 @@ def run_inference_on_split_model(model_parts: List[onnx.ModelProto], input_path:
     inputs_dict = {}
     # Load and preprocess the JSON input
     input_data = load_json_input(input_path)
+
+    model_input_pairs = []
+
     # Run inference sequentially on each part
     for i, model_part in enumerate(model_parts):
         print(f"Running inference on part {i + 1}...")
@@ -89,13 +92,13 @@ def run_inference_on_split_model(model_parts: List[onnx.ModelProto], input_path:
             pass
         for name in output_names:
             inputs_dict[name] = results[0]  # Assuming the output is the first element of results
-
+        model_input_pairs.append((model_part, infer_input))
         print(f"Inference results for part {i + 1}:", results)
 
     # The final results after running inference on all parts
     final_results = results[0]
     print("Final inference results:", final_results)
-    return final_results
+    return model_input_pairs, final_results
 
 
 def run_inference_on_full_model(model_path, input_path):
@@ -136,7 +139,7 @@ def split_onnx_model(onnx_model_path, n_parts=np.inf):
     spl_onnx = OnnxSplitting(onnx_model, verbose=1, doc_string=False, fLOG=print)
     cut_points = select_cut_points(spl_onnx.cutting_points, n_parts)
 
-    parts = split_onnx(onnx_model, n_parts=2, cut_points=None, verbose=1, stats=False, fLOG=print)
+    parts = split_onnx(onnx_model, cut_points=spl_onnx.cutting_points, verbose=1, stats=False, fLOG=print)
 
     return parts
 
@@ -190,21 +193,37 @@ def split_onnx_model(onnx_model_path, n_parts=np.inf):
     
 #     return split_models
 
+# Function to convert and flatten NumPy arrays to lists
+def convert_and_flatten_ndarray_to_list(d):
+    for key, value in d.items():
+        if isinstance(value, np.ndarray):
+            d[key] = value.reshape([-1]).tolist()  # Flatten and convert to list
+        elif isinstance(value, dict):
+            d[key] = convert_and_flatten_ndarray_to_list(value)
+    return d
 
 def main():
-
+    import os
     original_model_path = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
     original_input_path = 'examples/onnx/mobilenet/input.json'
     split_models = split_onnx_model(original_model_path, n_parts=100)
 
     full_model_result =  run_inference_on_full_model(original_model_path,original_input_path)
 
-    split_model_result = run_inference_on_split_model(split_models, original_input_path)
-    
-    # run_inference_on_full_model()
+    model_input_pairs, final_results = run_inference_on_split_model(split_models, original_input_path)
 
-    if split_model_result == full_model_result:
-        return True
+    for idx, model_input_pair in enumerate(model_input_pairs):
+            part_model, input = model_input_pair
+            folde_name  = os.path.join('split_model_output', str(idx))
+            os.makedirs(folde_name, exist_ok=True)
+            save_apth = os.path.join(folde_name,f'network_{idx}.onnx')
+            onnx.save_model(part_model,save_apth)
+            input_flattened = convert_and_flatten_ndarray_to_list(input)
+
+            with open(os.path.join(folde_name,f"{idx}_input.json"), 'w') as json_file:
+                json.dump(input, json_file, indent=4)  # indent=4 for pretty-printing
+    pass
+    # run_inference_on_full_model()
 
 
 

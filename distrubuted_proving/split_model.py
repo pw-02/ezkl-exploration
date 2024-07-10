@@ -16,9 +16,9 @@ def load_json_input(input_path):
     # Convert to NumPy array and reshape to (1, 3, 224, 224)
     if 'net' in input_path:
         input_data = np.array(input_data['input_data'], dtype=np.float32)  # Ensure the data type is float32
-        if input_data.size != 3 * 8 * 8:
-            raise ValueError(f"Input data must be of size {3 * 8 * 8}, but got {input_data.size}")
-        input_data = input_data.reshape(1, 3, 8, 8)
+        if input_data.size != 3 * 224 *224:
+            raise ValueError(f"Input data must be of size {3 * 224 * 224}, but got {input_data.size}")
+        input_data = input_data.reshape(1, 3, 224, 224)
         return input_data
     elif 'mnist_gan' in input_path or 'little_transformer' in input_path:
         input_data = np.array(input_data['input_data'], dtype=np.float32)  # Ensure the data type is floa
@@ -171,8 +171,6 @@ def run_inference_on_split_model(onnx_model, json_input, itermediate_outputs, n_
  
     output_paths = [os.path.join(output_folder, f"part{i+1}_model.onnx") for i in range(n_parts)]
 
-    # output_paths = [f"model_to_circuit_relationship/mnistgan_x_splits/onnx_models/part{i+1}_model.onnx" for i in range(n_parts)]
-
     for i, part in enumerate(parts):
         print(f"Part: {i+1}")
 
@@ -216,12 +214,12 @@ def run_inference_on_split_model(onnx_model, json_input, itermediate_outputs, n_
         with open(os.path.join(output_folder,f"part{i+1}_input.json"), 'w') as json_file:
             infer_input_serializable = convert_and_flatten_ndarray_to_list(copy.deepcopy(infer_input))
 
-            json.dump(infer_input_serializable, json_file, indent=4)  # indent=4 for pretty-printing
-
+            json.dump(infer_input, json_file, indent=4)  # indent=4 for pretty-printing
 
         results = session.run(None, infer_input)
         
         print(f"Inference results for part {i + 1}:", results)
+
     return results
 # Function to convert NumPy arrays to lists
 def convert_ndarray_to_list(d):
@@ -314,15 +312,15 @@ if __name__ == "__main__":
     # model = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
     # input = 'examples/onnx/mobilenet/input.json'
 
-    # model = 'examples/onnx/mnist_gan/network.onnx'
-    # input = 'examples/onnx/mnist_gan/input.json'
+    model = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
+    input = 'examples/onnx/mobilenet/input.json'
 
     
     # model = 'examples/onnx/residual_block/model.onnx'
     # input = 'examples/onnx/residual_block/input_working.json'    
     
-    model = 'proof_spliting/relu/network_split_0/model.onnx'
-    input = 'proof_spliting/relu/network_split_0/input.json'
+    # model = 'proof_spliting/relu/network_split_0/model.onnx'
+    # input = 'proof_spliting/relu/network_split_0/input.json'
 
     full_model_result = run_inference(model, input)
     print(f'full model result:{full_model_result}')
@@ -331,6 +329,6 @@ if __name__ == "__main__":
 
     split_model_output = run_inference_on_split_model(model,
                                                       input,
-                                                      intermediate_results, n_parts=2)
+                                                      intermediate_results, n_parts=49)
     print(f'split model result:{split_model_output}')
 
