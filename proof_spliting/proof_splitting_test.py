@@ -6,6 +6,7 @@ from typing import List
 import json
 import glob
 import re
+from collections import OrderedDict
 
 #model splits, and the orgional input are needed
 
@@ -112,7 +113,7 @@ def execute_proof_split(sub_model_configs:List[SubModelConfig]):
 
 if __name__ == '__main__':
     
-    configs = []
+    configs = {}
     folder_path = 'proof_spliting/residual_block'
     entries = os.listdir(folder_path)
     subfolders = [entry for entry in entries if os.path.isdir(os.path.join(folder_path, entry))]
@@ -121,10 +122,11 @@ if __name__ == '__main__':
     for sub_model_dir in subfolders:
          sub_model_dir = os.path.join(folder_path, sub_model_dir)
          match = re.search(regex_pattern, os.path.basename(sub_model_dir))
-         idx = match.group(1)
-         configs.append(SubModelConfig(sub_model_dir))
-        
-    execute_proof_split(configs)
+         idx = int(match.group(1))
+         configs[idx] = SubModelConfig(sub_model_dir)
+         ordered_variables = OrderedDict(sorted(configs.items(), key=lambda item: int(item[0])))
+
+    execute_proof_split(ordered_variables.values())
 
     pass
 
