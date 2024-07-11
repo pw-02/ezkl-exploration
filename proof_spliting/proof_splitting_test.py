@@ -32,14 +32,9 @@ def get_run_args():
     run_args.input_scale = 2
     # run_args.logrows = 20
     return run_args
-    
-def execute_proof_split(sub_model_configs:List[SubModelConfig]):
-    run_args = get_run_args()
 
-    if run_args:
-        ezkl.get_srs(logrows=run_args.logrows, commitment=ezkl.PyCommitments.KZG)
-
-    #setup
+def run_setup(sub_model_configs:List[SubModelConfig], run_args):
+     #setup
     for idx, config in enumerate(sub_model_configs):
         print(f'Running Setup for: {config.model_path}')
         if idx > 0:
@@ -71,6 +66,7 @@ def execute_proof_split(sub_model_configs:List[SubModelConfig]):
         res = ezkl.gen_witness(config.data_path, config.compiled_model_path, config.witness_path, config.vk_path)
         run_args.input_scale = settings["model_output_scales"][0]
 
+def run_proving(sub_model_configs:List[SubModelConfig]):
     #prove
     for idx, config in enumerate(sub_model_configs):
         print(f'Running prove for: {config.model_path}')
@@ -111,10 +107,16 @@ def execute_proof_split(sub_model_configs:List[SubModelConfig]):
         assert res == True
         print(f"verified {config.model_path}")
 
+
+def execute_proof_split(sub_model_configs:List[SubModelConfig]):
+    run_args = get_run_args()
+    run_setup(sub_model_configs, run_args)
+    run_proving(sub_model_configs,run_args)
+
 if __name__ == '__main__':
     
     configs = {}
-    folder_path = 'proof_spliting/residual_block'
+    folder_path = 'examples/onnx/residual_block_split'
     entries = os.listdir(folder_path)
     subfolders = [entry for entry in entries if os.path.isdir(os.path.join(folder_path, entry))]
     regex_pattern = r'split_(\d+)'
