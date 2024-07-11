@@ -128,7 +128,7 @@ if __name__ == '__main__':
          configs[idx] = SubModelConfig(sub_model_dir)
          ordered_variables = OrderedDict(sorted(configs.items(), key=lambda item: int(item[0])))
 
-    execute_proof_split(ordered_variables.values())
+    execute_proof_split(list(ordered_variables.values()))
 
     pass
 
