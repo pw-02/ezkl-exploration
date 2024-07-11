@@ -103,6 +103,6 @@ class EZKLProver():
 if __name__ == '__main__':
    
 
-   prover = EZKLProver("examples/onnx/residual_block")
+   prover = EZKLProver("examples/onnx/residual_block_split/network_split_0")
    prover.run_end_to_end_proof()
    print('Done')

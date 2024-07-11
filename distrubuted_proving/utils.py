@@ -218,10 +218,10 @@ def main():
             os.makedirs(folde_name, exist_ok=True)
             save_apth = os.path.join(folde_name,f'network_{idx}.onnx')
             onnx.save_model(part_model,save_apth)
-            input_flattened = convert_and_flatten_ndarray_to_list(input)
+            # input_flattened = convert_and_flatten_ndarray_to_list(input)
 
             with open(os.path.join(folde_name,f"{idx}_input.json"), 'w') as json_file:
-                json.dump(input, json_file, indent=4)  # indent=4 for pretty-printing
+                json.dump(json.dumps(input), json_file, indent=4)  # indent=4 for pretty-printing
     pass
     # run_inference_on_full_model()
 

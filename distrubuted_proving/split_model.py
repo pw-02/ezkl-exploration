@@ -42,7 +42,14 @@ def run_inference(model_path, input_file):
     input_data = load_json_input(input_file)
     session = ort.InferenceSession(model.SerializeToString())
     input_name = session.get_inputs()[0].name
-    results = session.run(None, {input_name: input_data})
+    input_shape = session.get_inputs()[0].shape
+    # input_data = np.array(input_data[input_name], dtype=float).reshape(input_shape)
+    # Convert the array data type to float32
+    if_input = np.array(input_data[input_name])
+
+    if_input = if_input.astype(np.float32)    
+    if_input=if_input.reshape(input_shape)
+    results = session.run(None, {input_name: if_input})
 
     return results
 
@@ -76,7 +83,8 @@ def get_intermediate_outputs(onnx_model, json_input):
 
     # Run inference
     input_name = session.get_inputs()[0].name
-    
+    input_shape = session.get_inputs()[0].shape
+    input_data = np.array(input_data[input_name]).astype(np.float32).reshape(input_shape)
     results = session.run(None, {input_name: input_data})
     
     intermediate_inference_outputs = {}
@@ -204,7 +212,12 @@ def run_inference_on_split_model(onnx_model, json_input, itermediate_outputs, n_
         input_names = [input.name for input in session.get_inputs()]
         
         if i == 0:
-            itermediate_outputs[input_names[0]] = input_data
+            input_name  = session.get_inputs()[0].name
+            input_shape = session.get_inputs()[0].shape
+            input_value = np.array(input_data[input_name]).astype(np.float32).reshape(input_shape)
+            input_data[input_name] = input_value
+            itermediate_outputs[input_names[0]] = input_value
+
 
         assert all(name in itermediate_outputs for name in input_names), "Input data dictionary keys must match the model input names."
         infer_input = {}
@@ -214,7 +227,7 @@ def run_inference_on_split_model(onnx_model, json_input, itermediate_outputs, n_
         with open(os.path.join(output_folder,f"part{i+1}_input.json"), 'w') as json_file:
             infer_input_serializable = convert_and_flatten_ndarray_to_list(copy.deepcopy(infer_input))
 
-            json.dump(infer_input, json_file, indent=4)  # indent=4 for pretty-printing
+            json.dump(infer_input_serializable, json_file, indent=4)  # indent=4 for pretty-printing
 
         results = session.run(None, infer_input)
         
@@ -312,15 +325,15 @@ if __name__ == "__main__":
     # model = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
     # input = 'examples/onnx/mobilenet/input.json'
 
-    model = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
-    input = 'examples/onnx/mobilenet/input.json'
+    # model = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
+    # input = 'examples/onnx/mobilenet/input.json'
 
     
     # model = 'examples/onnx/residual_block/model.onnx'
     # input = 'examples/onnx/residual_block/input_working.json'    
     
-    # model = 'proof_spliting/relu/network_split_0/model.onnx'
-    # input = 'proof_spliting/relu/network_split_0/input.json'
+    model = 'examples/onnx/residual_block/model.onnx'
+    input = 'examples/onnx/residual_block/input_org.json'
 
     full_model_result = run_inference(model, input)
     print(f'full model result:{full_model_result}')
@@ -329,6 +342,6 @@ if __name__ == "__main__":
 
     split_model_output = run_inference_on_split_model(model,
                                                       input,
-                                                      intermediate_results, n_parts=49)
+                                                      intermediate_results)
     print(f'split model result:{split_model_output}')
 
