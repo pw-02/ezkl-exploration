@@ -9,7 +9,9 @@ import os
 import ezkl
 import csv
 from collections import Counter
-from example_models import example_models_list, GPT
+from model_to_circuit_relationship.models.example_models import example_models_list, GPT
+from model_to_circuit_relationship.utils import *
+
 # Function to get all operations in the forward pass of a PyTorch model
 def get_pytorch_forward_operations(model, input_data):
     operations = []
@@ -32,12 +34,6 @@ def get_pytorch_forward_operations(model, input_data):
     # return operations, dict(layer_types)
     return dict(layer_types)
 
-
-# Function to count the number of parameters in a PyTorch model
-def count_pytorch_model_parameters(model):
-    total_params = sum(param.numel() for param in model.parameters() if param.requires_grad)
-    return total_params
-
 # Function to count and list different types of layers in a PyTorch model
 def get_pytorch_model_layer_types(model):
     layer_types = Counter()
@@ -50,11 +46,6 @@ def get_onnx_forward_operations(onnx_model_path):
     layer_types = Counter(node.op_type for node in model.graph.node)
     return dict(layer_types)
 
-# Function to count model parameters in an ONNX model
-def count_onnx_model_parameters(onnx_model_path):
-    model = onnx.load(onnx_model_path)
-    model_parameters = sum(np.prod(initializer.dims) for initializer in model.graph.initializer)
-    return model_parameters
 
 # Save input to JSON
 def save_input_to_json(input_data, filename):
@@ -67,14 +58,6 @@ def load_input_from_json(filename):
         input_list = json.load(f)
     return np.array(input_list, dtype=np.float32)
 
-# Run inference on ONNX model and get output
-def run_onnx_model_inference(onnx_model_path, input_data):
-
-    session = ort.InferenceSession(onnx_model_path)
-    input_name = session.get_inputs()[0].name
-    
-    results = session.run(None, {input_name: input_data})
-    return results
 
 # Run inference on PyTorch model and get output
 def run_pytorch_model_inference(model):
