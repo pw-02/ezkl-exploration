@@ -45,11 +45,10 @@ def run_inference(model_path, input_file):
     input_shape = session.get_inputs()[0].shape
     # input_data = np.array(input_data[input_name], dtype=float).reshape(input_shape)
     # Convert the array data type to float32
-    if_input = np.array(input_data[input_name])
-
-    if_input = if_input.astype(np.float32)    
-    if_input=if_input.reshape(input_shape)
-    results = session.run(None, {input_name: if_input})
+    # if_input = np.array(input_data[input_name])
+    # if_input = if_input.astype(np.float32)    
+    # if_input=if_input.reshape(input_shape)
+    results = session.run(None, {input_name: input_data})
 
     return results
 
@@ -83,8 +82,8 @@ def get_intermediate_outputs(onnx_model, json_input):
 
     # Run inference
     input_name = session.get_inputs()[0].name
-    input_shape = session.get_inputs()[0].shape
-    input_data = np.array(input_data[input_name]).astype(np.float32).reshape(input_shape)
+    # input_shape = session.get_inputs()[0].shape
+    # input_data = np.array(input_data[input_name]).astype(np.float32).reshape(input_shape)
     results = session.run(None, {input_name: input_data})
     
     intermediate_inference_outputs = {}
@@ -154,7 +153,7 @@ def divide_nodes_into_parts(node_info, parts_count, debug = False):
                 print()
         return parts
 
-def run_inference_on_split_model(onnx_model, json_input, itermediate_outputs, n_parts = np.inf):
+def run_inference_on_split_model(onnx_model, json_input, itermediate_outputs, base_name, save_folder, n_parts = np.inf):
     model = onnx.load(onnx_model)
     nodes = model.graph.node
     node_info = {}
@@ -174,17 +173,16 @@ def run_inference_on_split_model(onnx_model, json_input, itermediate_outputs, n_
     parts = divide_nodes_into_parts(node_info, n_parts)
 
     model_parts = []
-    output_folder = 'split_model_output'
-    os.makedirs(output_folder, exist_ok=True)
- 
-    output_paths = [os.path.join(output_folder, f"part{i+1}_model.onnx") for i in range(n_parts)]
+    if save_folder:
+        os.makedirs(save_folder, exist_ok=True)
+
+    output_paths = [os.path.join(save_folder, f"{base_name}_split{i+1}") for i in range(n_parts)]
 
     for i, part in enumerate(parts):
-        print(f"Part: {i+1}")
+        print(f"{base_name} split: {i+1}")
 
         first_node_in_part_info = node_info[part[0][0]]
         input_names = [name for name in first_node_in_part_info[0] ]
-
         part_outputs = set()
         for p in part:
             node_name = p[0]
@@ -198,10 +196,9 @@ def run_inference_on_split_model(onnx_model, json_input, itermediate_outputs, n_
                     if input_name not in input_names:
                         input_names.append(input_name)
 
-
         last_node_in_part_info = node_info[part[-1][0]]
         output_names = [name for name in last_node_in_part_info[1]]
-        sub_model = extract_model(onnx_model, input_names, output_names,output_paths[i])
+        sub_model = extract_model(onnx_model, input_names, output_names,f'{output_paths[i]}_model.onnx')
         model_parts.append(sub_model)
     
     for i, model_part in enumerate(model_parts):
@@ -214,9 +211,11 @@ def run_inference_on_split_model(onnx_model, json_input, itermediate_outputs, n_
         if i == 0:
             input_name  = session.get_inputs()[0].name
             input_shape = session.get_inputs()[0].shape
-            input_value = np.array(input_data[input_name]).astype(np.float32).reshape(input_shape)
-            input_data[input_name] = input_value
-            itermediate_outputs[input_names[0]] = input_value
+            # input_value = np.array(input_data[input_name]).astype(np.float32).reshape(input_shape)
+            # input_data[input_name] = input_value
+            # itermediate_outputs[input_names[0]] = input_value
+            # input_data[input_name] = input_data
+            itermediate_outputs[input_names[0]] = input_data
 
 
         assert all(name in itermediate_outputs for name in input_names), "Input data dictionary keys must match the model input names."
@@ -224,7 +223,7 @@ def run_inference_on_split_model(onnx_model, json_input, itermediate_outputs, n_
         for name in input_names:
             infer_input[name] = itermediate_outputs[name]
 
-        with open(os.path.join(output_folder,f"part{i+1}_input.json"), 'w') as json_file:
+        with open(f'{output_paths[i]}_input.json', 'w') as json_file:
             infer_input_serializable = convert_and_flatten_ndarray_to_list(copy.deepcopy(infer_input))
 
             json.dump(infer_input_serializable, json_file, indent=4)  # indent=4 for pretty-printing
@@ -325,23 +324,31 @@ if __name__ == "__main__":
     # model = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
     # input = 'examples/onnx/mobilenet/input.json'
 
-    # model = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
-    # input = 'examples/onnx/mobilenet/input.json'
+    model = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
+    input = 'examples/onnx/mobilenet/input.json'
 
     
     # model = 'examples/onnx/residual_block/model.onnx'
     # input = 'examples/onnx/residual_block/input_working.json'    
     
-    model = 'examples/onnx/residual_block/model.onnx'
-    input = 'examples/onnx/residual_block/input_org.json'
+    # model = 'examples/onnx/residual_block/model.onnx'
+    # input = 'examples/onnx/residual_block/input_org.json'
 
     full_model_result = run_inference(model, input)
     print(f'full model result:{full_model_result}')
     #get the output tensor(s) of every node node in the model during inference
     intermediate_results = get_intermediate_outputs(model,input)
 
+    save_splits = True
+
+    if save_splits:
+        parent_folder_name = os.path.basename(os.path.dirname(model))
+        save_folder_path = os.path.join('examples/split_models', parent_folder_name)
+    else:
+        save_folder_path = None
+
     split_model_output = run_inference_on_split_model(model,
                                                       input,
-                                                      intermediate_results)
+                                                      intermediate_results, parent_folder_name, save_folder_path)
     print(f'split model result:{split_model_output}')
 

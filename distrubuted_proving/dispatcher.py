@@ -163,7 +163,6 @@ class ZKPProver():
                     except grpc.RpcError as e:
                         worker.channel = None
                         logging.error(f"Error occurred while communicating with worker: {worker.address}. Error: {e}")
-    
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(config: DictConfig):
@@ -174,9 +173,7 @@ def main(config: DictConfig):
     if not os.path.exists(config.model.input_file):
             raise FileNotFoundError(f"The specified file '{config.model.input_file}' does not exist.")  
     
-    print(f'model path: {config.model.onnx_file}')
-    print(f'model input: {config.model.input_file}')
-    # print(f'# model parameters: {get_num_parameters(model_path=config.model.onnx_file)}')
+    logger.info(f'Starting Processing: {config.model}')
     prover = ZKPProver(config=config)
     prover.generate_proof(config.model.onnx_file, config.model.input_file, config.num_model_parts)
 
