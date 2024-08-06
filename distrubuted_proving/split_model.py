@@ -153,7 +153,8 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outp
             input_type = input.type
             input_data = load_json_input(json_input, input_shape)
             itermediate_outputs[input.name] = input_data
-        
+        if idx == 5:
+            pass
         assert all(name in itermediate_outputs for name in input_names), "Input data dictionary keys must match the model input names."
         # inference_input = {}
         # for name in input_names:
@@ -163,7 +164,7 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outp
 
         inputs =  []
         for name in input_names:
-            inputs.append(itermediate_outputs[name].tolist()[0])
+            inputs.append(itermediate_outputs[name].flatten().tolist())
         proving_input = {"input_data": inputs}
         
         with open(input_path, 'w') as json_file:
