@@ -5,17 +5,15 @@ import zkpservice_pb2 as pb2
 import hydra
 from omegaconf import DictConfig
 import logging
-from utils import  analyze_onnx_model_for_zk_proving
+from utils import  analyze_onnx_model_for_zk_proving, load_onnx_model
 from split_model import get_intermediate_outputs, split_onnx_model_at_every_node
-import numpy as np
-from onnx import shape_inference, ModelProto
 from typing import List
-import threading
 import os
-import json
-import onnx
 from queue import Queue
 from grpc import Channel 
+from log_utils import ResourceMonitor
+from worker import EZKLProver
+import json
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
@@ -31,14 +29,16 @@ class Worker():
         self.assigned_model_part: OnnxModel = None
 
 class OnnxModel ():   
-    def __init__(self, id: int, onnx_model_path:str, input_data:str):
+    def __init__(self, id: int, onnx_model_path:str, input_data:str, model_bytes = None):
          self.id = id
+        #  self.model_bytes = onnx_model.SerializeToString()
          self.onnx_model_path = onnx_model_path
          self.computed_witness = None
          self.computed_proof = None
          self.is_completed = False
          self.input_data = input_data
          self.sub_models: List[OnnxModel] = []
+         self.model_bytes = model_bytes
          self.info = analyze_onnx_model_for_zk_proving(onnx_model_path=onnx_model_path)
 
 
@@ -66,39 +66,41 @@ class ZKPProver():
             global_model.sub_models.append(sub_model)
         
         self.compute_proof(global_model)
-
-
+    
     def compute_proof(self, onnx_model: OnnxModel):
+        import datetime
+        import shutil
         """
         Computes zero-knowledge proofs for the given ONNX model by distributing
         sub-models to available workers.
         """
 
         logger.info(f'Starting proof computation for every sub model..')
-        
+        self.workers.append( Worker(id=1, address='local'))
+
         def send_proof_request(worker: Worker, sub_model: OnnxModel):
             """
             Sends a proof computation request to a specific worker.
             """
             try:
-                with grpc.insecure_channel(worker.address) as channel:
-                    stub = pb2_grpc.ZKPServiceStub(channel)
-                    # Prepare the request message
-                    request = pb2.ProofRequest(
-                        model_path=sub_model.onnx_model_path,
-                        input_data=sub_model.input_data
-                    )
-                    # Send request and get response
-                    response = stub.ComputeProof(request)
-                    # Process response
-                    if response.success:
-                        sub_model.computed_proof = response.proof
-                        sub_model.is_completed = True
-                        logger.info(f'Proof computed for sub-model {sub_model.id} by worker {worker.address}')
-                    else:
-                        logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}')
+                # onnx_model = load_onnx_model(sub_model.onnx_model_path) 
+                # model_bytes = onnx_model.SerializeToString()
+                directory_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                directory_path = os.path.join("worker_data", directory_name)
+                os.makedirs(directory_path, exist_ok = True)
+                # Copy the ONNX model file to the new directory
+                shutil.copy(sub_model.onnx_model_path, os.path.join(directory_path, f'model.onnx'))
+                input_dict = {"input_data": sub_model.input_data}
+                json.dump(input_dict, open(os.path.join(directory_path, f'input.json'), 'w'))
+                prover = EZKLProver(directory_path)
+                proof_path = prover.run_end_to_end_proof()
+                with open(proof_path, "rb") as file:
+                    sub_model.computed_proof = file.read()
+                
+                sub_model.is_completed = True
+                logger.info(f'Proof computed for sub-model {sub_model.id}')
             except Exception as e:
-                logger.error(f'Exception occurred while computing proof for sub-model {sub_model.id} on worker {worker.address}: {e}')
+                logger.error(f'Exception occurred while computing proof for sub-model {sub_model.id}: {e}')
             finally:
                 worker.is_free = True  # Mark worker as free once done
 
@@ -127,7 +129,7 @@ class ZKPProver():
                 executor.submit(send_proof_request, free_worker, sub_model)
         
         # Create a ThreadPoolExecutor for handling tasks
-        with ThreadPoolExecutor(max_workers=self.number_of_workers) as executor:
+        with ThreadPoolExecutor(max_workers=len(self.workers)) as executor:
             # Start processing tasks
             process_tasks()
 
@@ -140,6 +142,79 @@ class ZKPProver():
             logger.info('All proofs computed successfully.')
         else:
             logger.warning('Some proofs failed to compute.')
+
+    # def compute_proof(self, onnx_model: OnnxModel):
+    #     """
+    #     Computes zero-knowledge proofs for the given ONNX model by distributing
+    #     sub-models to available workers.
+    #     """
+
+    #     logger.info(f'Starting proof computation for every sub model..')
+
+    #     def send_proof_request(worker: Worker, sub_model: OnnxModel):
+    #         """
+    #         Sends a proof computation request to a specific worker.
+    #         """
+    #         try:
+    #             with grpc.insecure_channel(worker.address) as channel:
+    #                 stub = pb2_grpc.ZKPServiceStub(channel)
+    #                 # Prepare the request message
+    #                 request = pb2.ProofRequest(
+    #                     model_path=sub_model.onnx_model_path,
+    #                     input_data=sub_model.input_data
+    #                 )
+    #                 # Send request and get response
+    #                 response = stub.ComputeProof(request)
+    #                 # Process response
+    #                 if response.success:
+    #                     sub_model.computed_proof = response.proof
+    #                     sub_model.is_completed = True
+    #                     logger.info(f'Proof computed for sub-model {sub_model.id} by worker {worker.address}')
+    #                 else:
+    #                     logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}')
+    #         except Exception as e:
+    #             logger.error(f'Exception occurred while computing proof for sub-model {sub_model.id} on worker {worker.address}: {e}')
+    #         finally:
+    #             worker.is_free = True  # Mark worker as free once done
+
+    #     # Initialize the task queue with sub-models
+    #     task_queue = Queue()
+    #     for sub_model in onnx_model.sub_models:
+    #         task_queue.put(sub_model)
+
+    #     # Define a function to process tasks
+    #     def process_tasks():
+    #         while not task_queue.empty():
+    #             # Find a free worker
+    #             free_worker = None
+    #             while free_worker is None:
+    #                 for worker in self.workers:
+    #                     if worker.is_free:
+    #                         free_worker = worker
+    #                         break
+    #                 if free_worker is None:
+    #                     time.sleep(10)  # Wait for some time before checking again
+                
+    #             # Get the next sub-model from the queue
+    #             sub_model = task_queue.get()
+    #             free_worker.is_free = False
+    #             # Submit the proof request task
+    #             executor.submit(send_proof_request, free_worker, sub_model)
+        
+    #     # Create a ThreadPoolExecutor for handling tasks
+    #     with ThreadPoolExecutor(max_workers=self.number_of_workers) as executor:
+    #         # Start processing tasks
+    #         process_tasks()
+
+    #     # Wait for all tasks to complete
+    #     executor.shutdown(wait=True)
+
+    #     # Check if all proofs are completed
+    #     all_proofs_computed = all(sub_model.is_completed for sub_model in onnx_model.sub_models)
+    #     if all_proofs_computed:
+    #         logger.info('All proofs computed successfully.')
+    #     else:
+    #         logger.warning('Some proofs failed to compute.')
 
         
     def check_worker_connections(self, worker_addresses):

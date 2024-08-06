@@ -111,6 +111,7 @@ def run_inference_on_onnx_model(model_path, input_file):
     return results
 
 
+
 def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outputs, output_folder = 'tmp'):
 
     models_with_inputs = []
@@ -129,12 +130,18 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outp
     os.makedirs(output_folder, exist_ok=True)
 
     for idx, node_name in enumerate(nodes):
-        model_out_path = f'{output_folder}/split_{idx+1}_model.onnx'
-        input_out_path = f'{output_folder}/split_{idx+1}_model.onnx'
+
+        split_out_put_folder = os.path.join(output_folder, f'split_{idx+1}')
+        os.makedirs(split_out_put_folder, exist_ok=True)
+
+        model_path = f'{split_out_put_folder}/model.onnx'
+        input_path = f'{split_out_put_folder}/input.json'
+        # model_out_path = f'{output_folder}/split_{idx+1}_model.onnx'
+        # input_out_path = f'{output_folder}/split_{idx+1}_model.onnx'
 
         # print(f"Processing Split {idx+1}, Node Name: {node_name}")
         node_inputs, node_outputs = nodes[node_name]
-        sub_model = extract_model(onnx_model_path, node_inputs, node_outputs,model_out_path)
+        sub_model = extract_model(onnx_model_path, node_inputs, node_outputs,model_path)
         session = ort.InferenceSession(sub_model.SerializeToString())
 
         #the inputs to each node are the outputs of all parent nodes. 
@@ -150,14 +157,20 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outp
             itermediate_outputs[input.name] = input_data
         
         assert all(name in itermediate_outputs for name in input_names), "Input data dictionary keys must match the model input names."
-        inference_input = {}
+        # inference_input = {}
+        # for name in input_names:
+        #     inference_input[name] = itermediate_outputs[name] 
+        # results = session.run(None, inference_input)
+        # # print(f"Inference results for {node_name}:", results)
+
+        inputs =  []
         for name in input_names:
-            inference_input[name] = itermediate_outputs[name] 
-        results = session.run(None, inference_input)
-        # print(f"Inference results for {node_name}:", results)
-        # with open(f'{output_folder}/split_{idx+1}_input.json', 'w') as json_file:
-        #     json.dump(flatten_ndarray_to_list(inference_input), json_file, indent=4)  # indent=4 for pretty-printing
-        models_with_inputs.append((model_out_path,flatten_ndarray_to_list(inference_input)))
+            inputs.append(itermediate_outputs[name].tolist()[0])
+        proving_input = {"input_data": inputs}
+        
+        with open(input_path, 'w') as json_file:
+            json.dump(proving_input, json_file, indent=4)
+        models_with_inputs.append((model_path,input_path))
     
     return models_with_inputs
 
@@ -174,5 +187,5 @@ if __name__ == "__main__":
         # Get the output tensor(s) of every node in the model during inference
         intermediate_results = get_intermediate_outputs(onnx_file, input_file)
 
-        split_onnx_model_at_every_node(onnx_file, input_file,  intermediate_results)  
+        split_onnx_model_at_every_node(onnx_file, input_file,  intermediate_results, 'examples/split_models/mnist_gan')  
 

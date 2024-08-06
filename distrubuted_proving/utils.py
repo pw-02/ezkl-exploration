@@ -81,6 +81,11 @@ def analyze_onnx_model_for_zk_proving(onnx_model_path):
     }
     return data_dict
 
+def load_onnx_model(model_path):
+    # Load the ONNX model
+    onnx_model = onnx.load(model_path)
+    return onnx_model
+
 # def get_num_parameters(model = None):
 #     # Load the ONNX model
 #     if isinstance(model, str):
