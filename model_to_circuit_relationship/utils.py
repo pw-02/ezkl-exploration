@@ -123,7 +123,6 @@ def count_onnx_model_parameters(onnx_model_path):
                     # Placeholder for actual tensor data; not available here
                     # Add more detailed extraction if needed based on model specifics
                     pass
-
     return total_weights
 
 

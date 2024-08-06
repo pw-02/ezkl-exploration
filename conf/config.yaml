@@ -1,11 +1,11 @@
 
 defaults:
   - _self_
-  - model: mnist_classifier  #mobilenet, mnist_gan, mnist_classifier, little_transformer
+  - model: mnist_gan  #mobilenet, mnist_gan, mnist_classifier, little_transformer
   # - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled  
 
-num_model_parts: 4 #set to 'null' to set it to the number of workers
+num_model_parts: null #set to 'null' to set it to the max number of splits
 worker_addresses: ["localhost:50052"] #["localhost:50052"] 
 working_dir: distrubuted_proving/tmp
 hydra:

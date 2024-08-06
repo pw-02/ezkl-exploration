@@ -1,19 +1,19 @@
 import onnx
 import onnx.onnx_cpp2py_export
-import onnxruntime as ort
 import numpy as np
 import json
-from onnx import helper
-from onnx import shape_inference, ModelProto
-from typing import List
-from onnx import ModelProto
-from distrubuted_proving.onnx_split import split_onnx, OnnxSplitting
+import ezkl
+import os
 
-def get_num_parameters(model = None):
-    # Load the ONNX model
-    if isinstance(model, str):
-        model = onnx.load(model)
+def count_onnx_model_operations(onnx_model_path):
+    
+    model = onnx.load(onnx_model_path)
+    nodes = model.graph.node
+    num_operations = len(nodes)
+    return num_operations
 
+def count_onnx_model_parameters(onnx_model_path):
+    model = onnx.load(onnx_model_path)
     # Initialize the parameter counter
     num_parameters = 0
     # Iterate through all the initializers (weights, biases, etc.)
@@ -24,124 +24,196 @@ def get_num_parameters(model = None):
         param_size = np.prod(param_shape)
         # Add to the total parameter count
         num_parameters += param_size
-    
     return num_parameters
 
-def load_onnx_model(model_path):
+def count_weights_and_tensors_in_onnx_model(model_path):
     # Load the ONNX model
-    onnx_model = onnx.load(model_path)
-    onnx.checker.check_model(onnx_model)
-    return onnx_model
-
-def load_and_infer_model(model_path):
     model = onnx.load(model_path)
-    inferred_model = shape_inference.infer_shapes(model)
-    return inferred_model
+    
+    total_weights = 0
+    total_input_size = 0
+    total_output_size = 0
 
-def load_json_input(input_path):
-    with open(input_path, 'r') as f:
-        input_data = json.load(f)
-    # Convert to NumPy array and reshape to (1, 3, 224, 224)
-    if 'net' in input_path:
-        input_data = np.array(input_data['input_data'], dtype=np.float32)  # Ensure the data type is float32
-        if input_data.size != 3 * 224 * 224:
-            raise ValueError(f"Input data must be of size {3 * 224 * 224}, but got {input_data.size}")
-        input_data = input_data.reshape(1, 3, 224, 224)
-        return input_data
-    elif 'mnist_gan' in input_path or 'little_transformer' in input_path:
-        input_data = np.array(input_data['input_data'], dtype=np.float32)  # Ensure the data type is floa
-        return input_data
-    elif 'mnist_classifier' in input_path:
-        input_data = np.array(input_data['input_data'], dtype=np.float32)  # Ensure the data type is floa
-        if input_data.size != 1 * 28 * 28:
-            raise ValueError(f"Input data must be of size {1 * 28 * 28}, but got {input_data.size}")
-        input_data = input_data.reshape(1, 1, 28, 28)
+    # Count weights in initializers
+    for initializer in model.graph.initializer:
+        total_weights += len(onnx.numpy_helper.to_array(initializer).flatten())
 
-    if input_data is None:
-        raise ValueError(f"Input data is None")
+    # Count input tensor sizes
+    for input_tensor in model.graph.input:
+        shape = [dim.dim_value for dim in input_tensor.type.tensor_type.shape.dim]
+        total_input_size += int(np.prod(shape))
 
-    return input_data
+    # Count output tensor sizes
+    for output_tensor in model.graph.output:
+        shape = [dim.dim_value for dim in output_tensor.type.tensor_type.shape.dim]
+        total_output_size += int(np.prod(shape))
 
-def run_inference_on_split_model(model_parts: List[onnx.ModelProto], input_path: str):
+    return total_weights + total_input_size + total_output_size
 
-    inputs_dict = {}
-    # Load and preprocess the JSON input
-    input_data = load_json_input(input_path)
+def get_ezkl_settings(onnx_model_path, settings_path, delete_file_afterwards=True):
+    """ Generate and return EZKL settings. """
+    ezkl.gen_settings(onnx_model_path, settings_path)
 
-    model_input_pairs = []
+    try:
+        with open(settings_path, 'r') as f:
+            settings_data = json.load(f)
+    except (IOError, json.JSONDecodeError) as e:
+        print(f"Error reading JSON settings file: {e}")
+        settings_data = {}
+    finally:
+        if delete_file_afterwards and os.path.isfile(settings_path):
+            os.remove(settings_path)
+    return settings_data
 
-    # Run inference sequentially on each part
-    for i, model_part in enumerate(model_parts):
-        print(f"Running inference on part {i + 1}...")
-        session = ort.InferenceSession(model_part.SerializeToString())
-        input_names = [input.name for input in session.get_inputs()]
+def analyze_onnx_model_for_zk_proving(onnx_model_path):
+    model_ops_count = count_onnx_model_operations(onnx_model_path)
+    model_params_count = count_onnx_model_parameters(onnx_model_path)
+    weights_and_tensor_count = count_weights_and_tensors_in_onnx_model(onnx_model_path)
+    ezkl_settings = get_ezkl_settings(onnx_model_path, f"tmp.json", True)
+    data_dict = {
+        "model_path": onnx_model_path,
+        "num_model_ops": model_ops_count,
+        "num_model_params": model_params_count,
+        "num_model_constants": weights_and_tensor_count,
+        "zk_circuit_num_rows": ezkl_settings.get("num_rows", 0),
+        "zk_circuit_logrows": ezkl_settings.get("run_args", {}).get("logrows", 0),
+        "zk_circuit_total_assignments": ezkl_settings.get("total_assignments", 0),
+    }
+    return data_dict
 
-        if i == 0:
-            inputs_dict[input_names[0]] = input_data
+# def get_num_parameters(model = None):
+#     # Load the ONNX model
+#     if isinstance(model, str):
+#         model = onnx.load(model)
 
-        assert all(name in inputs_dict for name in input_names), "Input data dictionary keys must match the model input names."
+#     # Initialize the parameter counter
+#     num_parameters = 0
+#     # Iterate through all the initializers (weights, biases, etc.)
+#     for initializer in model.graph.initializer:
+#         # Get the shape of the parameter
+#         param_shape = onnx.numpy_helper.to_array(initializer).shape
+#         # Calculate the total number of elements in this parameter
+#         param_size = np.prod(param_shape)
+#         # Add to the total parameter count
+#         num_parameters += param_size
+    
+#     return num_parameters
 
-        infer_input = {}
-        for name in input_names:
-            infer_input[name] = inputs_dict[name]
+# def load_onnx_model(model_path):
+#     # Load the ONNX model
+#     onnx_model = onnx.load(model_path)
+#     onnx.checker.check_model(onnx_model)
+#     return onnx_model
 
-        output_names = [output.name for output in session.get_outputs()]
+# def load_and_infer_model(model_path):
+#     model = onnx.load(model_path)
+#     inferred_model = shape_inference.infer_shapes(model)
+#     return inferred_model
 
-        results = session.run(output_names, infer_input)
-        if len(results) > 1:
-            pass
-        for name in output_names:
-            inputs_dict[name] = results[0]  # Assuming the output is the first element of results
-        model_input_pairs.append((model_part, infer_input))
-        print(f"Inference results for part {i + 1}:", results)
+# def load_json_input(input_path):
+#     with open(input_path, 'r') as f:
+#         input_data = json.load(f)
+#     # Convert to NumPy array and reshape to (1, 3, 224, 224)
+#     if 'net' in input_path:
+#         input_data = np.array(input_data['input_data'], dtype=np.float32)  # Ensure the data type is float32
+#         if input_data.size != 3 * 224 * 224:
+#             raise ValueError(f"Input data must be of size {3 * 224 * 224}, but got {input_data.size}")
+#         input_data = input_data.reshape(1, 3, 224, 224)
+#         return input_data
+#     elif 'mnist_gan' in input_path or 'little_transformer' in input_path:
+#         input_data = np.array(input_data['input_data'], dtype=np.float32)  # Ensure the data type is floa
+#         return input_data
+#     elif 'mnist_classifier' in input_path:
+#         input_data = np.array(input_data['input_data'], dtype=np.float32)  # Ensure the data type is floa
+#         if input_data.size != 1 * 28 * 28:
+#             raise ValueError(f"Input data must be of size {1 * 28 * 28}, but got {input_data.size}")
+#         input_data = input_data.reshape(1, 1, 28, 28)
 
-    # The final results after running inference on all parts
-    final_results = results[0]
-    print("Final inference results:", final_results)
-    return model_input_pairs, final_results
+#     if input_data is None:
+#         raise ValueError(f"Input data is None")
+
+#     return input_data
+
+# def run_inference_on_split_model(model_parts: List[onnx.ModelProto], input_path: str):
+
+#     inputs_dict = {}
+#     # Load and preprocess the JSON input
+#     input_data = load_json_input(input_path)
+
+#     model_input_pairs = []
+
+#     # Run inference sequentially on each part
+#     for i, model_part in enumerate(model_parts):
+#         print(f"Running inference on part {i + 1}...")
+#         session = ort.InferenceSession(model_part.SerializeToString())
+#         input_names = [input.name for input in session.get_inputs()]
+
+#         if i == 0:
+#             inputs_dict[input_names[0]] = input_data
+
+#         assert all(name in inputs_dict for name in input_names), "Input data dictionary keys must match the model input names."
+
+#         infer_input = {}
+#         for name in input_names:
+#             infer_input[name] = inputs_dict[name]
+
+#         output_names = [output.name for output in session.get_outputs()]
+
+#         results = session.run(output_names, infer_input)
+#         if len(results) > 1:
+#             pass
+#         for name in output_names:
+#             inputs_dict[name] = results[0]  # Assuming the output is the first element of results
+#         model_input_pairs.append((model_part, infer_input))
+#         print(f"Inference results for part {i + 1}:", results)
+
+#     # The final results after running inference on all parts
+#     final_results = results[0]
+#     print("Final inference results:", final_results)
+#     return model_input_pairs, final_results
 
 
-def run_inference_on_full_model(model_path, input_path):
-    # Load and check the ONNX model
-    onnx_model:ModelProto = load_onnx_model(model_path)
+# def run_inference_on_full_model(model_path, input_path):
+#     # Load and check the ONNX model
+#     onnx_model:ModelProto = load_onnx_model(model_path)
 
-    # Load and preprocess the JSON input
-    input_data = load_json_input(input_path)
-    # Run inference
-    session = ort.InferenceSession(onnx_model.SerializeToString())
-    input_name = session.get_inputs()[0].name
-    results = session.run(None, {input_name: input_data})
-    # Print results
-    print("Inference results:", results[0])
-    return results[0]
+#     # Load and preprocess the JSON input
+#     input_data = load_json_input(input_path)
+#     # Run inference
+#     session = ort.InferenceSession(onnx_model.SerializeToString())
+#     input_name = session.get_inputs()[0].name
+#     results = session.run(None, {input_name: input_data})
+#     # Print results
+#     print("Inference results:", results[0])
+#     return results[0]
 
-def split_onnx_model(onnx_model_path, n_parts=np.inf):
-    def select_cut_points(cutting_points, n_parts):
-        # Ensure n_parts is at least 1
-        n_parts = max(1, n_parts)
-        # Total number of cutting points
-        total_points = len(cutting_points)
-        if n_parts >= total_points:
-            # If n_parts is greater than or equal to total points, return all cutting points
-            return cutting_points
-        # Calculate the indices to pick
-        step = total_points / n_parts
-        selected_indices = [int(step * i) for i in range(1, n_parts)]
-        selected_cut_points = [cutting_points[i] for i in selected_indices]
-        return selected_cut_points
+# def split_onnx_model(onnx_model_path, n_parts=np.inf):
+#     def select_cut_points(cutting_points, n_parts):
+#         # Ensure n_parts is at least 1
+#         n_parts = max(1, n_parts)
+#         # Total number of cutting points
+#         total_points = len(cutting_points)
+#         if n_parts >= total_points:
+#             # If n_parts is greater than or equal to total points, return all cutting points
+#             return cutting_points
+#         # Calculate the indices to pick
+#         step = total_points / n_parts
+#         selected_indices = [int(step * i) for i in range(1, n_parts)]
+#         selected_cut_points = [cutting_points[i] for i in selected_indices]
+#         return selected_cut_points
 
-    if isinstance(onnx_model_path,str):
-        onnx_model = onnx.load(onnx_model_path)
-        onnx_model = shape_inference.infer_shapes(onnx_model)
-    else:
-        onnx_model = onnx_model_path
-        # onnx_model = shape_inference.infer_shapes(onnx_model)
-    spl_onnx = OnnxSplitting(onnx_model, verbose=1, doc_string=False, fLOG=print)
-    cut_points = select_cut_points(spl_onnx.cutting_points, n_parts)
+#     if isinstance(onnx_model_path,str):
+#         onnx_model = onnx.load(onnx_model_path)
+#         onnx_model = shape_inference.infer_shapes(onnx_model)
+#     else:
+#         onnx_model = onnx_model_path
+#         # onnx_model = shape_inference.infer_shapes(onnx_model)
+#     spl_onnx = OnnxSplitting(onnx_model, verbose=1, doc_string=False, fLOG=print)
+#     cut_points = select_cut_points(spl_onnx.cutting_points, n_parts)
 
-    parts = split_onnx(onnx_model, cut_points=spl_onnx.cutting_points, verbose=1, stats=False, fLOG=print)
+#     parts = split_onnx(onnx_model, cut_points=spl_onnx.cutting_points, verbose=1, stats=False, fLOG=print)
 
-    return parts
+#     return parts
 
 # def split_onnx_mode_oldl(onnx_model_path, num_splits =2):
 
@@ -202,30 +274,31 @@ def convert_and_flatten_ndarray_to_list(d):
             d[key] = convert_and_flatten_ndarray_to_list(value)
     return d
 
-def main():
-    import os
-    original_model_path = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
-    original_input_path = 'examples/onnx/mobilenet/input.json'
-    split_models = split_onnx_model(original_model_path, n_parts=100)
+# def main():
+#     import os
+#     original_model_path = 'examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx'
+#     original_input_path = 'examples/onnx/mobilenet/input.json'
+#     split_models = split_onnx_model(original_model_path, n_parts=100)
 
-    full_model_result =  run_inference_on_full_model(original_model_path,original_input_path)
+#     full_model_result =  run_inference_on_full_model(original_model_path,original_input_path)
 
-    model_input_pairs, final_results = run_inference_on_split_model(split_models, original_input_path)
+#     model_input_pairs, final_results = run_inference_on_split_model(split_models, original_input_path)
 
-    for idx, model_input_pair in enumerate(model_input_pairs):
-            part_model, input = model_input_pair
-            folde_name  = os.path.join('split_model_output', str(idx))
-            os.makedirs(folde_name, exist_ok=True)
-            save_apth = os.path.join(folde_name,f'network_{idx}.onnx')
-            onnx.save_model(part_model,save_apth)
-            # input_flattened = convert_and_flatten_ndarray_to_list(input)
+#     for idx, model_input_pair in enumerate(model_input_pairs):
+#             part_model, input = model_input_pair
+#             folde_name  = os.path.join('split_model_output', str(idx))
+#             os.makedirs(folde_name, exist_ok=True)
+#             save_apth = os.path.join(folde_name,f'network_{idx}.onnx')
+#             onnx.save_model(part_model,save_apth)
+#             # input_flattened = convert_and_flatten_ndarray_to_list(input)
 
-            with open(os.path.join(folde_name,f"{idx}_input.json"), 'w') as json_file:
-                json.dump(json.dumps(input), json_file, indent=4)  # indent=4 for pretty-printing
-    pass
-    # run_inference_on_full_model()
+#             with open(os.path.join(folde_name,f"{idx}_input.json"), 'w') as json_file:
+#                 json.dump(json.dumps(input), json_file, indent=4)  # indent=4 for pretty-printing
+#     pass
+#     # run_inference_on_full_model()
 
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    pass
