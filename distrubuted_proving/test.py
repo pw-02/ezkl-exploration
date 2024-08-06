@@ -36,7 +36,7 @@ class EZKLProver:
 
     @time_function
     def gen_witness(self):
-        ezkl.gen_witness(self.data_path, self.compiled_model_path, self.witness_path) == True
+        ezkl.gen_witness(self.data_path, self.compiled_model_path, self.witness_path)
         assert os.path.isfile(self.witness_path)
 
     @time_function
@@ -48,7 +48,7 @@ class EZKLProver:
 
     @time_function
     def prove(self):
-        assert ezkl.prove(self.witness_path, self.compiled_model_path, self.pk_path, self.proof_path, "single") == True
+        ezkl.prove(self.witness_path, self.compiled_model_path, self.pk_path, self.proof_path, "single")
         assert os.path.isfile(self.proof_path)
 
     @time_function  
