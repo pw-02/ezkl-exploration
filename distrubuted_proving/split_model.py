@@ -5,8 +5,6 @@ import json
 import numpy as np
 import os
 from onnx.utils import Extractor
-import copy
-
 
 def flatten_ndarray_to_list(d):
     for key, value in d.items():

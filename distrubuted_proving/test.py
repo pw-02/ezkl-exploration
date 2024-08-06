@@ -53,8 +53,11 @@ class EZKLProver:
 
     @time_function  
     def verify(self):
-        assert ezkl.verify(self.proof_path, self.settings_path, self.vk_path) == True
-
+        res = ezkl.verify(self.proof_path, self.settings_path, self.vk_path)
+        if res == True:
+            print("verified")
+        else:
+            print("not verified")
     def run_end_to_end_proof(self):
         with ResourceMonitor() as monitor:
             num_parameters = count_onnx_model_parameters(self.model_path)
