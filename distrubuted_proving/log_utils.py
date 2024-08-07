@@ -30,6 +30,7 @@ class ExperimentLogger:
     def __init__(self, log_dir: str):
         self.data = {}
         self.log_dir = log_dir
+        os.makedirs(self.log_dir, exist_ok=True)
 
     def log_value(self, key, val):
         self.data[key] = val
@@ -42,7 +43,7 @@ class ExperimentLogger:
     def flush_log(self):
 
         os.makedirs(self.log_dir, exist_ok=True)
-        file_path = os.path.join(self.log_dir,f"{self.data['name']}_log.csv")
+        file_path = os.path.join(self.log_dir,f"{self.data['name']}.csv")
         
         file_exists = os.path.isfile(file_path)     
         

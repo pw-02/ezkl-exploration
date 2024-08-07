@@ -1,27 +1,23 @@
 import grpc
 import zkpservice_pb2_grpc as pb2_grpc
 import zkpservice_pb2 as pb2
-import time
-import threading
 from concurrent import futures
 import logging
 from datetime import datetime
 import ezkl
 import os
 import json
-import onnx
-from onnx import ModelProto
-from log_utils import ExperimentLogger, time_function, print_func_exec_info, ResourceMonitor
+from log_utils import ExperimentLogger, time_function, ResourceMonitor
 from utils import count_onnx_model_operations
 
 # # Configure logging
 # logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 # # Configure logging
-logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.DEBUG)
 logger = logging.getLogger("ZKPWorker")
 
 class EZKLProver:
-    def __init__(self, worker_dir: str):
+    def __init__(self, worker_dir: str, log_dir: str):
         self.directory = worker_dir
         self.model_path = os.path.join(self.directory, 'model.onnx')
         self.data_path = os.path.join(self.directory, 'input.json')
@@ -32,7 +28,7 @@ class EZKLProver:
         self.witness_path = os.path.join(self.directory, 'witness.json')
         self.cal_path = os.path.join(self.directory, 'calibration.json')
         self.proof_path = os.path.join(self.directory, 'test.pf')
-        self.exp_logger = ExperimentLogger(log_dir=self.directory)
+        self.exp_logger = ExperimentLogger(log_dir=log_dir)
 
     @time_function
     def gen_settings(self):
@@ -76,7 +72,7 @@ class EZKLProver:
             num_parameters = count_onnx_model_operations(self.model_path)
             self.exp_logger.log_value('num_model_params', num_parameters)
             self.exp_logger.log_env_resources()
-            self.exp_logger.log_value('name', 'report')
+            self.exp_logger.log_value('name', 'worker_report')
 
             functions = [
                 ('gen_settings', self.gen_settings),
@@ -92,9 +88,14 @@ class EZKLProver:
             for func_name, func in functions:
                 execution_time = func()
                 logger.info(f'{func_name} took {execution_time} seconds')
-                print_func_exec_info(func_name, execution_time)
+                # print_func_exec_info(func_name, execution_time)
                 self.exp_logger.log_value(f'{func_name}(s)', execution_time)
             
+            with open(self.settings_path, 'r') as f:
+                settings_data = json.load(f)
+                self.exp_logger.log_value('num_rows', settings_data["num_rows"])
+                self.exp_logger.log_value('num_assignments', settings_data["num_assignments"])
+           
             resource_data = monitor.resource_data
             self.exp_logger.log_value('mean_cpu', resource_data["cpu_util"]["mean"])
             self.exp_logger.log_value('max_cpu', resource_data["cpu_util"]["max"])
@@ -104,10 +105,11 @@ class EZKLProver:
             return self.proof_path
 
 class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
-    def __init__(self):
+    def __init__(self, hostname):
         self.status = 'awaiting work'
         self.is_busy = False
         self.computed_proof = None
+        self.log_dir = "worker_logs" #+ datetime.now().strftime("%Y%m%d_%H%M%S")
 
     def Ping(self, request, context):
         logging.info("Received Ping Request from %s", request.message)
@@ -126,7 +128,7 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         model_input = json.loads(request.input_data)
         json.dump(model_input, open(os.path.join(directory_path, 'input.json'), 'w'))
 
-        prover = EZKLProver(directory_path)
+        prover = EZKLProver(directory_path, self.log_dir)
         proof_path = prover.run_end_to_end_proof()
             
         with open(proof_path, "rb") as file:
