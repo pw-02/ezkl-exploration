@@ -8,6 +8,8 @@ service ZKPWorkerService {
     rpc ComputeProof (ProofRequest) returns (ProofResponse);
     // Check the status of the worker
     rpc Ping (Message) returns (MessageResponse);
+    rpc CheckProofStatus (ProofStatusRequest) returns (ProofStatusResponse);
+
 }
 
 // The request message containing the onnx model (as bytes) and input data.
@@ -16,12 +18,23 @@ message ProofRequest {
   string input_data = 2;
 }
 
+message ProofStatusRequest {
+    string request_id = 1;  // Unique ID for the request
+}
+
+
+message ProofStatusResponse {
+    bool success = 1;
+    bytes proof = 2;
+    string performance_data = 3;
+    string message = 4;     // Status message (e.g., "Processing" or "Completed")
+}
+
 
 // The response message containing the computed proof and success status.
 message ProofResponse {
-  bool success = 1;
-  bytes proof = 2;
-  string performance_data = 3;
+    string request_id = 1;  // Unique ID for the request
+    string message = 2;     // Status message (e.g., "Request received")
 }
 
 // A simple message containing a text message.

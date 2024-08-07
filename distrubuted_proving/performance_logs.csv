@@ -1,0 +1,2 @@
+id,num_model_ops,num_model_params,num_model_constants,zk_circuit_num_rows,zk_circuit_num_assignments,memory_available_gb,cpu_count,gen_settings(s),compile_circuit(s),get_srs(s),gen_witness(s),setup(s),prove(s),verify(s),mean_cpu,max_cpu,mean_cpu_mem_gb,max_cpu_mem_gb,worker_address
+1.1,1,316736,319972,166259,332519,7.603870391845703,20,0.24968385696411133,0.44359588623046875,0.042572736740112305,0.6895101070404053,60.77416014671326,42.83306932449341,0.24201059341430664,10.9,39.5,4.8829,5.6353,localhost:50053

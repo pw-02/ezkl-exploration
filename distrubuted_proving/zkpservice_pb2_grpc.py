@@ -49,6 +49,11 @@ class ZKPWorkerServiceStub(object):
                 request_serializer=zkpservice__pb2.Message.SerializeToString,
                 response_deserializer=zkpservice__pb2.MessageResponse.FromString,
                 _registered_method=True)
+        self.CheckProofStatus = channel.unary_unary(
+                '/zkpservice.ZKPWorkerService/CheckProofStatus',
+                request_serializer=zkpservice__pb2.ProofStatusRequest.SerializeToString,
+                response_deserializer=zkpservice__pb2.ProofStatusResponse.FromString,
+                _registered_method=True)
 
 
 class ZKPWorkerServiceServicer(object):
@@ -68,6 +73,12 @@ class ZKPWorkerServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def CheckProofStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ZKPWorkerServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -80,6 +91,11 @@ def add_ZKPWorkerServiceServicer_to_server(servicer, server):
                     servicer.Ping,
                     request_deserializer=zkpservice__pb2.Message.FromString,
                     response_serializer=zkpservice__pb2.MessageResponse.SerializeToString,
+            ),
+            'CheckProofStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.CheckProofStatus,
+                    request_deserializer=zkpservice__pb2.ProofStatusRequest.FromString,
+                    response_serializer=zkpservice__pb2.ProofStatusResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -136,6 +152,33 @@ class ZKPWorkerService(object):
             '/zkpservice.ZKPWorkerService/Ping',
             zkpservice__pb2.Message.SerializeToString,
             zkpservice__pb2.MessageResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CheckProofStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/zkpservice.ZKPWorkerService/CheckProofStatus',
+            zkpservice__pb2.ProofStatusRequest.SerializeToString,
+            zkpservice__pb2.ProofStatusResponse.FromString,
             options,
             channel_credentials,
             insecure,

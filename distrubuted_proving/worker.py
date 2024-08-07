@@ -9,7 +9,10 @@ import os
 import json
 from log_utils import ExperimentLogger, time_function, ResourceMonitor
 from utils import count_onnx_model_operations
-
+import uuid
+import time
+from concurrent import futures
+import threading
 # # Configure logging
 # logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 # # Configure logging
@@ -101,12 +104,36 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         self.is_busy = False
         self.computed_proof = None
         self.log_dir = "worker_logs" #+ datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.requests = {}  # Store request statuses
+        self.lock = threading.Lock()
 
     def Ping(self, request, context):
         logging.info("Received Ping Request from %s", request.message)
         return pb2.MessageResponse(message='pong', received=True)
-
+    
     def ComputeProof(self, request, context):
+        request_id = str(uuid.uuid4())
+        with self.lock:
+            self.requests[request_id] = {'status': 'Processing' } # Initialize request status
+        # Start processing asynchronously
+        threading.Thread(target=self.process_request, args=(request_id, request)).start()
+        return pb2.ProofResponse(request_id=request_id, message="Request received")
+    
+    def CheckProofStatus(self, request, context):
+        request_id = request.request_id
+        with self.lock:
+            request_data = self.requests.get(request_id)
+
+        if request_data['status'] == 'Completed':
+            return pb2.ProofStatusResponse(
+                success=True,
+                proof=request_data['proof'],
+                performance_data=json.dumps(request_data['performance_data']),
+                message="Completed")
+        else:
+            return pb2.ProofStatusResponse(success=False,message=request_data['status'])
+
+    def process_request(self, request_id, request):
         logging.info("Received 'Compute Proof' request.")
         
         directory_name = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -117,7 +144,10 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
             f.write(request.onnx_model)
 
         model_input = json.loads(request.input_data)
-        json.dump(model_input, open(os.path.join(directory_path, 'input.json'), 'w'))
+        with open(os.path.join(directory_path, 'input.json'), 'w') as f:
+            json.dump(model_input, f)
+
+        # json.dump(model_input, open(os.path.join(directory_path, 'input.json'), 'w'))
 
         prover = EZKLProver(directory_path, self.log_dir)
         proof_path, performance_data = prover.run_end_to_end_proof()
@@ -125,12 +155,14 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         with open(proof_path, "rb") as file:
            computed_proof = file.read()
 
-        logging.info("Proof computed and verified.")
+        logging.info("Proof computed and verified for request ID %s", request_id)
 
-        # proof_thread = threading.Thread(target=compute_proof)
-        # proof_thread.start()
-       
-        return pb2.ProofResponse(success=True, proof=computed_proof, performance_data=json.dumps(performance_data))
+        with self.lock:
+            self.requests[request_id] = {
+                'status': 'Completed',
+                'proof': computed_proof,
+                'performance_data': performance_data
+            }
 
 def run_server(port):
     try:
@@ -157,7 +189,7 @@ def run_server(port):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Run gRPC server")
-    parser.add_argument("--port", type=int, default=50052, help="Port number for the server to listen on")
+    parser.add_argument("--port", type=int, default=50053, help="Port number for the server to listen on")
     args = parser.parse_args()
     run_server(args.port)
 

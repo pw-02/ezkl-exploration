@@ -26,7 +26,6 @@ class Worker():
         self.address = address
         self.is_free = True
         self.channel:Channel = None
-        self.assigned_model_part: OnnxModel = None
 
 class OnnxModel ():   
     def __init__(self, id: int, input_data:str, onnx_model_path:str = None, model_proto:ModelProto = None):
@@ -88,46 +87,54 @@ class ZKPProver():
             global_model.sub_models.append(sub_model)
         
         self.compute_proof(global_model)
-    
-    def compute_proof(self, onnx_model: OnnxModel):
-        """
-        Computes zero-knowledge proofs for the given ONNX model by distributing
-        sub-models to available workers.
-        """
 
-        logger.info(f'Starting proof computation for every sub model..')
+
+
+    def compute_proof(self, onnx_model: OnnxModel):
+        logger.info(f'Starting proof computation for every sub-model..')
 
         def send_proof_request(worker: Worker, sub_model: OnnxModel):
-            """
-            Sends a proof computation request to a specific worker.
-            """
             try:
-
                 with grpc.insecure_channel(worker.address) as channel:
                     stub = pb2_grpc.ZKPWorkerServiceStub(channel)
-                    # Prepare the request message
+                    
+                    # Send the ComputeProof request
                     request = pb2.ProofRequest(
                         onnx_model=sub_model.model_proto.SerializeToString(),
                         input_data=json.dumps(sub_model.input_data)
                     )
-                    # Send request and get response
                     response = stub.ComputeProof(request)
-                    # Process response
-                    if response.success:
-                        sub_model.computed_proof = response.proof
-                        sub_model.is_completed = True
-                        logger.info(f'Proof computed for sub-model {sub_model.id} by worker {worker.address}')
-                        
-                        performance_data = json.loads(response.performance_data)
-                        self.write_report(worker.address, sub_model.info,performance_data)
+                    request_id = response.request_id
+
+                    # If request_id is not None, poll for status
+                    if request_id:
+                        logger.info(f'Started proof computation for sub-model {sub_model.id} on worker {worker.address}. Request ID: {request_id}')
+
+                        # Polling loop to check proof status
+                        while True:
+                            status_request = pb2.ProofStatusRequest(request_id=request_id)
+                            status_response = stub.CheckProofStatus(status_request)
+
+                            if status_response.success:
+                                sub_model.computed_proof = status_response.proof
+                                sub_model.is_completed = True
+                                logger.info(f'Proof computation completed for sub-model {sub_model.id} by worker {worker.address}')
+                                
+                                performance_data = json.loads(status_response.performance_data)
+                                self.write_report(worker.address, sub_model.info, performance_data)
+                                break  # Exit the polling loop
+                            else:
+                                logger.info(f'Proof computation in progress for sub-model {sub_model.id} on worker {worker.address}. Waiting for 10 seconds before retrying.')
+                                time.sleep(10)  # Polling interval
 
                     else:
                         logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}')
+                        
             except Exception as e:
                 logger.error(f'Exception occurred while computing proof for sub-model {sub_model.id} on worker {worker.address}: {e}')
             finally:
-                worker.is_free = True  # Mark worker as free once done
-
+                worker.is_free = True
+        
         # Initialize the task queue with sub-models
         task_queue = Queue()
         for sub_model in onnx_model.sub_models:
@@ -166,7 +173,10 @@ class ZKPProver():
             logger.info('All proofs computed successfully.')
         else:
             logger.warning('Some proofs failed to compute.')
+        
 
+
+    
         
     def check_worker_connections(self, worker_addresses):
         max_message_length = 2**31 - 1  # This is 2,147,483,647 bytes (~2GB)
