@@ -14,8 +14,11 @@ from onnx import ModelProto
 from log_utils import ExperimentLogger, time_function, print_func_exec_info, ResourceMonitor
 from utils import count_onnx_model_operations
 
-# Configure logging
+# # Configure logging
+# logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
+# # Configure logging
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger("ZKPWorker")
 
 class EZKLProver:
     def __init__(self, worker_dir: str):
@@ -61,7 +64,7 @@ class EZKLProver:
 
     @time_function
     def prove(self):
-        assert ezkl.prove(self.witness_path, self.compiled_model_path, self.pk_path, self.proof_path, "single") == True
+        ezkl.prove(self.witness_path, self.compiled_model_path, self.pk_path, self.proof_path, "single")
         assert os.path.isfile(self.proof_path)
 
     @time_function  
@@ -88,6 +91,7 @@ class EZKLProver:
             
             for func_name, func in functions:
                 execution_time = func()
+                logger.info(f'{func_name} took {execution_time} seconds')
                 print_func_exec_info(func_name, execution_time)
                 self.exp_logger.log_value(f'{func_name}(s)', execution_time)
             
@@ -110,7 +114,7 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         return pb2.MessageResponse(message='pong', received=True)
 
     def ComputeProof(self, request, context):
-        logging.info("Received 'Compute Proof' task")
+        logging.info("Received 'Compute Proof' request.")
         
         directory_name = datetime.now().strftime("%Y%m%d_%H%M%S")
         directory_path = os.path.join("data", directory_name)
