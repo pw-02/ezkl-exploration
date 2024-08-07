@@ -16,7 +16,7 @@ class EZKLProver:
         self.witness_path = os.path.join(self.directory, 'witness.json')
         self.cal_path = os.path.join(self.directory, 'calibration.json')
         self.proof_path = os.path.join(self.directory, 'test.pf')
-        self.exp_logger = ExperimentLogger(log_dir=self.directory)
+        self.exp_logger = ExperimentLogger(log_dir='test_logs')
 
     @time_function
     def gen_settings(self):
@@ -93,8 +93,8 @@ class EZKLProver:
 
 
 if __name__ == "__main__":
-    prover = EZKLProver('examples/split_models/mobilenet/split_1')
-    proof_path = prover.run_end_to_end_proof()
+    # prover = EZKLProver('examples/split_models/mobilenet/split_1')
+    # proof_path = prover.run_end_to_end_proof()
 
     models_to_test = [
         ('examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx', 'examples/onnx/mobilenet/input.json')
