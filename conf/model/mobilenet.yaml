@@ -1,2 +1,3 @@
+name: mobilenet
 onnx_file: examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx
 input_file: examples/onnx/mobilenet/input.json
