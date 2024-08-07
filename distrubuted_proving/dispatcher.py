@@ -42,7 +42,7 @@ class OnnxModel ():
         self.is_completed = False
         self.input_data = input_data
         self.sub_models: List[OnnxModel] = []
-        self.info = {'id': self.id}
+        self.info = {'model_id': self.id}
         self.info.update(analyze_onnx_model_for_zk_proving(onnx_model=self.model_proto))
         # self.info (analyze_onnx_model_for_zk_proving(onnx_model=self.model_proto))
 
@@ -66,10 +66,10 @@ class ZKPProver():
                 writer.writeheader()
             writer.writerow(report_data)
 
-    def prepare_model_for_distrubuted_proving(self, onnx_model_path:str, json_input_file:str):
+    def prepare_model_for_distrubuted_proving(self, model_name:str, onnx_model_path:str, json_input_file:str):
 
         #get the output tensor(s) of every node node in the model during inference
-        global_model = OnnxModel(id = '1', 
+        global_model = OnnxModel(id = f'global_{model_name}', 
                                  input_data=read_json_file_to_dict(json_input_file), 
                                  onnx_model_path= onnx_model_path)
         
@@ -81,7 +81,8 @@ class ZKPProver():
         #add in some logic here later if we need to combine split models for load balancing
 
         for idx, (sub_model_poto, input_data) in enumerate(sub_models):
-            sub_model = OnnxModel(id=f'{str(global_model.id)}.{str(idx+1)}',
+            sub_model = OnnxModel(
+                id=f'{model_name}_part_{idx+1}',
                                   input_data=input_data,
                                   model_proto= sub_model_poto)
             global_model.sub_models.append(sub_model)
@@ -214,7 +215,7 @@ def main(config: DictConfig):
 
     logger.info(f'Started Processing: {config.model}')
     # logging.info(f'Model Info: {onnx_model_for_proving.info}')
-    prover.prepare_model_for_distrubuted_proving(config.model.onnx_file, config.model.input_file)
+    prover.prepare_model_for_distrubuted_proving(config.model.name, config.model.onnx_file, config.model.input_file)
 
 
 if __name__ == '__main__':
