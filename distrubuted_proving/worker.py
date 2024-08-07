@@ -13,7 +13,7 @@ from utils import count_onnx_model_operations
 # # Configure logging
 # logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 # # Configure logging
-logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.DEBUG)
+logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger("ZKPWorker")
 
 class EZKLProver:
