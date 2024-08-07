@@ -173,8 +173,11 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outp
             with open(input_data_save_path, 'w') as json_file:
                 json.dump(proving_input, json_file, indent=4)
         
-        models_with_inputs.append((sub_model,proving_input))
-    
+        if save_to_file:
+            models_with_inputs.append((model_save_path,input_data_save_path))
+        else:
+            models_with_inputs.append((sub_model,proving_input))
+
     return models_with_inputs
 
 if __name__ == "__main__":
