@@ -1,20 +1,19 @@
-
 defaults:
   - _self_
-  - model: mnist_gan  #mobilenet, mnist_gan, mnist_classifier, little_transformer
+  - model: mnist_gan  # mobilenet, mnist_gan, mnist_classifier, little_transformer
   # - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled  
 
-num_model_parts: null #set to 'null' to set it to the max number of splits
-worker_addresses: ["localhost:50052"] #["localhost:50052"] 
-working_dir: distrubuted_proving/tmp
-report_path: 'distrubuted_proving/performance_logs.csv'
-  run:
-    dir: .  # Current directory or a specific directory where Ray Tune expects to find it
-  sweep:
-    dir: .  # Same as above
-  output_subdir: null
-  job_logging:
-    level: DISABLE  # Disable job-specific logging
-  hydra_logging:
-    level: DISABLE  # Disable Hydra-specific logging
+num_model_parts: null  # set to 'null' to set it to the max number of splits
+worker_addresses: ["localhost:50052"]  # ["localhost:50052"]
+report_path: distrubuted_proving/performance_logs.csv
+
+run:
+  dir: .  # Current directory or a specific directory where Ray Tune expects to find it
+sweep:
+  dir: .  # Same as above
+output_subdir: null
+job_logging:
+  level: DISABLE  # Disable job-specific logging
+hydra_logging:
+  level: DISABLE  # Disable Hydra-specific logging
