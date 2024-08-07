@@ -52,9 +52,10 @@ class ZKPProver():
         self.check_worker_connections(config.worker_addresses)
         self.report_path = config.report_path
     
-    def write_report(self,model_info: dict ,performance_data: dict):
+    def write_report(self, worker_address, model_info: dict ,performance_data: dict):
 
         report_data = {**model_info, **performance_data}
+        report_data['worker_address'] = worker_address
 
         with open(self.report_path, mode='a', newline='') as file:
             if not os.path.isfile(self.report_path):
@@ -114,7 +115,7 @@ class ZKPProver():
                         logger.info(f'Proof computed for sub-model {sub_model.id} by worker {worker.address}')
                         
                         performance_data = json.loads(response.performance_data)
-                        self.write_report(sub_model.info,performance_data)
+                        self.write_report(worker.address, sub_model.info,performance_data)
 
                     else:
                         logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}')
