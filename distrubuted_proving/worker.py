@@ -105,7 +105,7 @@ class EZKLProver:
             return self.proof_path
 
 class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
-    def __init__(self, hostname):
+    def __init__(self):
         self.status = 'awaiting work'
         self.is_busy = False
         self.computed_proof = None
