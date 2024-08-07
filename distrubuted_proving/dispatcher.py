@@ -43,7 +43,9 @@ class OnnxModel ():
         self.is_completed = False
         self.input_data = input_data
         self.sub_models: List[OnnxModel] = []
-        self.info = analyze_onnx_model_for_zk_proving(onnx_model=self.model_proto)
+        self.info = {'id': self.id}
+        self.info.update(analyze_onnx_model_for_zk_proving(onnx_model=self.model_proto))
+        # self.info (analyze_onnx_model_for_zk_proving(onnx_model=self.model_proto))
 
 
 class ZKPProver():
