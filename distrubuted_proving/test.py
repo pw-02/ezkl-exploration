@@ -1,4 +1,4 @@
-from split_model import run_inference_on_onnx_model, get_intermediate_outputs, split_onnx_model_at_every_node
+from split_model import get_intermediate_outputs, split_onnx_model_at_every_node
 from log_utils import ExperimentLogger, time_function, print_func_exec_info, ResourceMonitor
 from utils import count_onnx_model_parameters
 import os

@@ -1,61 +1,35 @@
 syntax = "proto3";
 
+package zkpservice;
 
-/*
-service Dispatcher {
-    rpc Dispatch(Task) returns (Task) {}
-    rpc RegisterWorker(WorkerAddress) returns (WorkerRegistrationResponse) {}
+
+service ZKPWorkerService {
+    // Computes a zero-knowledge proof for the provided model and input data
+    rpc ComputeProof (ProofRequest) returns (ProofResponse);
+    // Check the status of the worker
+    rpc Ping (Message) returns (MessageResponse);
 }
-*/
-service Worker {
-    rpc ProcessTask(Task) returns (Task) {}
-    rpc Ping(Message) returns (MessageResponse);
-    rpc ComputeProof(ProofData) returns (Message) {}
-    rpc GetWorkerStatus(Message) returns (WorkerStatusResponse) {}
-    rpc GetComputedProof(Message) returns (ProofStatusResponse) {}
-    }
 
-
-message ProofStatusResponse{
- string status_message = 1;
- int32 status_id = 2; //1 = In progress, 2 = Completed, 3 = Error 
- bytes proof = 3;
+// The request message containing the onnx model (as bytes) and input data.
+message ProofRequest {
+  bytes onnx_model = 1;
+  string input_data = 2;
 }
 
 
-message WorkerStatusResponse{
- string message = 1;
- bool isbusy = 2;
+// The response message containing the computed proof and success status.
+message ProofResponse {
+  bool success = 1;
+  bytes proof = 2;
 }
 
-
-message ProofData{
-bytes model_bytes = 1;
-string model_input = 2;
+// A simple message containing a text message.
+message Message {
+  string message = 1;
 }
 
-
-
-message Message{
- string message = 1;
-}
-
-message MessageResponse{
- string message = 1;
- bool received = 2;
-}
-
-/*
-message WorkerAddress {
-    string address = 1;
-}
-
-message WorkerRegistrationResponse {
-    bool success = 1;
-    string message = 2;
-} */
-
-message Task {
-    string id = 1;
-    string data = 2;
+// The response message for the Ping method.
+message MessageResponse {
+  string message = 1;
+  bool received = 2;
 }

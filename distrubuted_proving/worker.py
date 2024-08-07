@@ -49,7 +49,7 @@ class EZKLProver:
 
     @time_function
     def gen_witness(self):
-        assert ezkl.gen_witness(self.data_path, self.compiled_model_path, self.witness_path) == True
+        ezkl.gen_witness(self.data_path, self.compiled_model_path, self.witness_path)
         assert os.path.isfile(self.witness_path)
 
     @time_function
@@ -71,14 +71,13 @@ class EZKLProver:
     def run_end_to_end_proof(self):
         with ResourceMonitor() as monitor:
             num_parameters = count_onnx_model_operations(self.model_path)
-            # logging.info(f'Number of Model Parameters: {num_parameters}')
             self.exp_logger.log_value('num_model_params', num_parameters)
             self.exp_logger.log_env_resources()
             self.exp_logger.log_value('name', 'report')
 
             functions = [
                 ('gen_settings', self.gen_settings),
-                # ('calibrate_settings', self.calibrate_settings),
+                  # ('calibrate_settings', self.calibrate_settings),
                 ('compile_circuit', self.compile_circuit),
                 ('get_srs', self.get_srs),
                 ('gen_witness', self.gen_witness),
@@ -92,7 +91,6 @@ class EZKLProver:
                 print_func_exec_info(func_name, execution_time)
                 self.exp_logger.log_value(f'{func_name}(s)', execution_time)
             
-            # Log resource data
             resource_data = monitor.resource_data
             self.exp_logger.log_value('mean_cpu', resource_data["cpu_util"]["mean"])
             self.exp_logger.log_value('max_cpu', resource_data["cpu_util"]["max"])
@@ -101,77 +99,54 @@ class EZKLProver:
             self.exp_logger.flush_log()
             return self.proof_path
 
-class WorkerServicer(pb2_grpc.WorkerServicer):
+class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
     def __init__(self):
         self.status = 'awaiting work'
         self.is_busy = False
         self.computed_proof = None
 
-    def ProcessTask(self, request, context):
-        logging.info("Received task: %s", request)
-        # Simulating processing time
-        time.sleep(2)
-        return pb2.Task(id=request.id, data="Processed " + request.data)
-
-    def GetWorkerStatus(self, request, context):
-        if self.computed_proof is None:
-            return pb2.WorkerStatusResponse(message="Proof still being computed", isbusy=True)
-        else:
-            logging.info("Worker is now free after completing proof computation.")
-            return pb2.WorkerStatusResponse(message="Proof computation finished", isbusy=self.is_busy)
-
-    def GetComputedProof(self, request, context):
-        if self.computed_proof is None:
-            return pb2.ProofStatusResponse(status_message="Proof is still being computed", status_id=1, proof=None)
-        else:
-            logging.info("Worker is now free for more tasks.")
-            proof_response = pb2.ProofStatusResponse(status_message="Proof computed", status_id=1, proof=self.computed_proof)
-            self.computed_proof = None  # Reset for future requests
-            return proof_response
-
-    def ComputeProof(self, request, context):
-        logging.info("Received 'Compute Proof' task")
-
-        def compute_proof():
-            directory_name = datetime.now().strftime("%Y%m%d_%H%M%S")
-            directory_path = os.path.join("data", directory_name)
-            os.makedirs(directory_path, exist_ok=True)
-
-            received_model = ModelProto()
-            received_model.ParseFromString(request.model_bytes)
-            onnx.save(received_model, os.path.join(directory_path, 'model.onnx'))
-            model_input = json.loads(request.model_input)
-            json.dump(model_input, open(os.path.join(directory_path, 'input.json'), 'w'))
-
-            prover = EZKLProver(directory_path)
-            proof_path = prover.run_end_to_end_proof()
-            
-            with open(proof_path, "rb") as file:
-                self.computed_proof = file.read()
-
-            logging.info("Proof computed and verified.")
-
-        proof_thread = threading.Thread(target=compute_proof)
-        proof_thread.start()
-       
-        return pb2.Message(message="Proof computation started")
-
-    def Ping(self, request, context): 
+    def Ping(self, request, context):
         logging.info("Received Ping Request from %s", request.message)
         return pb2.MessageResponse(message='pong', received=True)
 
-def run_worker(port):
+    def ComputeProof(self, request, context):
+        logging.info("Received 'Compute Proof' task")
+        
+        directory_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+        directory_path = os.path.join("data", directory_name)
+        os.makedirs(directory_path, exist_ok=True)
+
+        with open(os.path.join(directory_path, 'model.onnx'), 'wb') as f:
+            f.write(request.onnx_model)
+
+        model_input = json.loads(request.input_data)
+        json.dump(model_input, open(os.path.join(directory_path, 'input.json'), 'w'))
+
+        prover = EZKLProver(directory_path)
+        proof_path = prover.run_end_to_end_proof()
+            
+        with open(proof_path, "rb") as file:
+            self.computed_proof = file.read()
+
+        logging.info("Proof computed and verified.")
+
+        # proof_thread = threading.Thread(target=compute_proof)
+        # proof_thread.start()
+       
+        return pb2.ProofResponse(success=True, proof=self.computed_proof)
+
+def run_server(port):
     try:
         max_message_length = 2**31 - 1  # ~2GB
 
         server = grpc.server(
-            futures.ThreadPoolExecutor(max_workers=8),
+            futures.ThreadPoolExecutor(max_workers=4),
             options=[
                 ('grpc.max_send_message_length', max_message_length),
                 ('grpc.max_receive_message_length', max_message_length),
             ]
         )
-        pb2_grpc.add_WorkerServicer_to_server(WorkerServicer(), server)
+        pb2_grpc.add_ZKPWorkerServiceServicer_to_server(ZKPWorkerServicer(), server)
         server.add_insecure_port(f'[::]:{port}')
         server.start()
         logging.info(f"Worker started on port {port}...")
@@ -184,14 +159,10 @@ def run_worker(port):
 
 def main():
     import argparse
-
-    parser = argparse.ArgumentParser(description="Run gRPC worker")
-    parser.add_argument("--port", type=int, default=50052, help="Port number for the worker to listen on")
+    parser = argparse.ArgumentParser(description="Run gRPC server")
+    parser.add_argument("--port", type=int, default=50052, help="Port number for the server to listen on")
     args = parser.parse_args()
-    run_worker(args.port)
+    run_server(args.port)
 
 if __name__ == '__main__':
     main()
-    # prover = EZKLProver("two_inpus_test")
-    # prover.run_end_to_end_proof()
-    # print('Done')

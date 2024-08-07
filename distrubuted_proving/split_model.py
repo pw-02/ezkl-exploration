@@ -110,7 +110,7 @@ def run_inference_on_onnx_model(model_path, input_file):
 
 
 
-def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outputs, output_folder = 'tmp'):
+def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outputs, output_folder = 'tmp', save_to_file = False):
 
     models_with_inputs = []
 
@@ -125,36 +125,38 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outp
             nodes[node.name] = (node_inputs, node_outputs) #only want nodes with input/outputs. The others are constants. 
         else:
             pass
-    os.makedirs(output_folder, exist_ok=True)
+
+    if save_to_file:
+        os.makedirs(output_folder, exist_ok=True)
 
     for idx, node_name in enumerate(nodes):
 
-        split_out_put_folder = os.path.join(output_folder, f'split_{idx+1}')
-        os.makedirs(split_out_put_folder, exist_ok=True)
-
-        model_path = f'{split_out_put_folder}/model.onnx'
-        input_path = f'{split_out_put_folder}/input.json'
-        # model_out_path = f'{output_folder}/split_{idx+1}_model.onnx'
-        # input_out_path = f'{output_folder}/split_{idx+1}_model.onnx'
+        # model_path = f'{output_folder}/model.onnx'
+        # input_path = f'{output_folder}/input.json'
+        model_save_path = f'{output_folder}/split_{idx+1}_model.onnx'
+        input_data_save_path = f'{output_folder}/split_{idx+1}_input.json'
 
         # print(f"Processing Split {idx+1}, Node Name: {node_name}")
         node_inputs, node_outputs = nodes[node_name]
-        sub_model = extract_model(onnx_model_path, node_inputs, node_outputs,model_path)
+        if save_to_file:
+            sub_model = extract_model(onnx_model_path, node_inputs, node_outputs,model_save_path)
+        else:
+            sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
+
         session = ort.InferenceSession(sub_model.SerializeToString())
 
         #the inputs to each node are the outputs of all parent nodes. 
         # since the first node has no parent, we add it manually to 'itermediate_outputs'
-        
+
         input_names = [input.name for input in session.get_inputs()]
-        
+
         if idx == 0: #first part takes in the inital input
             input = session.get_inputs()[0]
             input_shape = input.shape
             input_type = input.type
             input_data = load_json_input(json_input, input_shape)
             itermediate_outputs[input.name] = input_data
-        if idx == 5:
-            pass
+
         assert all(name in itermediate_outputs for name in input_names), "Input data dictionary keys must match the model input names."
         # inference_input = {}
         # for name in input_names:
@@ -166,10 +168,11 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outp
         for name in input_names:
             inputs.append(itermediate_outputs[name].flatten().tolist())
         proving_input = {"input_data": inputs}
+        if save_to_file:
+            with open(input_data_save_path, 'w') as json_file:
+                json.dump(proving_input, json_file, indent=4)
         
-        with open(input_path, 'w') as json_file:
-            json.dump(proving_input, json_file, indent=4)
-        models_with_inputs.append((model_path,input_path))
+        models_with_inputs.append((sub_model,proving_input))
     
     return models_with_inputs
 

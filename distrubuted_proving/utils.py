@@ -4,16 +4,29 @@ import numpy as np
 import json
 import ezkl
 import os
+import shutil
 
-def count_onnx_model_operations(onnx_model_path):
+def read_json_file_to_string(file_path):
+    with open(file_path, 'r') as file:
+        json_data = json.load(file)
+    return json.dumps(json_data, indent=4)  # Convert JSON object to a pretty-printed string
+
+def read_json_file_to_dict(file_path):
+    with open(file_path, 'r') as file:
+        data = json.load(file)
+    return data
+
+def count_onnx_model_operations(model):
     
-    model = onnx.load(onnx_model_path)
+    if isinstance(model, str):
+        model = onnx.load(model)
     nodes = model.graph.node
     num_operations = len(nodes)
     return num_operations
 
-def count_onnx_model_parameters(onnx_model_path):
-    model = onnx.load(onnx_model_path)
+def count_onnx_model_parameters(model):
+    if isinstance(model, str):
+        model = onnx.load(model)
     # Initialize the parameter counter
     num_parameters = 0
     # Iterate through all the initializers (weights, biases, etc.)
@@ -26,9 +39,10 @@ def count_onnx_model_parameters(onnx_model_path):
         num_parameters += param_size
     return num_parameters
 
-def count_weights_and_tensors_in_onnx_model(model_path):
+def count_weights_and_tensors_in_onnx_model(model):
     # Load the ONNX model
-    model = onnx.load(model_path)
+    if isinstance(model, str):
+        model = onnx.load(model)
     
     total_weights = 0
     total_input_size = 0
@@ -50,9 +64,17 @@ def count_weights_and_tensors_in_onnx_model(model_path):
 
     return total_weights + total_input_size + total_output_size
 
-def get_ezkl_settings(onnx_model_path, settings_path, delete_file_afterwards=True):
+def get_ezkl_settings(onnx_model, delete_file_afterwards=True):
     """ Generate and return EZKL settings. """
-    ezkl.gen_settings(onnx_model_path, settings_path)
+    temp_dir = 'ezkl_settings'
+    os.makedirs(temp_dir, exist_ok=True)
+    settings_path = os.path.join(temp_dir, 'settings.json')
+
+    if isinstance(onnx_model, str):
+        ezkl.gen_settings(onnx_model, settings_path)
+    else:
+        onnx.save(onnx_model, os.path.join(temp_dir, 'model.onnx'))
+        ezkl.gen_settings(os.path.join(temp_dir, 'model.onnx'), settings_path)
 
     try:
         with open(settings_path, 'r') as f:
@@ -61,17 +83,17 @@ def get_ezkl_settings(onnx_model_path, settings_path, delete_file_afterwards=Tru
         print(f"Error reading JSON settings file: {e}")
         settings_data = {}
     finally:
-        if delete_file_afterwards and os.path.isfile(settings_path):
-            os.remove(settings_path)
+        if delete_file_afterwards and os.path.isdir(temp_dir):
+            shutil.rmtree(temp_dir)
+    
     return settings_data
 
-def analyze_onnx_model_for_zk_proving(onnx_model_path):
-    model_ops_count = count_onnx_model_operations(onnx_model_path)
-    model_params_count = count_onnx_model_parameters(onnx_model_path)
-    weights_and_tensor_count = count_weights_and_tensors_in_onnx_model(onnx_model_path)
-    ezkl_settings = get_ezkl_settings(onnx_model_path, f"tmp.json", True)
+def analyze_onnx_model_for_zk_proving(onnx_model):
+    model_ops_count = count_onnx_model_operations(onnx_model)
+    model_params_count = count_onnx_model_parameters(onnx_model)
+    weights_and_tensor_count = count_weights_and_tensors_in_onnx_model(onnx_model)
+    ezkl_settings = get_ezkl_settings(onnx_model, True)
     data_dict = {
-        "model_path": onnx_model_path,
         "num_model_ops": model_ops_count,
         "num_model_params": model_params_count,
         "num_model_constants": weights_and_tensor_count,

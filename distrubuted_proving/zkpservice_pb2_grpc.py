@@ -30,13 +30,8 @@ if _version_not_supported:
     )
 
 
-class WorkerStub(object):
-    """
-    service Dispatcher {
-    rpc Dispatch(Task) returns (Task) {}
-    rpc RegisterWorker(WorkerAddress) returns (WorkerRegistrationResponse) {}
-    }
-    """
+class ZKPWorkerServiceStub(object):
+    """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
         """Constructor.
@@ -44,117 +39,61 @@ class WorkerStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.ProcessTask = channel.unary_unary(
-                '/Worker/ProcessTask',
-                request_serializer=zkpservice__pb2.Task.SerializeToString,
-                response_deserializer=zkpservice__pb2.Task.FromString,
+        self.ComputeProof = channel.unary_unary(
+                '/zkpservice.ZKPWorkerService/ComputeProof',
+                request_serializer=zkpservice__pb2.ProofRequest.SerializeToString,
+                response_deserializer=zkpservice__pb2.ProofResponse.FromString,
                 _registered_method=True)
         self.Ping = channel.unary_unary(
-                '/Worker/Ping',
+                '/zkpservice.ZKPWorkerService/Ping',
                 request_serializer=zkpservice__pb2.Message.SerializeToString,
                 response_deserializer=zkpservice__pb2.MessageResponse.FromString,
                 _registered_method=True)
-        self.ComputeProof = channel.unary_unary(
-                '/Worker/ComputeProof',
-                request_serializer=zkpservice__pb2.ProofData.SerializeToString,
-                response_deserializer=zkpservice__pb2.Message.FromString,
-                _registered_method=True)
-        self.GetWorkerStatus = channel.unary_unary(
-                '/Worker/GetWorkerStatus',
-                request_serializer=zkpservice__pb2.Message.SerializeToString,
-                response_deserializer=zkpservice__pb2.WorkerStatusResponse.FromString,
-                _registered_method=True)
-        self.GetComputedProof = channel.unary_unary(
-                '/Worker/GetComputedProof',
-                request_serializer=zkpservice__pb2.Message.SerializeToString,
-                response_deserializer=zkpservice__pb2.ProofStatusResponse.FromString,
-                _registered_method=True)
 
 
-class WorkerServicer(object):
-    """
-    service Dispatcher {
-    rpc Dispatch(Task) returns (Task) {}
-    rpc RegisterWorker(WorkerAddress) returns (WorkerRegistrationResponse) {}
-    }
-    """
+class ZKPWorkerServiceServicer(object):
+    """Missing associated documentation comment in .proto file."""
 
-    def ProcessTask(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+    def ComputeProof(self, request, context):
+        """Computes a zero-knowledge proof for the provided model and input data
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def Ping(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def ComputeProof(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def GetWorkerStatus(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def GetComputedProof(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Check the status of the worker
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
 
-def add_WorkerServicer_to_server(servicer, server):
+def add_ZKPWorkerServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'ProcessTask': grpc.unary_unary_rpc_method_handler(
-                    servicer.ProcessTask,
-                    request_deserializer=zkpservice__pb2.Task.FromString,
-                    response_serializer=zkpservice__pb2.Task.SerializeToString,
+            'ComputeProof': grpc.unary_unary_rpc_method_handler(
+                    servicer.ComputeProof,
+                    request_deserializer=zkpservice__pb2.ProofRequest.FromString,
+                    response_serializer=zkpservice__pb2.ProofResponse.SerializeToString,
             ),
             'Ping': grpc.unary_unary_rpc_method_handler(
                     servicer.Ping,
                     request_deserializer=zkpservice__pb2.Message.FromString,
                     response_serializer=zkpservice__pb2.MessageResponse.SerializeToString,
             ),
-            'ComputeProof': grpc.unary_unary_rpc_method_handler(
-                    servicer.ComputeProof,
-                    request_deserializer=zkpservice__pb2.ProofData.FromString,
-                    response_serializer=zkpservice__pb2.Message.SerializeToString,
-            ),
-            'GetWorkerStatus': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetWorkerStatus,
-                    request_deserializer=zkpservice__pb2.Message.FromString,
-                    response_serializer=zkpservice__pb2.WorkerStatusResponse.SerializeToString,
-            ),
-            'GetComputedProof': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetComputedProof,
-                    request_deserializer=zkpservice__pb2.Message.FromString,
-                    response_serializer=zkpservice__pb2.ProofStatusResponse.SerializeToString,
-            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'Worker', rpc_method_handlers)
+            'zkpservice.ZKPWorkerService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('Worker', rpc_method_handlers)
+    server.add_registered_method_handlers('zkpservice.ZKPWorkerService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class Worker(object):
-    """
-    service Dispatcher {
-    rpc Dispatch(Task) returns (Task) {}
-    rpc RegisterWorker(WorkerAddress) returns (WorkerRegistrationResponse) {}
-    }
-    """
+class ZKPWorkerService(object):
+    """Missing associated documentation comment in .proto file."""
 
     @staticmethod
-    def ProcessTask(request,
+    def ComputeProof(request,
             target,
             options=(),
             channel_credentials=None,
@@ -167,9 +106,9 @@ class Worker(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/Worker/ProcessTask',
-            zkpservice__pb2.Task.SerializeToString,
-            zkpservice__pb2.Task.FromString,
+            '/zkpservice.ZKPWorkerService/ComputeProof',
+            zkpservice__pb2.ProofRequest.SerializeToString,
+            zkpservice__pb2.ProofResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -194,90 +133,9 @@ class Worker(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/Worker/Ping',
+            '/zkpservice.ZKPWorkerService/Ping',
             zkpservice__pb2.Message.SerializeToString,
             zkpservice__pb2.MessageResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def ComputeProof(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/Worker/ComputeProof',
-            zkpservice__pb2.ProofData.SerializeToString,
-            zkpservice__pb2.Message.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def GetWorkerStatus(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/Worker/GetWorkerStatus',
-            zkpservice__pb2.Message.SerializeToString,
-            zkpservice__pb2.WorkerStatusResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def GetComputedProof(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/Worker/GetComputedProof',
-            zkpservice__pb2.Message.SerializeToString,
-            zkpservice__pb2.ProofStatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
