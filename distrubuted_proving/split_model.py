@@ -130,11 +130,12 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outp
         os.makedirs(output_folder, exist_ok=True)
 
     for idx, node_name in enumerate(nodes):
-
-        # model_path = f'{output_folder}/model.onnx'
-        # input_path = f'{output_folder}/input.json'
-        model_save_path = f'{output_folder}/split_{idx+1}_model.onnx'
-        input_data_save_path = f'{output_folder}/split_{idx+1}_input.json'
+        sub_model_output_folder = os.path.join(output_folder, f'split_{idx+1}')
+        os.makedirs(sub_model_output_folder, exist_ok=True)
+        model_save_path = f'{sub_model_output_folder}/model.onnx'
+        input_data_save_path = f'{sub_model_output_folder}/input.json'
+        # model_save_path = f'{sub_model_output_folder}/split_{idx+1}_model.onnx'
+        # input_data_save_path = f'{sub_model_output_folder}/split_{idx+1}_input.json'
 
         # print(f"Processing Split {idx+1}, Node Name: {node_name}")
         node_inputs, node_outputs = nodes[node_name]

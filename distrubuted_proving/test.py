@@ -95,14 +95,15 @@ class EZKLProver:
 if __name__ == "__main__":
 
     models_to_test = [
-        # ('examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx', 'examples/onnx/mobilenet/input.json'),
-        ('examples/onnx/mnist_gan/network.onnx', 'examples/onnx/mnist_gan/input.json')]
+        ('examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx', 'examples/onnx/mobilenet/input.json')
+        #('examples/onnx/mnist_gan/network.onnx', 'examples/onnx/mnist_gan/input.json')
+        ]
     for onnx_file, input_file in models_to_test:
 
         # Get the output tensor(s) of every node in the model during inference
         intermediate_results = get_intermediate_outputs(onnx_file, input_file)
 
-        models_with_inputs = split_onnx_model_at_every_node(onnx_file, input_file,  intermediate_results, 'examples/split_models/mnist_gan')  
+        models_with_inputs = split_onnx_model_at_every_node(onnx_file, input_file,  intermediate_results, 'examples/split_models/mobilenet', True)  
 
         for idx, (sub_model_path, input_data_path) in enumerate(models_with_inputs):
 
