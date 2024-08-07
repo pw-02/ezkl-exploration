@@ -57,9 +57,11 @@ class ZKPProver():
         report_data = {**model_info, **performance_data}
         report_data['worker_address'] = worker_address
 
+        file_exists = os.path.isfile(self.report_path)
+
         with open(self.report_path, mode='a', newline='') as file:
-            if not os.path.isfile(self.report_path):
-                writer = csv.DictWriter(file, fieldnames=report_data.keys())
+            writer = csv.DictWriter(file, fieldnames=report_data.keys())
+            if not file_exists:
                 writer.writeheader()
             writer.writerow(report_data)
 
