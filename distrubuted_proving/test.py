@@ -93,6 +93,8 @@ class EZKLProver:
 
 
 if __name__ == "__main__":
+    prover = EZKLProver('examples/split_models/mobilenet/split_1')
+    proof_path = prover.run_end_to_end_proof()
 
     models_to_test = [
         ('examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx', 'examples/onnx/mobilenet/input.json')

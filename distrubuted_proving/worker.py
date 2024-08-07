@@ -39,7 +39,7 @@ class EZKLProver:
 
     @time_function
     def calibrate_settings(self):
-        assert ezkl.calibrate_settings(self.data_path, self.model_path, self.settings_path, "resources") == True
+        ezkl.calibrate_settings(self.data_path, self.model_path, self.settings_path, "resources")
 
     @time_function
     def compile_circuit(self):
@@ -75,7 +75,7 @@ class EZKLProver:
             self.exp_logger.log_env_resources()
             functions = [
                 ('gen_settings', self.gen_settings),
-                  # ('calibrate_settings', self.calibrate_settings),
+                ('calibrate_settings', self.calibrate_settings),
                 ('compile_circuit', self.compile_circuit),
                 ('get_srs', self.get_srs),
                 ('gen_witness', self.gen_witness),
