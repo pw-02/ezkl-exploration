@@ -94,7 +94,7 @@ class EZKLProver:
             with open(self.settings_path, 'r') as f:
                 settings_data = json.load(f)
                 self.exp_logger.log_value('num_rows', settings_data["num_rows"])
-                self.exp_logger.log_value('num_assignments', settings_data["num_assignments"])
+                # self.exp_logger.log_value('num_assignments', settings_data["num_assignments"])
            
             resource_data = monitor.resource_data
             self.exp_logger.log_value('mean_cpu', resource_data["cpu_util"]["mean"])
