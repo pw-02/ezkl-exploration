@@ -69,11 +69,7 @@ class EZKLProver:
 
     def run_end_to_end_proof(self):
         with ResourceMonitor() as monitor:
-            num_parameters = count_onnx_model_operations(self.model_path)
-            self.exp_logger.log_value('num_model_params', num_parameters)
             self.exp_logger.log_env_resources()
-            self.exp_logger.log_value('name', 'worker_report')
-
             functions = [
                 ('gen_settings', self.gen_settings),
                   # ('calibrate_settings', self.calibrate_settings),
@@ -91,18 +87,13 @@ class EZKLProver:
                 # print_func_exec_info(func_name, execution_time)
                 self.exp_logger.log_value(f'{func_name}(s)', execution_time)
             
-            with open(self.settings_path, 'r') as f:
-                settings_data = json.load(f)
-                self.exp_logger.log_value('num_rows', settings_data["num_rows"])
-                # self.exp_logger.log_value('num_assignments', settings_data["num_assignments"])
-           
             resource_data = monitor.resource_data
             self.exp_logger.log_value('mean_cpu', resource_data["cpu_util"]["mean"])
             self.exp_logger.log_value('max_cpu', resource_data["cpu_util"]["max"])
             self.exp_logger.log_value('mean_cpu_mem_gb', resource_data["cpu_mem_gb"]["mean"])
             self.exp_logger.log_value('max_cpu_mem_gb', resource_data["cpu_mem_gb"]["max"])
-            self.exp_logger.flush_log()
-            return self.proof_path
+            # self.exp_logger.flush_log()
+            return self.proof_path, self.exp_logger.data
 
 class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
     def __init__(self):
@@ -129,17 +120,17 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         json.dump(model_input, open(os.path.join(directory_path, 'input.json'), 'w'))
 
         prover = EZKLProver(directory_path, self.log_dir)
-        proof_path = prover.run_end_to_end_proof()
+        proof_path, performance_data = prover.run_end_to_end_proof()
             
         with open(proof_path, "rb") as file:
-            self.computed_proof = file.read()
+           computed_proof = file.read()
 
         logging.info("Proof computed and verified.")
 
         # proof_thread = threading.Thread(target=compute_proof)
         # proof_thread.start()
        
-        return pb2.ProofResponse(success=True, proof=self.computed_proof)
+        return pb2.ProofResponse(success=True, proof=computed_proof, performance_data=json.dumps(performance_data))
 
 def run_server(port):
     try:

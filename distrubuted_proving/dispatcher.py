@@ -14,6 +14,7 @@ from grpc import Channel
 import json
 from onnx import ModelProto
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import csv
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
@@ -49,6 +50,17 @@ class ZKPProver():
     def __init__(self, config: DictConfig):
         self.workers:List[Worker] = []
         self.check_worker_connections(config.worker_addresses)
+        self.report_path = config.report_path
+    
+    def write_report(self,model_info: dict ,performance_data: dict):
+
+        report_data = {**model_info, **performance_data}
+
+        with open(self.report_path, mode='a', newline='') as file:
+            if not os.path.isfile(self.report_path):
+                writer = csv.DictWriter(file, fieldnames=report_data.keys())
+                writer.writeheader()
+            writer.writerow(report_data)
 
     def prepare_model_for_distrubuted_proving(self, onnx_model_path:str, json_input_file:str):
 
@@ -100,6 +112,10 @@ class ZKPProver():
                         sub_model.computed_proof = response.proof
                         sub_model.is_completed = True
                         logger.info(f'Proof computed for sub-model {sub_model.id} by worker {worker.address}')
+                        
+                        performance_data = json.loads(response.performance_data)
+                        self.write_report(sub_model.info,performance_data)
+
                     else:
                         logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}')
             except Exception as e:

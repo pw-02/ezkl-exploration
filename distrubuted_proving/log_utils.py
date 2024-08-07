@@ -38,8 +38,9 @@ class ExperimentLogger:
 
     def log_env_resources(self):
         self.data['memory_available_gb'] =  psutil.virtual_memory().total / (1024.0 ** 3)
-        self.data['logical_cpu_count'] =  psutil.cpu_count(logical=True)
-    
+        self.data['cpu_count'] =  psutil.cpu_count(logical=True)
+
+
     def flush_log(self):
 
         os.makedirs(self.log_dir, exist_ok=True)

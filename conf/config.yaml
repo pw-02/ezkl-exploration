@@ -8,7 +8,7 @@ defaults:
 num_model_parts: null #set to 'null' to set it to the max number of splits
 worker_addresses: ["localhost:50052"] #["localhost:50052"] 
 working_dir: distrubuted_proving/tmp
-hydra:
+report_path: distrubuted_proving/proof_generation_report.csv
   run:
     dir: .  # Current directory or a specific directory where Ray Tune expects to find it
   sweep:

@@ -14,7 +14,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10zkpservice.proto\x12\nzkpservice\"6\n\x0cProofRequest\x12\x12\n\nonnx_model\x18\x01 \x01(\x0c\x12\x12\n\ninput_data\x18\x02 \x01(\t\"/\n\rProofResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\r\n\x05proof\x18\x02 \x01(\x0c\"\x1a\n\x07Message\x12\x0f\n\x07message\x18\x01 \x01(\t\"4\n\x0fMessageResponse\x12\x0f\n\x07message\x18\x01 \x01(\t\x12\x10\n\x08received\x18\x02 \x01(\x08\x32\x91\x01\n\x10ZKPWorkerService\x12\x43\n\x0c\x43omputeProof\x12\x18.zkpservice.ProofRequest\x1a\x19.zkpservice.ProofResponse\x12\x38\n\x04Ping\x12\x13.zkpservice.Message\x1a\x1b.zkpservice.MessageResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10zkpservice.proto\x12\nzkpservice\"6\n\x0cProofRequest\x12\x12\n\nonnx_model\x18\x01 \x01(\x0c\x12\x12\n\ninput_data\x18\x02 \x01(\t\"I\n\rProofResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\r\n\x05proof\x18\x02 \x01(\x0c\x12\x18\n\x10performance_data\x18\x03 \x01(\t\"\x1a\n\x07Message\x12\x0f\n\x07message\x18\x01 \x01(\t\"4\n\x0fMessageResponse\x12\x0f\n\x07message\x18\x01 \x01(\t\x12\x10\n\x08received\x18\x02 \x01(\x08\x32\x91\x01\n\x10ZKPWorkerService\x12\x43\n\x0c\x43omputeProof\x12\x18.zkpservice.ProofRequest\x1a\x19.zkpservice.ProofResponse\x12\x38\n\x04Ping\x12\x13.zkpservice.Message\x1a\x1b.zkpservice.MessageResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -24,11 +24,11 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_PROOFREQUEST']._serialized_start=32
   _globals['_PROOFREQUEST']._serialized_end=86
   _globals['_PROOFRESPONSE']._serialized_start=88
-  _globals['_PROOFRESPONSE']._serialized_end=135
-  _globals['_MESSAGE']._serialized_start=137
-  _globals['_MESSAGE']._serialized_end=163
-  _globals['_MESSAGERESPONSE']._serialized_start=165
-  _globals['_MESSAGERESPONSE']._serialized_end=217
-  _globals['_ZKPWORKERSERVICE']._serialized_start=220
-  _globals['_ZKPWORKERSERVICE']._serialized_end=365
+  _globals['_PROOFRESPONSE']._serialized_end=161
+  _globals['_MESSAGE']._serialized_start=163
+  _globals['_MESSAGE']._serialized_end=189
+  _globals['_MESSAGERESPONSE']._serialized_start=191
+  _globals['_MESSAGERESPONSE']._serialized_end=243
+  _globals['_ZKPWORKERSERVICE']._serialized_start=246
+  _globals['_ZKPWORKERSERVICE']._serialized_end=391
 # @@protoc_insertion_point(module_scope)

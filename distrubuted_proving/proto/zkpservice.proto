@@ -21,6 +21,7 @@ message ProofRequest {
 message ProofResponse {
   bool success = 1;
   bytes proof = 2;
+  string performance_data = 3;
 }
 
 // A simple message containing a text message.
