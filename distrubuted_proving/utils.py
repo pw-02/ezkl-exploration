@@ -97,9 +97,9 @@ def analyze_onnx_model_for_zk_proving(onnx_model):
         "num_model_ops": model_ops_count,
         "num_model_params": model_params_count,
         "num_model_constants": weights_and_tensor_count,
-        "zk_num_rows": ezkl_settings.get("num_rows", 0),
+        "zk_circuit_num_rows": ezkl_settings.get("num_rows", 0),
         # "zk_circuit_logrows": ezkl_settings.get("run_args", {}).get("logrows", 0),
-        "zk_assignments": ezkl_settings.get("total_assignments", 0),
+        "zk_circuit_num_assignments": ezkl_settings.get("total_assignments", 0),
     }
     return data_dict
 
