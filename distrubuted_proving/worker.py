@@ -160,7 +160,7 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         with self.lock:
             self.requests[request_id] = {
                 'status': 'Completed',
-                'proof': computed_proof,
+                'proof': 'proof'.encode('utf-8'),
                 'performance_data': performance_data
             }
 
