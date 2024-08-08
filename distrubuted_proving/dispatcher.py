@@ -101,6 +101,7 @@ class ZKPProver():
                     
                     # Send the ComputeProof request
                     request = pb2.ProofRequest(
+                        model_id = sub_model.id,
                         onnx_model=sub_model.model_proto.SerializeToString(),
                         input_data=json.dumps(sub_model.input_data)
                     )
@@ -176,9 +177,6 @@ class ZKPProver():
             logger.warning('Some proofs failed to compute.')
         
 
-
-    
-        
     def check_worker_connections(self, worker_addresses):
         max_message_length = 2**31 - 1  # This is 2,147,483,647 bytes (~2GB)
 

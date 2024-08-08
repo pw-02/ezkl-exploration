@@ -20,7 +20,7 @@ logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger("ZKPWorker")
 
 class EZKLProver:
-    def __init__(self, worker_dir: str, log_dir: str):
+    def __init__(self, worker_dir: str, log_dir: str, orverwrite=False):
         self.directory = worker_dir
         self.model_path = os.path.join(self.directory, 'model.onnx')
         self.data_path = os.path.join(self.directory, 'input.json')
@@ -32,34 +32,54 @@ class EZKLProver:
         self.cal_path = os.path.join(self.directory, 'calibration.json')
         self.proof_path = os.path.join(self.directory, 'test.pf')
         self.exp_logger = ExperimentLogger(log_dir=log_dir)
+        self.overwrite = orverwrite
 
     @time_function
     def gen_settings(self):
-        assert ezkl.gen_settings(self.model_path, self.settings_path) == True
+
+        if not self.overwrite and os.path.isfile(self.settings_path):
+            return True
+        else:
+            assert ezkl.gen_settings(self.model_path, self.settings_path) == True
 
     @time_function
     def calibrate_settings(self):
-        ezkl.calibrate_settings(self.data_path, self.model_path, self.settings_path, "resources")
+        if not self.overwrite and os.path.isfile(self.cal_path):
+            return True
+        else:
+            ezkl.calibrate_settings(self.data_path, self.model_path, self.settings_path, "resources")
 
     @time_function
     def compile_circuit(self):
-        assert ezkl.compile_circuit(self.model_path, self.compiled_model_path, self.settings_path) == True
+        if not self.overwrite and os.path.isfile(self.compiled_model_path):
+            return True
+        else:
+            assert ezkl.compile_circuit(self.model_path, self.compiled_model_path, self.settings_path) == True
 
     @time_function
     def get_srs(self):
-        ezkl.get_srs(self.settings_path)
+        if not self.overwrite and os.path.isfile(self.vk_path):
+            return True
+        else:
+            ezkl.get_srs(self.settings_path)
 
     @time_function
     def gen_witness(self):
-        ezkl.gen_witness(self.data_path, self.compiled_model_path, self.witness_path)
-        assert os.path.isfile(self.witness_path)
+        if not self.overwrite and os.path.isfile(self.witness_path):
+            return True
+        else:
+            ezkl.gen_witness(self.data_path, self.compiled_model_path, self.witness_path)
+            assert os.path.isfile(self.witness_path)
 
     @time_function
     def setup(self):
-        assert ezkl.setup(self.compiled_model_path, self.vk_path, self.pk_path) == True
-        assert os.path.isfile(self.vk_path)
-        assert os.path.isfile(self.pk_path)
-        assert os.path.isfile(self.settings_path)
+        if not self.overwrite and os.path.isfile(self.pk_path):
+            return True
+        else:
+            assert ezkl.setup(self.compiled_model_path, self.vk_path, self.pk_path) == True
+            assert os.path.isfile(self.vk_path)
+            assert os.path.isfile(self.pk_path)
+            assert os.path.isfile(self.settings_path)
 
     @time_function
     def prove(self):
@@ -113,6 +133,7 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
     
     def ComputeProof(self, request, context):
         request_id = str(uuid.uuid4())
+        logging.info("Received 'Compute Proof' request with ID %s", request_id)
         with self.lock:
             self.requests[request_id] = {'status': 'Processing' } # Initialize request status
         # Start processing asynchronously
@@ -136,9 +157,12 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
     def process_request(self, request_id, request):
         logging.info("Received 'Compute Proof' request.")
         
-        directory_name = datetime.now().strftime("%Y%m%d_%H%M%S")
-        directory_path = os.path.join("data", directory_name)
+        # directory_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+        directory_path = os.path.join("data", request.model_id)
         os.makedirs(directory_path, exist_ok=True)
+        # directory_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # directory_path = os.path.join("data", directory_name)
+        # os.makedirs(directory_path, exist_ok=True)
 
         with open(os.path.join(directory_path, 'model.onnx'), 'wb') as f:
             f.write(request.onnx_model)
@@ -149,7 +173,7 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
 
         # json.dump(model_input, open(os.path.join(directory_path, 'input.json'), 'w'))
 
-        prover = EZKLProver(directory_path, self.log_dir)
+        prover = EZKLProver(directory_path, self.log_dir,orverwrite=False)
         proof_path, performance_data = prover.run_end_to_end_proof()
             
         with open(proof_path, "rb") as file:
