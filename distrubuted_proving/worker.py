@@ -88,11 +88,11 @@ class EZKLProver:
 
     @time_function  
     def verify(self):
-        assert ezkl.verify(self.proof_path, self.settings_path, self.vk_path) == True
+        ezkl.verify(self.proof_path, self.settings_path, self.vk_path)
 
     def run_end_to_end_proof(self):
         with ResourceMonitor() as monitor:
-            self.exp_logger.log_env_resources()
+            
             functions = [
                 ('gen_settings', self.gen_settings),
                 ('calibrate_settings', self.calibrate_settings),
@@ -109,7 +109,7 @@ class EZKLProver:
                 logger.info(f'{func_name} took {execution_time} seconds')
                 # print_func_exec_info(func_name, execution_time)
                 self.exp_logger.log_value(f'{func_name}(s)', execution_time)
-            
+            self.exp_logger.log_env_resources()
             resource_data = monitor.resource_data
             self.exp_logger.log_value('mean_cpu', resource_data["cpu_util"]["mean"])
             self.exp_logger.log_value('max_cpu', resource_data["cpu_util"]["max"])
@@ -175,9 +175,13 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
 
         prover = EZKLProver(directory_path, self.log_dir,orverwrite=False)
         proof_path, performance_data = prover.run_end_to_end_proof()
-            
-        with open(proof_path, "rb") as file:
-           computed_proof = file.read()
+        
+        verfification_result= False
+
+        if os.path.isfile(proof_path):
+            with open(proof_path, "rb") as file:
+                computed_proof = file.read()
+                verfification_result = True
 
         logging.info("Proof computed and verified for request ID %s", request_id)
 

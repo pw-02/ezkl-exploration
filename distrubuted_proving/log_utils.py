@@ -37,8 +37,8 @@ class ExperimentLogger:
         # print(f'{key}:{val}')
 
     def log_env_resources(self):
-        self.data['memory_available_gb'] =  psutil.virtual_memory().total / (1024.0 ** 3)
-        self.data['cpu_count'] =  psutil.cpu_count(logical=True)
+        self.data['total_memory_gb'] =  psutil.virtual_memory().total / (1024.0 ** 3) #divide by 1024^3 to convert to GB
+        self.data['total_cpu_count'] =  psutil.cpu_count(logical=True)
 
 
     def flush_log(self):
@@ -104,7 +104,6 @@ class ResourceMonitor:
         #     nvmlInit()
         # else:
         self.monitor_gpu = False
-        self.monitor_gpu = False
         self.monitor_thread = None
         self._utilization = defaultdict(lambda: Distribution(chunk_size))
         self.stop_event = threading.Event()
@@ -114,10 +113,11 @@ class ResourceMonitor:
 
     def _monitor(self):
         while not self.stop_event.is_set():
-            self._utilization["cpu_util"].add(psutil.cpu_percent())
+            self._utilization["cpu_utilization(%)"].add(psutil.cpu_percent())
             # self._utilization["cpu_mem"].add(psutil.virtual_memory().percent)
             cpu_mem_info = psutil.virtual_memory()
-            self._utilization["cpu_mem_gb"].add(cpu_mem_info.used / (1024 ** 3))
+            self._utilization["mem_used_gb"].add(cpu_mem_info.used / (1024 ** 3))
+            # self._utilization["mem_used_percent"].add(cpu_mem_info.percent)
 
             if self.monitor_gpu:
                 gpu_info = nvmlDeviceGetUtilizationRates(nvmlDeviceGetHandleByIndex(self.gpu_device))
@@ -167,9 +167,9 @@ if __name__ == "__main__":
     resource_data = monitor.resource_data
     logger.log_value("name", 'test')
     logger.log_value("resource_data", resource_data)
-    logger.log_value('mean_cpu', resource_data["cpu_util"]["mean"])
-    logger.log_value('max_cpu', resource_data["cpu_util"]["max"])
-    logger.log_value('mean_cpu_mem_gb', resource_data["cpu_mem_gb"]["mean"])
-    logger.log_value('max_cpu_mem_gb', resource_data["cpu_mem_gb"]["max"])
+    logger.log_value('avg_cpu_usage', resource_data["cpu_util"]["mean"])
+    logger.log_value('max_cpu_usage', resource_data["cpu_util"]["max"])
+    logger.log_value('avg_memory_usage_gb', resource_data["cpu_mem_gb"]["mean"])
+    logger.log_value('max_memory_usage_gb', resource_data["cpu_mem_gb"]["max"])
 
     logger.flush_log()
