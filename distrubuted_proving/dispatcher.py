@@ -93,60 +93,114 @@ class ZKPProver():
 
     def compute_proof(self, onnx_model: OnnxModel):
         logger.info(f'Starting proof computation for every sub-model..')
-
+        
         def send_proof_request(worker: Worker, sub_model: OnnxModel):
             try:
-                with grpc.insecure_channel(worker.address) as channel:
-                    stub = pb2_grpc.ZKPWorkerServiceStub(channel)
-                    
-                    # Send the ComputeProof request
-                    request = pb2.ProofRequest(
-                        model_id = sub_model.id,
-                        onnx_model=sub_model.model_proto.SerializeToString(),
-                        input_data=json.dumps(sub_model.input_data)
-                    )
-                    response = stub.ComputeProof(request)
-                    request_id = response.request_id
+                channel = grpc.insecure_channel(worker.address)
+                stub = pb2_grpc.ZKPWorkerServiceStub(channel)
+                request = pb2.ProofRequest(
+                    model_id=sub_model.id,
+                    onnx_model=sub_model.model_proto.SerializeToString(),
+                    input_data=json.dumps(sub_model.input_data)
+                )
+                response = stub.ComputeProof(request)
+                request_id = response.request_id
 
-                    # If request_id is not None, poll for status
-                    if request_id:
-                        logger.info(f'Started proof computation for sub-model {sub_model.id} on worker {worker.address}. Request ID: {request_id}')
+                if request_id:
+                    logger.info(f'Started proof computation for sub-model {sub_model.id} on worker {worker.address}. Request ID: {request_id}')
 
-                        exccpetion_count = 0
-                        # Polling loop to check proof status
-                     
-                        while True:
-                                try:
-                                    status_request = pb2.ProofStatusRequest(request_id=request_id)
-                                    status_response = stub.CheckProofStatus(status_request)
+                    polling_exccpetion_count = 0
+                    while True:
+                        try:
+                            status_request = pb2.ProofStatusRequest(request_id=request_id)
+                            status_response = stub.CheckProofStatus(status_request)
 
-                                    if status_response.success:
-                                        sub_model.computed_proof = status_response.proof
-                                        sub_model.is_completed = True
-                                        logger.info(f'Proof computation completed for sub-model {sub_model.id} by worker {worker.address}')
-                                        
-                                        performance_data = json.loads(status_response.performance_data)
-                                        self.write_report(worker.address, sub_model.info, performance_data)
-                                        break  # Exit the polling loop
-                                    else:
-                                        logger.info(f'Proof computation in progress for sub-model {sub_model.id} on worker {worker.address}. Waiting for 10 seconds before retrying.')
-                                        time.sleep(10)  # Polling interval
-                                except Exception as e:
-                                    exccpetion_count += 1
-                                    if exccpetion_count > 10:
-                                        logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}. Aborting...')
-                                        break
-                                    else:
-                                        logger.error(f'Exception occurred while polling for proof status for sub-model {sub_model.id} on worker {worker.address}: {e}. Retrying...')
-                                        continue
-                                
-                    else:
-                        logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}')
-                        
+                            if status_response.success:
+                                    sub_model.computed_proof = status_response.proof
+                                    sub_model.is_completed = True
+                                    logger.info(f'Proof computation completed for sub-model {sub_model.id} by worker {worker.address}')
+                                    performance_data = json.loads(status_response.performance_data)
+                                    self.write_report(worker.address, sub_model.info, performance_data)
+                                    break
+                            else:
+                                    logger.info(f'Proof computation in progress for sub-model {sub_model.id} on worker {worker.address}. Waiting for 10 seconds before retrying.')
+                                    time.sleep(10)
+                        except Exception as e:
+                            polling_exccpetion_count += 1
+                            if polling_exccpetion_count > 5:
+                                logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}. Aborting...')
+                                break
+                            else:
+                                #reset connection
+                                channel.close()
+                                channel = grpc.insecure_channel(worker.address)
+                                stub = pb2_grpc.ZKPWorkerServiceStub(channel)
+                                logger.error(f'Exception occurred while polling for proof status for sub-model {sub_model.id} on worker {worker.address}: {e}. Retrying...')
+                                continue
             except Exception as e:
-                logger.error(f'Exception occurred while computing proof for sub-model {sub_model.id} on worker {worker.address}: {e}')
+                logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}. Aborting...')
             finally:
                 worker.is_free = True
+
+
+
+    
+
+        # def send_proof_request(worker: Worker, sub_model: OnnxModel):
+        #     try:
+        #         with grpc.insecure_channel(worker.address) as channel:
+        #             stub = pb2_grpc.ZKPWorkerServiceStub(channel)
+                    
+        #             # Send the ComputeProof request
+        #             request = pb2.ProofRequest(
+        #                 model_id = sub_model.id,
+        #                 onnx_model=sub_model.model_proto.SerializeToString(),
+        #                 input_data=json.dumps(sub_model.input_data)
+        #             )
+        #             response = stub.ComputeProof(request)
+        #             request_id = response.request_id
+
+        #             # If request_id is not None, poll for status
+        #             if request_id:
+        #                 logger.info(f'Started proof computation for sub-model {sub_model.id} on worker {worker.address}. Request ID: {request_id}')
+
+        #                 exccpetion_count = 0
+        #                 # Polling loop to check proof status
+                     
+        #                 while True:
+        #                         try:
+        #                             status_request = pb2.ProofStatusRequest(request_id=request_id)
+        #                             status_response = stub.CheckProofStatus(status_request)
+
+        #                             if status_response.success:
+        #                                 sub_model.computed_proof = status_response.proof
+        #                                 sub_model.is_completed = True
+        #                                 logger.info(f'Proof computation completed for sub-model {sub_model.id} by worker {worker.address}')
+                                        
+        #                                 performance_data = json.loads(status_response.performance_data)
+        #                                 self.write_report(worker.address, sub_model.info, performance_data)
+        #                                 break  # Exit the polling loop
+        #                             else:
+        #                                 logger.info(f'Proof computation in progress for sub-model {sub_model.id} on worker {worker.address}. Waiting for 10 seconds before retrying.')
+        #                                 time.sleep(10)  # Polling interval
+        #                         except Exception as e:
+        #                             exccpetion_count += 1
+        #                             if exccpetion_count > 10:
+        #                                 #reset connection
+
+        #                                 logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}. Aborting...')
+        #                                 break
+        #                             else:
+        #                                 logger.error(f'Exception occurred while polling for proof status for sub-model {sub_model.id} on worker {worker.address}: {e}. Retrying...')
+        #                                 continue
+                                
+        #             else:
+        #                 logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}')
+                        
+        #     except Exception as e:
+        #         logger.error(f'Exception occurred while computing proof for sub-model {sub_model.id} on worker {worker.address}: {e}')
+        #     finally:
+        #         worker.is_free = True
         
         # Initialize the task queue with sub-models
         task_queue = Queue()
