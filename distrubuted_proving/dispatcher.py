@@ -112,23 +112,34 @@ class ZKPProver():
                     if request_id:
                         logger.info(f'Started proof computation for sub-model {sub_model.id} on worker {worker.address}. Request ID: {request_id}')
 
+                        exccpetion_count = 0
                         # Polling loop to check proof status
+                     
                         while True:
-                            status_request = pb2.ProofStatusRequest(request_id=request_id)
-                            status_response = stub.CheckProofStatus(status_request)
+                                try:
+                                    status_request = pb2.ProofStatusRequest(request_id=request_id)
+                                    status_response = stub.CheckProofStatus(status_request)
 
-                            if status_response.success:
-                                sub_model.computed_proof = status_response.proof
-                                sub_model.is_completed = True
-                                logger.info(f'Proof computation completed for sub-model {sub_model.id} by worker {worker.address}')
+                                    if status_response.success:
+                                        sub_model.computed_proof = status_response.proof
+                                        sub_model.is_completed = True
+                                        logger.info(f'Proof computation completed for sub-model {sub_model.id} by worker {worker.address}')
+                                        
+                                        performance_data = json.loads(status_response.performance_data)
+                                        self.write_report(worker.address, sub_model.info, performance_data)
+                                        break  # Exit the polling loop
+                                    else:
+                                        logger.info(f'Proof computation in progress for sub-model {sub_model.id} on worker {worker.address}. Waiting for 10 seconds before retrying.')
+                                        time.sleep(10)  # Polling interval
+                                except Exception as e:
+                                    exccpetion_count += 1
+                                    if exccpetion_count > 10:
+                                        logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}. Aborting...')
+                                        break
+                                    else:
+                                        logger.error(f'Exception occurred while polling for proof status for sub-model {sub_model.id} on worker {worker.address}: {e}. Retrying...')
+                                        continue
                                 
-                                performance_data = json.loads(status_response.performance_data)
-                                self.write_report(worker.address, sub_model.info, performance_data)
-                                break  # Exit the polling loop
-                            else:
-                                logger.info(f'Proof computation in progress for sub-model {sub_model.id} on worker {worker.address}. Waiting for 10 seconds before retrying.')
-                                time.sleep(10)  # Polling interval
-
                     else:
                         logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}')
                         
