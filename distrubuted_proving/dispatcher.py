@@ -110,7 +110,7 @@ class ZKPProver():
 
                 if request_id:
                     logger.info(f'Started proof computation for sub-model {sub_model.id} on worker {worker.address}. Request ID: {request_id}')
-
+                    time.sleep(20)  # Optional: Add a short delay before retrying
                     polling_exccpetion_count = 0
                     while True:
                         try:
@@ -126,7 +126,7 @@ class ZKPProver():
                                     break
                             else:
                                     logger.info(f'Proof computation in progress for sub-model {sub_model.id} on worker {worker.address}. Waiting for 10 seconds before retrying.')
-                                    time.sleep(10)
+                                    time.sleep(20)
                                                 
                         except Exception as e:
                             polling_exccpetion_count += 1
