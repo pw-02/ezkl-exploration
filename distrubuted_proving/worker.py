@@ -209,7 +209,7 @@ def run_server(port):
         max_message_length = 2**31 - 1  # ~2GB
 
         server = grpc.server(
-            futures.ThreadPoolExecutor(max_workers=4),
+            futures.ThreadPoolExecutor(max_workers=10),
             options=[
                 ('grpc.max_send_message_length', max_message_length),
                 ('grpc.max_receive_message_length', max_message_length),
