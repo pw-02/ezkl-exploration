@@ -88,8 +88,16 @@ class EZKLProver:
 
     @time_function  
     def verify(self):
-        ezkl.verify(self.proof_path, self.settings_path, self.vk_path)
-
+        try:
+            res = ezkl.verify(self.proof_path, self.settings_path, self.vk_path)
+            if res == True:
+                logger.info("verified")
+            else:
+                logger.info("not verified")
+        except Exception as e:
+            logger.exception("Error in verification: %s", e)
+            return False
+        
     def run_end_to_end_proof(self):
         with ResourceMonitor() as monitor:
             
