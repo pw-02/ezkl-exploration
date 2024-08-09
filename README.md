@@ -54,21 +54,21 @@
       python distrubuted_proving/dispatcher.py model=mnist_classifier worker_addresses='["172.17.0.3:50052"]'
       ```
 
-      The dispatcher will first confirm connection to each of the workers and then submit the proving job to them. See the terminal of the worker for updates on the proof generation progress. **Note: The current implementation fails when the number of workers is > 1.**
+      The dispatcher will first confirm connection to each of the workers and then submit the proving job to them. See the terminal of the worker for updates on the proof generation progress. 
 
    4. For more CPU and memory-intensive examples (which cause out-of-memory issues on a 60GB machine), try the following :
 
       ```bash
-      python distrubuted_proving/dispatcher.py model=mnist_gan worker_addresses='["172.17.0.5:50052"]'
+      python distrubuted_proving/dispatcher.py model=mnist_gan worker_addresses='["172.17.0.3:50052"]'
       ​
-      python distrubuted_proving/dispatcher.py model=mnist_classifier worker_addresses='["172.17.0.5:50052"]'
+      python distrubuted_proving/dispatcher.py model=mnist_classifier worker_addresses='["172.17.0.3:50052"]'
       ```
 
 4. **Reporting**
 
    Once the proof has computed the dispatcher will report all mettrics to the following file `'/ezkl-exploration/distrubuted_proving/performance_logs.csv'` on the dispacther node.
 
-   Sometimes the dispacther can lose connection with the worker (working on resolving this). If that happens, the worker may still run the proof job completion and will log its reporting metrics to `'/ezkl-exploration/data/{datetime}'` where you can get a breakdown of the ime spent on each stage of the proof generation process . This same information is already in the `'/ezkl-exploration/distrubuted_proving/performance_logs.csv'` but we log twice for now for backup.
+   Sometimes the dispacther can lose connection with the worker (working on resolving this). If that happens, the worker may still run the proof job to completion and log its reporting metrics to `'/ezkl-exploration/data/{datetime}'`. This same information is already in  `'/ezkl-exploration/distrubuted_proving/performance_logs.csv'` but we log twice for now for backup.
 
 
 
