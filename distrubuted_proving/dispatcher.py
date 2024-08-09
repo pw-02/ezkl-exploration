@@ -67,6 +67,7 @@ class ZKPProver():
             writer.writerow(report_data)
 
     def prepare_model_for_distrubuted_proving(self, model_name:str, onnx_model_path:str, json_input_file:str):
+        logger.info(f'Analyzing model...')
 
         #get the output tensor(s) of every node node in the model during inference
         global_model = OnnxModel(id = f'global_{model_name}', 
@@ -74,19 +75,18 @@ class ZKPProver():
                                  onnx_model_path= onnx_model_path)
         
         logger.info(f'Num model params: {global_model.info["num_model_params"]}, Num rows in zk circuit: {global_model.info["zk_circuit_num_rows"]}, Number of nodes: {global_model.info["num_model_ops"]}')
-        logger.info(f'Splitting model at every node..')
+        logger.info(f'Splitting model for distrubuted proving..')
         node_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
         sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_outputs, 'tmp')
 
         #add in some logic here later if we need to combine split models for load balancing
 
         for idx, (sub_model_poto, input_data) in enumerate(sub_models):
-            if idx+1 > 100:
-                sub_model = OnnxModel(
-                    id=f'{model_name}_part_{idx+1}',
-                                    input_data=input_data,
-                                    model_proto= sub_model_poto)
-                global_model.sub_models.append(sub_model)
+            sub_model = OnnxModel(
+                id=f'{model_name}_part_{idx+1}',
+                                input_data=input_data,
+                                model_proto= sub_model_poto)
+            global_model.sub_models.append(sub_model)
         
         self.compute_proof(global_model)
 

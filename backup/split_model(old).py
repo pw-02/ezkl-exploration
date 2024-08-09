@@ -315,8 +315,8 @@ def get_split_models_and_inputs(onnx_model,json_input,n_parts = 4):
 
 
 if __name__ == "__main__":
-    # model = 'examples/onnx/nanoGPT/network.onnx'
-    # input = 'examples/onnx/nanoGPT/input.json'
+    model = 'examples/onnx/nanoGPT/network.onnx'
+    input = 'examples/onnx/nanoGPT/input.json'
     
     # input = 'test_outputs/inputs.json'
     # model = 'test_outputs/part_11_model.onnx'
@@ -333,8 +333,8 @@ if __name__ == "__main__":
     
     # model = 'examples/onnx/residual_block/model.onnx'
     # input = 'examples/onnx/residual_block/input_org.json'
-    model = 'examples/onnx/mnist_gan/network.onnx'
-    input = 'examples/onnx/mnist_gan/input.json'
+    # model = 'examples/onnx/mnist_gan/network.onnx'
+    # input = 'examples/onnx/mnist_gan/input.json'
     full_model_result = run_inference(model, input)
     print(f'full model result:{full_model_result}')
     #get the output tensor(s) of every node node in the model during inference
@@ -344,7 +344,7 @@ if __name__ == "__main__":
 
     if save_splits:
         parent_folder_name = os.path.basename(os.path.dirname(model))
-        save_folder_path = os.path.join('examples/split_models', parent_folder_name)
+        save_folder_path = 'examples/split_models/nanoGPTv2'
     else:
         save_folder_path = None
 

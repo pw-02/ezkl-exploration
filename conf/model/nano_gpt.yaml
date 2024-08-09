@@ -1,0 +1,3 @@
+name: nanoGPT
+onnx_file: examples/onnx/nanoGPT/network.onnx
+input_file: examples/onnx/nanoGPT/input.json

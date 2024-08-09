@@ -1102,3 +1102,18 @@ def split_onnx(onnx_model, n_parts=None, cut_points=None,
             shape_results=spl_onnx.shape_results)
         return res, more
     return res
+
+
+if __name__ == "__main__":
+    import onnx
+    models_to_test = [
+        # ('examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx', 'examples/onnx/mobilenet/input.json'),
+        # ('examples/onnx/mnist_gan/network.onnx', 'examples/onnx/mnist_gan/input.json')
+        ('examples/onnx/nanoGPT/network.onnx', 'examples/onnx/nanoGPT/input.json')
+
+    ]
+    for onnx_file, input_file in models_to_test:
+        original_model = onnx.load(onnx_file)
+        
+        result  = split_onnx(original_model, n_parts=2, verbose=1)
+        pass

@@ -5,7 +5,7 @@ defaults:
   - override hydra/hydra_logging: disabled  
 
 num_model_parts: null  # set to 'null' to set it to the max number of splits
-worker_addresses: ["localhost:50053"]  # ["localhost:50052"]
+worker_addresses: ["localhost:50053", "localhost:50052"]  # ["localhost:50052"]
 report_path: distrubuted_proving/performance_logs.csv
 
 run:
