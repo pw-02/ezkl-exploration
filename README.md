@@ -51,7 +51,7 @@
    3. To launch a simple end-to-end proof generation task, use the following command (remember to update the `worker_addresses`):
 
       ```bash
-      python distrubuted_proving/dispatcher.py model=mnist_classifier worker_addresses='["172.17.0.5:50052"]'
+      python distrubuted_proving/dispatcher.py model=mnist_classifier worker_addresses='["172.17.0.3:50052"]'
       ```
 
       The dispatcher will first confirm connection to each of the workers and then submit the proving job to them. See the terminal of the worker for updates on the proof generation progress. **Note: The current implementation fails when the number of workers is > 1.**
