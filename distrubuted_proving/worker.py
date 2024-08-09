@@ -111,10 +111,14 @@ class EZKLProver:
                 self.exp_logger.log_value(f'{func_name}(s)', execution_time)
             self.exp_logger.log_env_resources()
             resource_data = monitor.resource_data
-            self.exp_logger.log_value('mean_cpu', resource_data["cpu_util"]["mean"])
-            self.exp_logger.log_value('max_cpu', resource_data["cpu_util"]["max"])
-            self.exp_logger.log_value('mean_cpu_mem_gb', resource_data["cpu_mem_gb"]["mean"])
-            self.exp_logger.log_value('max_cpu_mem_gb', resource_data["cpu_mem_gb"]["max"])
+            self.exp_logger.log_value('avg_memory_usage_gb', resource_data["mem_used_gb"]["mean"])
+            self.exp_logger.log_value('max_memory_usage_gb', resource_data["mem_used_gb"]["max"])
+            self.exp_logger.log_value('avg_memory_usage%', resource_data["mem_used%"]["mean"])     
+            self.exp_logger.log_value('max_memory_usage%', resource_data["mem_used%"]["max"])
+            self.exp_logger.log_value('avg_cpu_usage%', resource_data["cpu_utilization%"]["mean"])
+            self.exp_logger.log_value('max_cpu_usage%', resource_data["cpu_utilization%"]["max"])
+            self.exp_logger.log_value("resource_usage", resource_data)
+
             # self.exp_logger.flush_log()
             return self.proof_path, self.exp_logger.data
 

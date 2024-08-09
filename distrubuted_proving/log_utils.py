@@ -113,11 +113,11 @@ class ResourceMonitor:
 
     def _monitor(self):
         while not self.stop_event.is_set():
-            self._utilization["cpu_utilization(%)"].add(psutil.cpu_percent())
+            self._utilization["cpu_utilization%"].add(psutil.cpu_percent())
             # self._utilization["cpu_mem"].add(psutil.virtual_memory().percent)
             cpu_mem_info = psutil.virtual_memory()
             self._utilization["mem_used_gb"].add(cpu_mem_info.used / (1024 ** 3))
-            # self._utilization["mem_used_percent"].add(cpu_mem_info.percent)
+            self._utilization["mem_used%"].add(cpu_mem_info.percent)
 
             if self.monitor_gpu:
                 gpu_info = nvmlDeviceGetUtilizationRates(nvmlDeviceGetHandleByIndex(self.gpu_device))
@@ -167,9 +167,10 @@ if __name__ == "__main__":
     resource_data = monitor.resource_data
     logger.log_value("name", 'test')
     logger.log_value("resource_data", resource_data)
-    logger.log_value('avg_cpu_usage', resource_data["cpu_util"]["mean"])
-    logger.log_value('max_cpu_usage', resource_data["cpu_util"]["max"])
-    logger.log_value('avg_memory_usage_gb', resource_data["cpu_mem_gb"]["mean"])
-    logger.log_value('max_memory_usage_gb', resource_data["cpu_mem_gb"]["max"])
-
+    logger.log_value('avg_cpu_usage', resource_data["cpu_utilization%"]["mean"])
+    logger.log_value('max_cpu_usage', resource_data["cpu_utilization%"]["max"])
+    logger.log_value('avg_memory_usage_gb', resource_data["mem_used_gb"]["mean"])
+    logger.log_value('max_memory_usage_gb', resource_data["mem_used_gb"]["max"])
+    logger.log_value('avg_memory_usage_gb', resource_data["mem_used%"]["mean"])
+    logger.log_value('max_memory_usage_gb', resource_data["mem_used%"]["max"])
     logger.flush_log()
