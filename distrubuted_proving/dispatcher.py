@@ -126,7 +126,7 @@ class ZKPProver():
                                     break
                             else:
                                     logger.info(f'Proof computation in progress for sub-model {sub_model.id} on worker {worker.address}. Waiting for 10 seconds before retrying.')
-                                    time.sleep(20)
+                                    time.sleep(10)
                                                 
                         except Exception as e:
                             polling_exccpetion_count += 1
@@ -135,7 +135,7 @@ class ZKPProver():
                                 break
                             else:
                                 logger.error(f'RPC exception occurred while polling for proof status for sub-model {sub_model.id}: {e}. Retrying...')
-                                time.sleep(10)  # Optional: Add a short delay before retrying
+                                time.sleep(30)  # Optional: Add a short delay before retrying
                                 channel.close() # Close the old channel
                                 channel = grpc.insecure_channel(worker.address) # Reconnect to the worker
                                 stub = pb2_grpc.ZKPWorkerServiceStub(channel) # Reinitialize the stub
