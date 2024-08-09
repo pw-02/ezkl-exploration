@@ -66,7 +66,7 @@ class ZKPProver():
                 writer.writeheader()
             writer.writerow(report_data)
 
-    def prepare_model_for_distrubuted_proving(self, model_name:str, onnx_model_path:str, json_input_file:str):
+    def prepare_model_for_distrubuted_proving(self, model_name:str, onnx_model_path:str, json_input_file:str, num_splits = 1):
         logger.info(f'Analyzing model...')
 
         #get the output tensor(s) of every node node in the model during inference
@@ -75,19 +75,22 @@ class ZKPProver():
                                  onnx_model_path= onnx_model_path)
         
         logger.info(f'Num model params: {global_model.info["num_model_params"]}, Num rows in zk circuit: {global_model.info["zk_circuit_num_rows"]}, Number of nodes: {global_model.info["num_model_ops"]}')
-        logger.info(f'Splitting model for distrubuted proving..')
-        node_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
-        # sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_outputs, 'tmp')
-        sub_models = split_onnx_model(onnx_model_path, json_input_file, node_outputs, 50, 'tmp')
+        
+        if num_splits >1:
 
-        #add in some logic here later if we need to combine split models for load balancing
+            logger.info(f'Splitting model for distrubuted proving..')
+            node_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
+            # sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_outputs, 'tmp')
+            sub_models = split_onnx_model(onnx_model_path, json_input_file, node_outputs, 50, 'tmp')
 
-        for idx, (sub_model_poto, input_data) in enumerate(sub_models):
-            sub_model = OnnxModel(
-                id=f'{model_name}_part_{idx+1}',
-                                input_data=input_data,
-                                model_proto= sub_model_poto)
-            global_model.sub_models.append(sub_model)
+            #add in some logic here later if we need to combine split models for load balancing
+
+            for idx, (sub_model_poto, input_data) in enumerate(sub_models):
+                sub_model = OnnxModel(
+                    id=f'{model_name}_part_{idx+1}',
+                                    input_data=input_data,
+                                    model_proto= sub_model_poto)
+                global_model.sub_models.append(sub_model)
         
         self.compute_proof(global_model)
 
@@ -110,7 +113,7 @@ class ZKPProver():
 
                 if request_id:
                     logger.info(f'Started proof computation for sub-model {sub_model.id} on worker {worker.address}. Request ID: {request_id}')
-                    time.sleep(20)  # Optional: Add a short delay before retrying
+                    time.sleep(10)  # Optional: Add a short delay before retrying
                     polling_exccpetion_count = 0
                     while True:
                         try:
@@ -146,9 +149,6 @@ class ZKPProver():
                 channel.close() # Close the channel
                 worker.is_free = True
 
-
-
-    
 
         # def send_proof_request(worker: Worker, sub_model: OnnxModel):
         #     try:
@@ -208,9 +208,11 @@ class ZKPProver():
         
         # Initialize the task queue with sub-models
         task_queue = Queue()
-        for sub_model in onnx_model.sub_models:
-            task_queue.put(sub_model)
-
+        if len(onnx_model.sub_models) >0:
+            for sub_model in onnx_model.sub_models:
+                task_queue.put(sub_model)
+        else:
+            task_queue.put(onnx_model)
         # Define a function to process tasks
         def process_tasks():
             while not task_queue.empty():
@@ -282,7 +284,7 @@ def main(config: DictConfig):
 
     logger.info(f'Started Processing: {config.model}')
     # logging.info(f'Model Info: {onnx_model_for_proving.info}')
-    prover.prepare_model_for_distrubuted_proving(config.model.name, config.model.onnx_file, config.model.input_file)
+    prover.prepare_model_for_distrubuted_proving(config.model.name, config.model.onnx_file, config.model.input_file, config.model.num_splits)
 
 
 if __name__ == '__main__':

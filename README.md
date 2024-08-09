@@ -14,7 +14,7 @@
       docker run -it --rm pwatters991/ezkl-workloads:1.0
       ```
 
-      Upon startup, the Docker container should Git clone branch 'v2' of the repo https://github.com/pw-02/ezkl-exploration.git.
+      Upon startup, the Docker container should Git clone branch 'pw-dev' of the repo https://github.com/pw-02/ezkl-exploration.git.
 
    2. Run `hostname -i` and record the host IP of the container (this will be needed later).
 
