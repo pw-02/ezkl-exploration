@@ -81,7 +81,7 @@ class ZKPProver():
         #add in some logic here later if we need to combine split models for load balancing
 
         for idx, (sub_model_poto, input_data) in enumerate(sub_models):
-            if idx+1 > 6:
+            if idx+1 > 47:
                 sub_model = OnnxModel(
                     id=f'{model_name}_part_{idx+1}',
                                     input_data=input_data,
@@ -129,7 +129,7 @@ class ZKPProver():
                                                 
                         except Exception as e:
                             polling_exccpetion_count += 1
-                            if polling_exccpetion_count > 47:
+                            if polling_exccpetion_count > 5:
                                 logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}. Aborting...')
                                 break
                             else:
