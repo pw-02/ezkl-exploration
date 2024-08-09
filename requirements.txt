@@ -2,7 +2,7 @@ ezkl-gpu==10.2.9
 onnxruntime==1.18.0
 onnx
 hydra-core
-numpy
+numpy<2.0
 psutil
 pynvml
 grpcio

@@ -13,6 +13,7 @@ import uuid
 import time
 from concurrent import futures
 import threading
+import csv
 # # Configure logging
 # logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 # # Configure logging
@@ -203,6 +204,14 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
                 'proof': 'proof'.encode('utf-8'),
                 'performance_data': performance_data
             }
+        
+        file_exists = os.path.isfile('distrubuted_proving/report_log.csv')
+
+        with open('distrubuted_proving/report_log.csv', mode='a', newline='') as file:
+            writer = csv.DictWriter(file, fieldnames=performance_data.keys())
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(performance_data)
 
 def run_server(port):
     try:
