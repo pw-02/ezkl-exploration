@@ -21,7 +21,7 @@
    3. Run:
 
       ```bash
-      python distrubuted_proving/worker.py --port 50052
+      python distributed_proving/worker.py --port 50052
       ```
 
       to start a worker service on port 50052. You can change the port number if necessary. If successful, a 'Worker started' message will appear in the terminal
@@ -51,7 +51,7 @@
    3. To launch a simple end-to-end proof generation task and confirm everything is working, use the following command (remember to update the `worker_addresses`):
 
       ```bash
-      python distrubuted_proving/dispatcher.py model=mnist_classifier worker_addresses='["172.17.0.3:50052"]'
+      python distributed_proving/dispatcher.py model=mnist_classifier worker_addresses='["172.17.0.3:50052"]'
       ```
 
       The dispatcher will first confirm connection to each of the workers and then submit the proving job to them. See the terminal of the worker for updates on the proof generation progress. 
@@ -59,9 +59,9 @@
    4. For more CPU and memory-intensive examples (which cause out-of-memory issues on a 60GB machine), try the following :
 
       ```bash
-      python distrubuted_proving/dispatcher.py model=mnist_gan worker_addresses='["172.17.0.3:50052"]'
+      python distributed_proving/dispatcher.py model=mnist_gan worker_addresses='["172.17.0.3:50052"]'
       ​
-      python distrubuted_proving/dispatcher.py model=mobilenet worker_addresses='["172.17.0.3:50052"]'
+      python distributed_proving/dispatcher.py model=mobilenet worker_addresses='["172.17.0.3:50052"]'
       ```
 Here’s a refined version of your README section on running with model splitting:
 
@@ -94,9 +94,9 @@ This version clarifies the purpose of `model.num_splits`, explains its effect on
 
 4. **Reporting**
 
-   Once the proof has been computed the dispatcher will report all mettrics to `'/ezkl-exploration/distrubuted_proving/performance_logs.csv'` on the dispacther node.
+   Once the proof has been computed the dispatcher will report all mettrics to `'/ezkl-exploration/distributed_proving/performance_logs.csv'` on the dispacther node.
 
-   Sometimes the dispacther can lose connection with the worker (working on resolving this). If that happens, the worker may still run the proof job to completion and log its reporting metrics to `'/ezkl-exploration/distrubuted_proving/worker_log.csv'`. This same information is already in  `'/ezkl-exploration/distrubuted_proving/performance_logs.csv'` but we log twice for now for backup.
+   Sometimes the dispacther can lose connection with the worker (working on resolving this). If that happens, the worker may still run the proof job to completion and log its reporting metrics to `'/ezkl-exploration/distributed_proving/worker_log.csv'`. This same information is already in  `'/ezkl-exploration/distributed_proving/performance_logs.csv'` but we log twice for now for backup.
 
 
 
