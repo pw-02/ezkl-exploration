@@ -61,7 +61,7 @@
       ```bash
       python distrubuted_proving/dispatcher.py model=mnist_gan worker_addresses='["172.17.0.3:50052"]'
       ​
-      python distrubuted_proving/dispatcher.py model=mnist_classifier worker_addresses='["172.17.0.3:50052"]'
+      python distrubuted_proving/dispatcher.py model=mobilenet worker_addresses='["172.17.0.3:50052"]'
       ```
 
 4. **Reporting**
