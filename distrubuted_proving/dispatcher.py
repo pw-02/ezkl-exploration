@@ -114,7 +114,7 @@ class ZKPProver():
                     while True:
                         try:
                             status_request = pb2.ProofStatusRequest(request_id=request_id)
-                            status_response = stub.CheckProofStatus(status_request)
+                            status_response = stub.CheckProofStatus(status_request, timeout=30)
 
                             if status_response.success:
                                     sub_model.computed_proof = status_response.proof
@@ -126,21 +126,23 @@ class ZKPProver():
                             else:
                                     logger.info(f'Proof computation in progress for sub-model {sub_model.id} on worker {worker.address}. Waiting for 10 seconds before retrying.')
                                     time.sleep(10)
+                                                
                         except Exception as e:
                             polling_exccpetion_count += 1
-                            if polling_exccpetion_count > 5:
+                            if polling_exccpetion_count > 47:
                                 logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}. Aborting...')
                                 break
                             else:
-                                #reset connection
-                                channel.close()
-                                channel = grpc.insecure_channel(worker.address)
-                                stub = pb2_grpc.ZKPWorkerServiceStub(channel)
-                                logger.error(f'Exception occurred while polling for proof status for sub-model {sub_model.id} on worker {worker.address}: {e}. Retrying...')
+                                logger.error(f'RPC exception occurred while polling for proof status for sub-model {sub_model.id}: {e}. Retrying...')
+                                time.sleep(10)  # Optional: Add a short delay before retrying
+                                channel.close() # Close the old channel
+                                channel = grpc.insecure_channel(worker.address) # Reconnect to the worker
+                                stub = pb2_grpc.ZKPWorkerServiceStub(channel) # Reinitialize the stub
                                 continue
             except Exception as e:
                 logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}. Aborting...')
             finally:
+                channel.close() # Close the channel
                 worker.is_free = True
 
 
