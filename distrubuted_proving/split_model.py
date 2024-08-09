@@ -201,26 +201,26 @@ def split_onnx_model(onnx_model_path, json_input, itermediate_outputs, n_parts =
             input_type = input.type
             input_data = load_json_input(json_input, input_shape, input_type)
             itermediate_outputs[input.name] = input_data
-            assert all(name in itermediate_outputs for name in input_names), "Input data dictionary keys must match the model input names."
-            # inference_input = {}
-            # for name in input_names:
-            #     inference_input[name] = itermediate_outputs[name] 
-            # results = session.run(None, inference_input)
-            # # print(f"Inference results for {node_name}:", results)
+        assert all(name in itermediate_outputs for name in input_names), "Input data dictionary keys must match the model input names."
+        # inference_input = {}
+        # for name in input_names:
+        #     inference_input[name] = itermediate_outputs[name] 
+        # results = session.run(None, inference_input)
+        # # print(f"Inference results for {node_name}:", results)
 
-            inputs =  []
-            for name in input_names:
-                inputs.append(itermediate_outputs[name].flatten().tolist())
-            proving_input = {"input_data": inputs}
-            
-            if save_to_file:
-                with open(input_data_save_path, 'w') as json_file:
-                    json.dump(proving_input, json_file, indent=4)
-            
-            if save_to_file:
-                models_with_inputs.append((model_save_path,input_data_save_path))
-            else:
-                models_with_inputs.append((sub_model,proving_input))
+        inputs =  []
+        for name in input_names:
+            inputs.append(itermediate_outputs[name].flatten().tolist())
+        proving_input = {"input_data": inputs}
+        
+        if save_to_file:
+            with open(input_data_save_path, 'w') as json_file:
+                json.dump(proving_input, json_file, indent=4)
+        
+        if save_to_file:
+            models_with_inputs.append((model_save_path,input_data_save_path))
+        else:
+            models_with_inputs.append((sub_model,proving_input))
 
     return models_with_inputs
 
@@ -310,6 +310,7 @@ if __name__ == "__main__":
 
         # Get the output tensor(s) of every node in the model during inference
         intermediate_results = get_intermediate_outputs(onnx_file, input_file)
-        n_parts = 25
-        split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts, 'examples/split_models/mobilenet_25_splits', True)  
+        n_parts = 10
+        # split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts, 'examples/split_models/mobilenet_10_splits', True)  
+        result  = split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts)  
 

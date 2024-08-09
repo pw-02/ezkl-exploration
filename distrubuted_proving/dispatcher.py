@@ -6,7 +6,7 @@ import hydra
 from omegaconf import DictConfig
 import logging
 from utils import  analyze_onnx_model_for_zk_proving, load_onnx_model, read_json_file_to_dict
-from split_model import get_intermediate_outputs, split_onnx_model_at_every_node
+from split_model import get_intermediate_outputs, split_onnx_model_at_every_node, split_onnx_model
 from typing import List
 import os
 from queue import Queue
@@ -77,7 +77,8 @@ class ZKPProver():
         logger.info(f'Num model params: {global_model.info["num_model_params"]}, Num rows in zk circuit: {global_model.info["zk_circuit_num_rows"]}, Number of nodes: {global_model.info["num_model_ops"]}')
         logger.info(f'Splitting model for distrubuted proving..')
         node_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
-        sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_outputs, 'tmp')
+        # sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_outputs, 'tmp')
+        sub_models = split_onnx_model(onnx_model_path, json_input_file, node_outputs, 10, 'tmp')
 
         #add in some logic here later if we need to combine split models for load balancing
 
