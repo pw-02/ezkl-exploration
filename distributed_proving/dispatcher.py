@@ -133,16 +133,16 @@ class ZKPProver():
                                                 
                         except Exception as e:
                             polling_exccpetion_count += 1
-                            if polling_exccpetion_count > 25:
-                                logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}. Aborting...')
-                                break
-                            else:
+                            # if polling_exccpetion_count > 25:
+                            #     logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}. Aborting...')
+                            #     break
+                            # else:
                                 # logger.error(f'RPC exception occurred while polling for proof status for sub-model {sub_model.id}: {e}. Retrying...')
-                                time.sleep(10)  # Optional: Add a short delay before retrying
-                                channel.close() # Close the old channel
-                                channel = grpc.insecure_channel(worker.address) # Reconnect to the worker
-                                stub = pb2_grpc.ZKPWorkerServiceStub(channel) # Reinitialize the stub
-                                continue
+                            time.sleep(30)  # Optional: Add a short delay before retrying
+                            channel.close() # Close the old channel
+                            channel = grpc.insecure_channel(worker.address) # Reconnect to the worker
+                            stub = pb2_grpc.ZKPWorkerServiceStub(channel) # Reinitialize the stub
+                            continue
             except Exception as e:
                 logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}. Aborting...')
             finally:
