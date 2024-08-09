@@ -310,7 +310,7 @@ if __name__ == "__main__":
 
         # Get the output tensor(s) of every node in the model during inference
         intermediate_results = get_intermediate_outputs(onnx_file, input_file)
-        n_parts = 10
-        # split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts, 'examples/split_models/mobilenet_10_splits', True)  
-        result  = split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts)  
+        n_parts = 50
+        split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts, f'examples/split_models/mobilenet_{n_parts}_splits', True)  
+        #result  = split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts)  
 
