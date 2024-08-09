@@ -48,7 +48,7 @@
       - **worker_addresses** - This is a list of worker addresses which the dispatcher will submit proving tasks to. By default, we assume that a single worker is running on `localhost:50052`. If the worker is running on a different machine/port, add the correct `hostname:port`. If the worker is running on the same machine but inside a different Docker container, get the hostname of that container (step 2.2) and set the worker address accordingly. For example, if the output of step 2.2 is `172.17.0.2` and the worker is running on port `50052`, then the address will be `172.17.0.2:50052`.
       - If there are multiple workers, add all their addresses to the list.
 
-   3. To launch a simple end-to-end proof generation task, use the following command (remember to update the `worker_addresses`):
+   3. To launch a simple end-to-end proof generation task and confirm everything is working, use the following command (remember to update the `worker_addresses`):
 
       ```bash
       python distrubuted_proving/dispatcher.py model=mnist_classifier worker_addresses='["172.17.0.3:50052"]'
@@ -66,7 +66,11 @@
 
 4. **Reporting**
 
-   Each worker will store all its data and reporting metrics under `'/ezkl-exploration/data/{datetime}'`. The file **report_log.csv** contains a breakdown of the time spent on each stage of the proof generation process.
+   Once the proof has computed the dispatcher will report all mettrics to the following file `'/ezkl-exploration/distrubuted_proving/performance_logs.csv'` on the dispacther node.
+
+   Sometimes the dispacther can lose connection with the worker (working on resolving this). If that happens, the worker may still run the proof job completion and will log its reporting metrics to `'/ezkl-exploration/data/{datetime}'` where you can get a breakdown of the ime spent on each stage of the proof generation process . This same information is already in the `'/ezkl-exploration/distrubuted_proving/performance_logs.csv'` but we log twice for now for backup.
+
+
 
 ------
 
