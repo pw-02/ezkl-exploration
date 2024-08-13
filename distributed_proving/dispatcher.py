@@ -66,7 +66,7 @@ class ZKPProver():
                 writer.writeheader()
             writer.writerow(report_data)
 
-    def prepare_model_for_distrubuted_proving(self, model_name:str, onnx_model_path:str, json_input_file:str, num_splits = 1):
+    def prepare_model_for_distributed_proving(self, model_name:str, onnx_model_path:str, json_input_file:str, num_splits = 1):
         logger.info(f'Analyzing model...')
 
         #get the output tensor(s) of every node node in the model during inference
@@ -284,7 +284,7 @@ def main(config: DictConfig):
 
     logger.info(f'Started Processing: {config.model}')
     # logging.info(f'Model Info: {onnx_model_for_proving.info}')
-    prover.prepare_model_for_distrubuted_proving(config.model.name, config.model.onnx_file, config.model.input_file, config.model.num_splits)
+    prover.prepare_model_for_distributed_proving(config.model.name, config.model.onnx_file, config.model.input_file, config.model.num_splits)
 
 
 if __name__ == '__main__':

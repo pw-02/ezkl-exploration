@@ -11,15 +11,15 @@ import ezkl
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 import os
-from distrubuted_proving.log_utils import ExperimentLogger, time_function, print_func_exec_info
-from distrubuted_proving.utils import get_num_parameters
+from distributed_proving.log_utils import ExperimentLogger, time_function, print_func_exec_info
+from distributed_proving.utils import get_num_parameters
 import datetime
 import onnx
-from distrubuted_proving.utils import get_num_parameters
+from distributed_proving.utils import get_num_parameters
 from onnx import ModelProto
 import numpy as np
 import json
-from distrubuted_proving.log_utils import ResourceMonitor
+from distributed_proving.log_utils import ResourceMonitor
 
 class EZKLProver():
     def __init__(self, worker_dir:str):

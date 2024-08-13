@@ -205,9 +205,9 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
                 'performance_data': performance_data
             }
         
-        file_exists = os.path.isfile('distrubuted_proving/report_log.csv')
+        file_exists = os.path.isfile('distributed_proving/report_log.csv')
 
-        with open('distrubuted_proving/worker_log.csv', mode='a', newline='') as file:
+        with open('distributed_proving/worker_log.csv', mode='a', newline='') as file:
             writer = csv.DictWriter(file, fieldnames=performance_data.keys())
             if not file_exists:
                 writer.writeheader()

@@ -6,11 +6,11 @@ docker pull pwatters991/ezkl-workloads:1.0
 
 docker run -it --rm pwatters991/ezkl-workloads:1.0
 
-python distrubuted_proving/worker.py --port 50052
+python distributed_proving/worker.py --port 50052
 
-python distrubuted_proving/dispatcher.py
+python distributed_proving/dispatcher.py
 
-python distrubuted_proving/dispatcher.py model=mnist_classifier worker_addresses='["172.17.0.5:50052"]'
+python distributed_proving/dispatcher.py model=mnist_classifier worker_addresses='["172.17.0.5:50052"]'
 
 docker run --gpus all -it --rm pwatters991/ezkl-workloads:1.0
 
@@ -23,6 +23,6 @@ python -m grpc_tools.protoc --proto_path=. zkpservice.proto --python_out=.. --gr
 
 export PYTHONPATH="/home/pwatters/projects/ezkl-exploration/:$PYTHONPATH"
 
-python distrubuted_proving/worker.py --port 50052
+python distributed_proving/worker.py --port 50052
 
-python distrubuted_proving/dispatcher.py
+python distributed_proving/dispatcher.py

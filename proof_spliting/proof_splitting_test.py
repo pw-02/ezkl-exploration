@@ -1,7 +1,7 @@
 import os
-from distrubuted_proving.log_utils import ExperimentLogger, ResourceMonitor, time_function, print_func_exec_info
+from distributed_proving.log_utils import ExperimentLogger, ResourceMonitor, time_function, print_func_exec_info
 import ezkl
-from distrubuted_proving.utils import get_num_parameters
+from distributed_proving.utils import get_num_parameters
 from typing import List
 import json
 import glob

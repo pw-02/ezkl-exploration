@@ -47,7 +47,7 @@ class ZKPProver():
         self.number_of_workers = len(self.workers)
         # self.model_parts:List[SubModel] = []
     
-    def prepare_model_for_distrubuted_proving(self, onnx_model_path:str, json_input_file:str):
+    def prepare_model_for_distributed_proving(self, onnx_model_path:str, json_input_file:str):
         # logger.info(f'Analyzing model to optimize proof generation performance in distributed environment...')
         #get the output tensor(s) of every node node in the model during inference
         global_model = OnnxModel('1', onnx_model_path, json_input_file)
@@ -206,7 +206,7 @@ def main(config: DictConfig):
 
     logger.info(f'Started Processing: {config.model}')
     # logging.info(f'Model Info: {onnx_model_for_proving.info}')
-    prover.prepare_model_for_distrubuted_proving(config.model.onnx_file, config.model.input_file)
+    prover.prepare_model_for_distributed_proving(config.model.onnx_file, config.model.input_file)
     # prover.generate_proof(onnx_model_for_proving, config.model.input_file)
 
 
