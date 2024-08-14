@@ -42,13 +42,14 @@ class EZKLProver:
             return True
         else:
             assert ezkl.gen_settings(self.model_path, self.settings_path) == True
-
-    @time_function
-    def calibrate_settings(self):
-        if not self.overwrite and os.path.isfile(self.settings_path):
-            return True
-        else:
             ezkl.calibrate_settings(self.data_path, self.model_path, self.settings_path, "resources")
+
+    # @time_function
+    # def calibrate_settings(self):
+    #     if not self.overwrite and os.path.isfile(self.settings_path):
+    #         return True
+    #     else:
+    #         ezkl.calibrate_settings(self.data_path, self.model_path, self.settings_path, "resources")
 
     @time_function
     def compile_circuit(self):
@@ -108,7 +109,7 @@ class EZKLProver:
             
             functions = [
                 ('gen_settings', self.gen_settings),
-                ('calibrate_settings', self.calibrate_settings),
+                # ('calibrate_settings', self.calibrate_settings),
                 ('compile_circuit', self.compile_circuit),
                 ('get_srs', self.get_srs),
                 ('gen_witness', self.gen_witness),
