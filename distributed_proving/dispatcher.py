@@ -86,7 +86,7 @@ class ZKPProver():
             #add in some logic here later if we need to combine split models for load balancing
 
             for idx, (sub_model_poto, input_data) in enumerate(sub_models):
-                if idx+1 == 1:
+                if idx+1 == 11:
                     sub_model = OnnxModel(
                         id=f'{model_name}_part_{idx+1}',
                                         input_data=input_data,
