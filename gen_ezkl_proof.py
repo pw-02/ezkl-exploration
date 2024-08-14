@@ -5,9 +5,6 @@ import ezkl
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 import os
 from distributed_proving.log_utils import ExperimentLogger, time_function, print_func_exec_info
-from distributed_proving.utils import get_num_parameters
-from distributed_proving.utils import get_num_parameters
-from onnx import ModelProto
 import numpy as np
 import json
 from distributed_proving.log_utils import ResourceMonitor
@@ -70,9 +67,6 @@ class EZKLProver():
     def run_end_to_end_proof(self):
         with ResourceMonitor() as monitor:
 
-            num_parameters =get_num_parameters(self.model_path)
-            print(f'Number Model Parmeters: {num_parameters}')
-            self.exp_logger.log_value('num_model_params', num_parameters)
             self.exp_logger.log_env_resources()
             self.exp_logger.log_value('name', 'report')
 
@@ -103,6 +97,6 @@ class EZKLProver():
 if __name__ == '__main__':
    
 
-   prover = EZKLProver("examples/onnx/residual_block_split/network_split_0")
+   prover = EZKLProver("examples/split_models/mobilenet_splits/split_11")
    prover.run_end_to_end_proof()
    print('Done')
