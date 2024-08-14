@@ -66,11 +66,11 @@ class EZKLProver:
 
     @time_function
     def gen_witness(self):
-        if not self.overwrite and os.path.isfile(self.witness_path):
-            return True
-        else:
-            ezkl.gen_witness(self.data_path, self.compiled_model_path, self.witness_path)
-            assert os.path.isfile(self.witness_path)
+        # if not self.overwrite and os.path.isfile(self.witness_path):
+        #     return True
+        # else:
+        ezkl.gen_witness(self.data_path, self.compiled_model_path, self.witness_path)
+        assert os.path.isfile(self.witness_path)
 
     @time_function
     def setup(self):
@@ -93,13 +93,14 @@ class EZKLProver:
             res = ezkl.verify(self.proof_path, self.settings_path, self.vk_path)
             if res == True:
                 logger.info("verified")
-                self.exp_logger.log_value('verifed', "True")
+                self.exp_logger.log_value('verified', "True")
 
             else:
-                self.exp_logger.log_value('verifed', "False")
+                self.exp_logger.log_value('verified', "False")
                 logger.info("not verified")
         except Exception as e:
             logger.exception("Error in verification: %s", e)
+            self.exp_logger.log_value('verified', "False")
             return False
         
     def run_end_to_end_proof(self):
