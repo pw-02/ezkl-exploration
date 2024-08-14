@@ -93,7 +93,10 @@ class EZKLProver:
             res = ezkl.verify(self.proof_path, self.settings_path, self.vk_path)
             if res == True:
                 logger.info("verified")
+                self.exp_logger.log_value('verifed', "True")
+
             else:
+                self.exp_logger.log_value('verifed', "False")
                 logger.info("not verified")
         except Exception as e:
             logger.exception("Error in verification: %s", e)
