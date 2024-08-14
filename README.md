@@ -79,20 +79,7 @@ To enable model splitting while running a proof, add the `model.num_splits` para
 
 - **If `model.num_splits` is set to a value greater than 1**, the system will create as many splits as there are nodes in the model and will prove each split sequentially.
 - **If `model.num_splits` is set to 1 or is not specified**, the model will not be split, and the proof will be processed as a single unit.
-
-**Example Command:**
-
-```bash
-python your_script.py model.num_splits=4
-```
-
-In this example, the model will be split into 4 segments for proofing. Adjust the value according to your needs for optimal performance.
-
----
-
-This version clarifies the purpose of `model.num_splits`, explains its effect on the proofing process, and provides an example to illustrate its usage.
-
-4. **Reporting**
+### 4. **Reporting**
 
    Once the proof has been computed the dispatcher will report all mettrics to `'/ezkl-exploration/distributed_proving/performance_logs.csv'` on the dispacther node.
 
