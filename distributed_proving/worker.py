@@ -108,7 +108,7 @@ class EZKLProver:
             
             functions = [
                 ('gen_settings', self.gen_settings),
-                # ('calibrate_settings', self.calibrate_settings),
+                ('calibrate_settings', self.calibrate_settings),
                 ('compile_circuit', self.compile_circuit),
                 ('get_srs', self.get_srs),
                 ('gen_witness', self.gen_witness),
