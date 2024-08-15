@@ -10,8 +10,8 @@ import json
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 
 # Define paths
-directory = 'examples/onnx/mnist_classifier'
-model_path = os.path.join(directory, 'network.onnx')
+directory = '/data/mobilenet_part_3'
+model_path = os.path.join(directory, 'model.onnx')
 data_path = os.path.join(directory, 'input.json')
 compiled_model_path = os.path.join(directory, 'network.compiled')
 pk_path = os.path.join(directory, 'key.pk')
