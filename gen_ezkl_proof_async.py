@@ -67,7 +67,7 @@ async def main():
     await get_srs(settings_path)
 
     # Time the gen_witness function
-    gen_witness(data_path, compiled_model_path, witness_path)
+    await gen_witness(data_path, compiled_model_path, witness_path)
     assert os.path.isfile(witness_path)
 
     # Time the setup function
