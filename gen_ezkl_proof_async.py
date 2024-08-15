@@ -10,7 +10,7 @@ import json
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 
 # Define paths
-directory = 'ezkl_python/mnist_classifier'
+directory = 'examples/onnx/mnist_classifier'
 model_path = os.path.join(directory, 'network.onnx')
 data_path = os.path.join(directory, 'input.json')
 compiled_model_path = os.path.join(directory, 'network.compiled')
