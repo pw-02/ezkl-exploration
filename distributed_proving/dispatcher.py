@@ -86,12 +86,12 @@ class ZKPProver():
             #add in some logic here later if we need to combine split models for load balancing
 
             for idx, (sub_model_poto, input_data) in enumerate(sub_models):
-                
-                sub_model = OnnxModel(
-                    id=f'{model_name}_part_{idx+1}',
-                                    input_data=input_data,
-                                    model_proto= sub_model_poto)
-                global_model.sub_models.append(sub_model)
+                if idx+1 == 3 or idx+1 == 95:
+                    sub_model = OnnxModel(
+                        id=f'{model_name}_part_{idx+1}',
+                                        input_data=input_data,
+                                        model_proto= sub_model_poto)
+                    global_model.sub_models.append(sub_model)
         
         self.compute_proof(global_model)
 
