@@ -21,43 +21,67 @@ witness_path = os.path.join(directory, 'witness.json')
 cal_path = os.path.join(directory, 'calibration.json')
 proof_path = os.path.join(directory, 'test.pf')
 
-async def time_function(func, *args, **kwargs):
-    start_time = time.time()
-    result = await func(*args, **kwargs)
-    end_time = time.time()
-    execution_time = end_time - start_time
-    print(f"{func.__name__} took {execution_time:.2f} seconds")
-    return result
+def time_function(func):
+    async def async_wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = await func(*args, **kwargs)
+        end_time = time.time()
+        execution_time = end_time - start_time
+        print(f"{func.__name__} took {execution_time:.2f} seconds")
+        return result
+    
+    def sync_wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        execution_time = end_time - start_time
+        print(f"{func.__name__} took {execution_time:.2f} seconds")
+        return result
+
+    if asyncio.iscoroutinefunction(func):
+        return async_wrapper
+    else:
+        return sync_wrapper
 
 async def main():
+    # Apply the time_function decorator
+    gen_settings = time_function(ezkl.gen_settings)
+    calibrate_settings = time_function(ezkl.calibrate_settings)
+    compile_circuit = time_function(ezkl.compile_circuit)
+    get_srs = time_function(ezkl.get_srs)
+    gen_witness = time_function(ezkl.gen_witness)
+    setup = time_function(ezkl.setup)
+    prove = time_function(ezkl.prove)
+    verify = time_function(ezkl.verify)
+
     # Time the gen_settings function
-    await time_function(ezkl.gen_settings, model_path, settings_path)
+    gen_settings(model_path, settings_path)
 
     # Time the calibrate_settings function
-    await time_function(ezkl.calibrate_settings, data_path, model_path, settings_path, "resources", scales=[2,7])
+    await calibrate_settings(data_path, model_path, settings_path, "resources")
 
     # Time the compile_circuit function
-    await time_function(ezkl.compile_circuit, model_path, compiled_model_path, settings_path)
+    compile_circuit(model_path, compiled_model_path, settings_path)
 
     # Time the get_srs function
-    await time_function(ezkl.get_srs, settings_path)
+    await get_srs(settings_path)
 
     # Time the gen_witness function
-    await time_function(ezkl.gen_witness, data_path, compiled_model_path, witness_path)
+    gen_witness(data_path, compiled_model_path, witness_path)
     assert os.path.isfile(witness_path)
 
     # Time the setup function
-    await time_function(ezkl.setup, compiled_model_path, vk_path, pk_path)
+    setup(compiled_model_path, vk_path, pk_path)
     assert os.path.isfile(vk_path)
     assert os.path.isfile(pk_path)
     assert os.path.isfile(settings_path)
 
     # Time the prove function
-    await time_function(ezkl.prove, witness_path, compiled_model_path, pk_path, proof_path, "single")
+    prove(witness_path, compiled_model_path, pk_path, proof_path, "single")
     assert os.path.isfile(proof_path)
 
     # Time the verify function
-    await time_function(ezkl.verify, proof_path, settings_path, vk_path)
+    verify(proof_path, settings_path, vk_path)
     print("verified")
 
 # Run the asynchronous main function
