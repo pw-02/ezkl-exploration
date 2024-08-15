@@ -10,7 +10,7 @@ import json
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 
 # Define paths
-directory = 'data/mobilenet_part_3'
+directory = 'data/mobilenet_part_95'
 model_path = os.path.join(directory, 'model.onnx')
 data_path = os.path.join(directory, 'input.json')
 compiled_model_path = os.path.join(directory, 'network.compiled')
