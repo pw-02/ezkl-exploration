@@ -6,7 +6,7 @@ docker pull pwatters991/ezkl-workloads:1.0
 
 docker run -it --rm pwatters991/ezkl-workloads:1.0
 
-python distributed_proving/worker.py --port 50052
+python distributed_proving/worker.py --port 50053
 
 python distributed_proving/dispatcher.py
 
@@ -29,3 +29,6 @@ python distributed_proving/dispatcher.py
  scp pwatters@134.197.95.82:/home/pwatters/projects/ezkl-exploration/distributed_proving/performance_logs.csv C:/Users/pw/Desktop/dist_zkp/performance_logs.csv
 
  scp pwatters@134.197.95.82:/home/pwatters/projects/ezkl-exploration/prover_performance_metrics.csv C:/Users/pw/Desktop/dist_zkp/prover_performance_metrics.csv
+
+
+python distributed_proving/dispatcher.py model=mnist_gan model.num_splits=6 worker_addresses='["localhost:50053"]'

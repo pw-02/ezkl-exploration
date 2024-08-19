@@ -72,9 +72,9 @@ Here’s a refined version of your README section on running with model splittin
 To enable model splitting while running a proof, add the `model.num_splits` parameter to your command. 
 
  ```bash
-      python distributed_proving/dispatcher.py model.name=mnist_gan model.num_splits=10 worker_addresses='["172.17.0.3:50052"]'
+      python distributed_proving/dispatcher.py model=mnist_gan model.num_splits=10 worker_addresses='["172.17.0.3:50052"]'
       ​
-      python distributed_proving/dispatcher.py model.name=mobilenet model.num_splits=100 worker_addresses='["172.17.0.3:50052"]'
+      python distributed_proving/dispatcher.py model=mobilenet model.num_splits=100 worker_addresses='["172.17.0.3:50052"]'
    ```
 
 - **If `model.num_splits` is set to a value greater than 1**, the system will create as many splits as there are nodes in the model and will prove each split sequentially.
