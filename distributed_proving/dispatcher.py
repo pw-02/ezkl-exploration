@@ -91,12 +91,14 @@ class ZKPProver():
         
         if num_splits >1:
 
-            logger.info(f'Splitting model for distributed proving..')
+            logger.info(f'Splitting model based on the configured number of splits..')
             node_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
             all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_inference_outputs)
-            for idx, group in enumerate(self.group_models(all_sub_models, len(all_sub_models)//num_splits)):
-                
-                logger.info(f'Creating split {idx+1}..')
+            grouped_models = self.group_models(all_sub_models, len(all_sub_models)//num_splits)
+            logger.info(f'Total number of sub-models for distributed proving: {len(grouped_models)}' )
+
+            for idx, group in enumerate(grouped_models):
+                logger.info(f'Preparing sub-model {idx+1}..')
 
                 merged_model = merge_onnx_models(group)
                 inputs = self.get_model_inputs(merged_model, node_inference_outputs)
@@ -113,43 +115,8 @@ class ZKPProver():
         
         self.compute_proof(global_model)
 
-
-    # def prepare_model_for_distributed_proving(self, model_name:str, onnx_model_path:str, json_input_file:str, num_splits = 1):
-    #     logger.info(f'Analyzing model...')
-
-    #     #get the output tensor(s) of every node node in the model during inference
-    #     global_model = OnnxModel(id = f'global_{model_name}', 
-    #                              input_data=read_json_file_to_dict(json_input_file), 
-    #                              onnx_model_path= onnx_model_path)
-        
-    #     logger.info(f'Num model params: {global_model.info["num_model_params"]}, Num rows in zk circuit: {global_model.info["zk_circuit_num_rows"]}, Number of nodes: {global_model.info["num_model_ops"]}')
-        
-    #     if num_splits >1:
-
-    #         logger.info(f'Splitting model for distrubuted proving..')
-    #         node_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
-    #         all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_inference_outputs)
-            
-    #         grouped_sub_models = self.group_models(all_sub_models, len(all_sub_models)//num_splits)
-            
-    #         # sub_models = split_onnx_model(onnx_model_path, json_input_file, node_outputs, 50, 'tmp')
-
-    #         #add in some logic here later if we need to combine split models for load balancing
-
-    #         for idx, (sub_model_poto, input_data) in enumerate(sub_models):
-    #             if idx+1 == 3 or idx+1 == 95:
-    #                 sub_model = OnnxModel(
-    #                     id=f'{model_name}_part_{idx+1}',
-    #                                     input_data=input_data,
-    #                                     model_proto= sub_model_poto)
-    #                 global_model.sub_models.append(sub_model)
-        
-    #     self.compute_proof(global_model)
-
-
-
     def compute_proof(self, onnx_model: OnnxModel):
-        logger.info(f'Starting proof computation for every sub-model..')
+        logger.info(f'Starting proof computation for sub-models..')
         
         def send_proof_request(worker: Worker, sub_model: OnnxModel):
             try:
@@ -201,63 +168,6 @@ class ZKPProver():
                 channel.close() # Close the channel
                 worker.is_free = True
 
-
-        # def send_proof_request(worker: Worker, sub_model: OnnxModel):
-        #     try:
-        #         with grpc.insecure_channel(worker.address) as channel:
-        #             stub = pb2_grpc.ZKPWorkerServiceStub(channel)
-                    
-        #             # Send the ComputeProof request
-        #             request = pb2.ProofRequest(
-        #                 model_id = sub_model.id,
-        #                 onnx_model=sub_model.model_proto.SerializeToString(),
-        #                 input_data=json.dumps(sub_model.input_data)
-        #             )
-        #             response = stub.ComputeProof(request)
-        #             request_id = response.request_id
-
-        #             # If request_id is not None, poll for status
-        #             if request_id:
-        #                 logger.info(f'Started proof computation for sub-model {sub_model.id} on worker {worker.address}. Request ID: {request_id}')
-
-        #                 exccpetion_count = 0
-        #                 # Polling loop to check proof status
-                     
-        #                 while True:
-        #                         try:
-        #                             status_request = pb2.ProofStatusRequest(request_id=request_id)
-        #                             status_response = stub.CheckProofStatus(status_request)
-
-        #                             if status_response.success:
-        #                                 sub_model.computed_proof = status_response.proof
-        #                                 sub_model.is_completed = True
-        #                                 logger.info(f'Proof computation completed for sub-model {sub_model.id} by worker {worker.address}')
-                                        
-        #                                 performance_data = json.loads(status_response.performance_data)
-        #                                 self.write_report(worker.address, sub_model.info, performance_data)
-        #                                 break  # Exit the polling loop
-        #                             else:
-        #                                 logger.info(f'Proof computation in progress for sub-model {sub_model.id} on worker {worker.address}. Waiting for 10 seconds before retrying.')
-        #                                 time.sleep(10)  # Polling interval
-        #                         except Exception as e:
-        #                             exccpetion_count += 1
-        #                             if exccpetion_count > 10:
-        #                                 #reset connection
-
-        #                                 logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}. Aborting...')
-        #                                 break
-        #                             else:
-        #                                 logger.error(f'Exception occurred while polling for proof status for sub-model {sub_model.id} on worker {worker.address}: {e}. Retrying...')
-        #                                 continue
-                                
-        #             else:
-        #                 logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}')
-                        
-        #     except Exception as e:
-        #         logger.error(f'Exception occurred while computing proof for sub-model {sub_model.id} on worker {worker.address}: {e}')
-        #     finally:
-        #         worker.is_free = True
-        
         # Initialize the task queue with sub-models
         task_queue = Queue()
         if len(onnx_model.sub_models) >0:
@@ -341,3 +251,37 @@ def main(config: DictConfig):
 
 if __name__ == '__main__':
     main()
+
+
+    
+    # def prepare_model_for_distributed_proving(self, model_name:str, onnx_model_path:str, json_input_file:str, num_splits = 1):
+    #     logger.info(f'Analyzing model...')
+
+    #     #get the output tensor(s) of every node node in the model during inference
+    #     global_model = OnnxModel(id = f'global_{model_name}', 
+    #                              input_data=read_json_file_to_dict(json_input_file), 
+    #                              onnx_model_path= onnx_model_path)
+        
+    #     logger.info(f'Num model params: {global_model.info["num_model_params"]}, Num rows in zk circuit: {global_model.info["zk_circuit_num_rows"]}, Number of nodes: {global_model.info["num_model_ops"]}')
+        
+    #     if num_splits >1:
+
+    #         logger.info(f'Splitting model for distrubuted proving..')
+    #         node_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
+    #         all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_inference_outputs)
+            
+    #         grouped_sub_models = self.group_models(all_sub_models, len(all_sub_models)//num_splits)
+            
+    #         # sub_models = split_onnx_model(onnx_model_path, json_input_file, node_outputs, 50, 'tmp')
+
+    #         #add in some logic here later if we need to combine split models for load balancing
+
+    #         for idx, (sub_model_poto, input_data) in enumerate(sub_models):
+    #             if idx+1 == 3 or idx+1 == 95:
+    #                 sub_model = OnnxModel(
+    #                     id=f'{model_name}_part_{idx+1}',
+    #                                     input_data=input_data,
+    #                                     model_proto= sub_model_poto)
+    #                 global_model.sub_models.append(sub_model)
+        
+    #     self.compute_proof(global_model)
