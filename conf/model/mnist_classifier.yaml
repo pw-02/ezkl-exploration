@@ -1,4 +1,4 @@
 name: mnist_classifier
 onnx_file: examples/onnx/mnist_classifier/network.onnx
 input_file: examples/onnx/mnist_classifier/input.json
-num_splits: 1
+num_splits: 6

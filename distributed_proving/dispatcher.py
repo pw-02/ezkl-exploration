@@ -6,7 +6,7 @@ import hydra
 from omegaconf import DictConfig
 import logging
 from utils import  analyze_onnx_model_for_zk_proving, load_onnx_model, read_json_file_to_dict
-from split_model import get_intermediate_outputs, split_onnx_model_at_every_node, split_onnx_model
+from split_model import get_intermediate_outputs, split_onnx_model_at_every_node,  merge_onnx_models
 from typing import List
 import os
 from queue import Queue
@@ -15,6 +15,7 @@ import json
 from onnx import ModelProto
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
+from collections import OrderedDict
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
@@ -66,6 +67,18 @@ class ZKPProver():
                 writer.writeheader()
             writer.writerow(report_data)
 
+
+    def group_models(self, models:OrderedDict, n):
+        items = list(models.items())  # Convert dictionary items to a list of tuples
+        grouped_items = [dict(items[i:i+n]) for i in range(0, len(items), n)]
+        return grouped_items
+    
+    def get_model_inputs(self, model, intermediate_values):
+        input_data = []
+        for input_tensor in model.graph.input:
+            input_data.append(intermediate_values[input_tensor.name])
+        return input_data
+    
     def prepare_model_for_distributed_proving(self, model_name:str, onnx_model_path:str, json_input_file:str, num_splits = 1):
         logger.info(f'Analyzing model...')
 
@@ -78,22 +91,60 @@ class ZKPProver():
         
         if num_splits >1:
 
-            logger.info(f'Splitting model for distrubuted proving..')
-            node_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
-            sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_outputs, 'tmp')
-            # sub_models = split_onnx_model(onnx_model_path, json_input_file, node_outputs, 50, 'tmp')
+            logger.info(f'Splitting model for distributed proving..')
+            node_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
+            all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_inference_outputs)
+            for idx, group in enumerate(self.group_models(all_sub_models, len(all_sub_models)//num_splits)):
+                
+                logger.info(f'Creating split {idx+1}..')
 
-            #add in some logic here later if we need to combine split models for load balancing
+                merged_model = merge_onnx_models(group)
+                inputs = self.get_model_inputs(merged_model, node_inference_outputs)
 
-            for idx, (sub_model_poto, input_data) in enumerate(sub_models):
-                if idx+1 == 3 or idx+1 == 95:
-                    sub_model = OnnxModel(
-                        id=f'{model_name}_part_{idx+1}',
-                                        input_data=input_data,
-                                        model_proto= sub_model_poto)
-                    global_model.sub_models.append(sub_model)
+                #flatttern input data so it can be sent to each worker as json
+                flattened_inputs =  []
+                for line in inputs:
+                    flattened_inputs.append(line.flatten().tolist())
+                input_data = {"input_data": flattened_inputs}
+                sub_model = OnnxModel(id=f'{model_name}_part_{idx+1}',
+                                      input_data=input_data,
+                                      model_proto= merged_model)
+                global_model.sub_models.append(sub_model)
         
         self.compute_proof(global_model)
+
+
+    # def prepare_model_for_distributed_proving(self, model_name:str, onnx_model_path:str, json_input_file:str, num_splits = 1):
+    #     logger.info(f'Analyzing model...')
+
+    #     #get the output tensor(s) of every node node in the model during inference
+    #     global_model = OnnxModel(id = f'global_{model_name}', 
+    #                              input_data=read_json_file_to_dict(json_input_file), 
+    #                              onnx_model_path= onnx_model_path)
+        
+    #     logger.info(f'Num model params: {global_model.info["num_model_params"]}, Num rows in zk circuit: {global_model.info["zk_circuit_num_rows"]}, Number of nodes: {global_model.info["num_model_ops"]}')
+        
+    #     if num_splits >1:
+
+    #         logger.info(f'Splitting model for distrubuted proving..')
+    #         node_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
+    #         all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_inference_outputs)
+            
+    #         grouped_sub_models = self.group_models(all_sub_models, len(all_sub_models)//num_splits)
+            
+    #         # sub_models = split_onnx_model(onnx_model_path, json_input_file, node_outputs, 50, 'tmp')
+
+    #         #add in some logic here later if we need to combine split models for load balancing
+
+    #         for idx, (sub_model_poto, input_data) in enumerate(sub_models):
+    #             if idx+1 == 3 or idx+1 == 95:
+    #                 sub_model = OnnxModel(
+    #                     id=f'{model_name}_part_{idx+1}',
+    #                                     input_data=input_data,
+    #                                     model_proto= sub_model_poto)
+    #                 global_model.sub_models.append(sub_model)
+        
+    #     self.compute_proof(global_model)
 
 
 

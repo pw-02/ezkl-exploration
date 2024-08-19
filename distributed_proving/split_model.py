@@ -5,6 +5,7 @@ import json
 import numpy as np
 import os
 from onnx.utils import Extractor
+from collections import OrderedDict
 
 def flatten_ndarray_to_list(d):
     for key, value in d.items():
@@ -55,18 +56,30 @@ def extract_model(
 
 
 
-def load_json_input(input_path, input_shape, input_type):
+def load_json_input(input_path, input_shape, input_type, idx = 0):
+    input_shape = [-1 if dim == 'batch_size' else dim for dim in input_shape]
+
     with open(input_path, 'r') as f:
         input_data = json.load(f)
+
     if input_type == 'tensor(float)':
-        input_data = np.array(input_data['input_data'], dtype=np.float32)
-        try:
-            input_data = input_data.reshape(input_shape)
-        except ValueError as e:
-            raise ValueError(f"Input data cannot be reshaped from shape {input_data.shape} to the expected shape {input_shape}: {e}")
+
+        input_data = np.array(input_data['input_data'][idx], dtype=np.float32)
+        if len(input_shape)>1:
+            try:
+                input_data = input_data.reshape(input_shape)
+            except ValueError as e:
+
+                raise ValueError(f"Input data cannot be reshaped from shape {input_data.shape} to the expected shape {input_shape}: {e}")
 
     elif input_type == 'tensor(int64)': 
-        input_data = np.array(input_data['input_data'], dtype=np.int64)
+        if len(input_shape)>0:
+            input_data = np.array(input_data['input_data'][idx], dtype=np.int64)
+        else:
+            input_data = np.array(input_data['input_data'][0][0],dtype=np.int64) 
+
+    elif input_type == 'tensor(int32)':
+        return input_data
     
     # Try to reshape the input data to match the expected shape
     # try:
@@ -106,14 +119,31 @@ def get_intermediate_outputs(onnx_model, json_input):
         intermediate_inference_outputs[name.name] = result
     return intermediate_inference_outputs
 
-def run_inference_on_onnx_model(model_path, input_file):
+def run_inference_on_onnx_model_using_input_file(model_path, input_file):
     model = onnx.load(model_path)
     session = ort.InferenceSession(model.SerializeToString())
-    input = session.get_inputs()[0]
-    input_shape = input.shape
-    input_type = input.type
-    input_data = load_json_input(input_file, input_shape, input_type)
-    results = session.run(None, {input.name: input_data})
+    infer_input = {}
+    for idx, model_input in enumerate(session.get_inputs()):
+        input_shape = model_input.shape
+        input_type = model_input.type
+        input_data = load_json_input(input_file, input_shape, input_type, idx)
+        infer_input[model_input.name] = input_data
+    # input = session.get_inputs()[0]
+    # input_shape = input.shape
+    # input_type = input.type
+    # input_data = load_json_input(input_file, input_shape, input_type)
+    # results = session.run(None, {input.name: input_data})
+    results = session.run(None, infer_input)
+    return results
+
+
+def run_inference_on_onnx_model(model_path, itermediate_values):
+    model = onnx.load(model_path)
+    session = ort.InferenceSession(model.SerializeToString())
+    infer_input = {}
+    for idx, model_input in enumerate(session.get_inputs()):
+        infer_input[model_input.name] = itermediate_values[model_input.name]
+    results = session.run(None, infer_input)
     return results
 
 
@@ -225,11 +255,81 @@ def split_onnx_model(onnx_model_path, json_input, itermediate_outputs, n_parts =
     return models_with_inputs
 
 
+def merge_onnx_models(sub_models:OrderedDict):
+    
+    # Get the first model from the OrderedDict
+    first_model_id, first_model = next(iter(sub_models.items()))
+    # base_model = onnx.load(first_model_path)
+    merged_model = first_model['model']
+    model_input_data = first_model['input']
+    merged_model.graph.ClearField('output')
+   
+    sub_model_list = list(sub_models.items())
+    for idx, (model_id, model) in enumerate(sub_model_list[1:]):
+        # sub_model = onnx.load(model_path)
+        sub_model = model['model']
+        for input_tensor in sub_model.graph.input:
+            if input_tensor not in merged_model.graph.input:
+                merged_model.graph.input.append(input_tensor)
+        sub_model.graph.ClearField('input')
+        for node in sub_model.graph.node:
+            merged_model.graph.node.append(node)
+        for initializer in sub_model.graph.initializer:
+            merged_model.graph.initializer.append(initializer)
 
+        if idx == len(sub_model_list) - 2:  # Last model in the iteration
+            for output_tensor in sub_model.graph.output:
+                if output_tensor not in merged_model.graph.output:
+                    merged_model.graph.output.append(output_tensor)
+        for value_info in sub_model.graph.value_info:
+            if value_info not in merged_model.graph.value_info:
+                merged_model.graph.value_info.append(value_info)
+    #look up for the input_data for this model part
+    
+    return {"model":merged_model, "input": model_input_data}
+    
+def merge_onnx_models(sub_models:OrderedDict):
+    input_data = []
+    # Get the first model from the OrderedDict
+    first_model_id, first_model = next(iter(sub_models.items()))
+    # base_model = onnx.load(first_model_path)
+    merged_model = first_model
+
+    # for input_tensor in merged_model.graph.input:
+    #     input_data.append(intermediate_values[input_tensor.name])
+
+    merged_model.graph.ClearField('output')
+
+    sub_model_list = list(sub_models.items())
+    for idx, (model_id, model) in enumerate(sub_model_list[1:]):
+        # sub_model = onnx.load(model_path)
+        sub_model = model
+        for input_tensor in sub_model.graph.input:
+                #also check it is not an output of any node
+                if not any(input_tensor.name == node_output for node in merged_model.graph.node for node_output in node.output):
+                    merged_model.graph.input.append(input_tensor)
+                    # input_data.append(intermediate_values[input_tensor.name])
+
+        sub_model.graph.ClearField('input')
+        for node in sub_model.graph.node:
+            merged_model.graph.node.append(node)
+        for initializer in sub_model.graph.initializer:
+            merged_model.graph.initializer.append(initializer)
+
+        if idx == len(sub_model_list) - 2:  # Last model in the iteration
+            for output_tensor in sub_model.graph.output:
+                if output_tensor not in merged_model.graph.output:
+                    merged_model.graph.output.append(output_tensor)
+        for value_info in sub_model.graph.value_info:
+            if value_info not in merged_model.graph.value_info:
+                merged_model.graph.value_info.append(value_info)
+    #look up for the input_data for this model part
+    
+    return merged_model
 
 def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outputs, output_folder = 'tmp', save_to_file = False):
 
-    models_with_inputs = []
+    models_with_inputs = OrderedDict()
 
     model = onnx.load(onnx_model_path)
     initializers = {init.name for init in model.graph.initializer}
@@ -243,12 +343,9 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outp
         else:
             pass
 
-    if save_to_file:
-        os.makedirs(output_folder, exist_ok=True)
-
     for idx, node_name in enumerate(nodes):
         sub_model_output_folder = os.path.join(output_folder, f'split_{idx+1}')
-        os.makedirs(sub_model_output_folder, exist_ok=True)
+
         model_save_path = f'{sub_model_output_folder}/model.onnx'
         input_data_save_path = f'{sub_model_output_folder}/input.json'
         # model_save_path = f'{sub_model_output_folder}/split_{idx+1}_model.onnx'
@@ -257,6 +354,7 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outp
         # print(f"Processing Split {idx+1}, Node Name: {node_name}")
         node_inputs, node_outputs = nodes[node_name]
         if save_to_file:
+            os.makedirs(sub_model_output_folder, exist_ok=True)
             sub_model = extract_model(onnx_model_path, node_inputs, node_outputs,model_save_path)
         else:
             sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
@@ -290,20 +388,24 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outp
             with open(input_data_save_path, 'w') as json_file:
                 json.dump(proving_input, json_file, indent=4)
         
-        if save_to_file:
-            models_with_inputs.append((model_save_path,input_data_save_path))
-        else:
-            models_with_inputs.append((sub_model,proving_input))
+        # if save_to_file:
+        #     models_with_inputs[f'split_model_{idx+1}'] = {"model": model_save_path, "input": input_data_save_path}
+            # models_with_inputs.append((model_save_path,input_data_save_path))
+        # else:
+            # models_with_inputs.append((sub_model,proving_input))
+        models_with_inputs[f'split_model_{idx+1}'] = sub_model
 
     return models_with_inputs
 
 if __name__ == "__main__":
     models_to_test = [
-        ('examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx', 'examples/onnx/mobilenet/input.json'),
+        # ('examples/onnx/mobilenet/mobilenetv2_050_Opset18.onnx', 'examples/onnx/mobilenet/input.json'),
         # ('examples/onnx/mnist_gan/network.onnx', 'examples/onnx/mnist_gan/input.json')
-        # ('examples/onnx/nanoGPT/network.onnx', 'examples/onnx/nanoGPT/input.json')
+        # ('examples/onnx/nanoGPT/network.onnx', 'examples/onnx/nanoGPT/input.json'),
+        ( 'examples/onnx/mnist_classifier/network.onnx', 'examples/onnx/mnist_classifier/input.json'),
 
     ]
+
     for onnx_file, input_file in models_to_test:
 
         full_model_result = run_inference_on_onnx_model(onnx_file, input_file)
@@ -311,6 +413,6 @@ if __name__ == "__main__":
         # Get the output tensor(s) of every node in the model during inference
         intermediate_results = get_intermediate_outputs(onnx_file, input_file)
         n_parts = np.inf
-        split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts, f'examples/split_models/mobilenet_splits', True)  
+        split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts, f'examples/split_models/mnist_classifier', True)  
         #result  = split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts)  
 
