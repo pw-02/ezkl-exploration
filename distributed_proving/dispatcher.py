@@ -108,7 +108,7 @@ class ZKPProver():
                 for line in inputs:
                     flattened_inputs.append(line.flatten().tolist())
                 input_data = {"input_data": flattened_inputs}
-                sub_model = OnnxModel(id=f'{model_name}_part_{idx+1}',
+                sub_model = OnnxModel(id=f'{model_name}_sub_model_{idx+1}/{len(grouped_models)}',
                                       input_data=input_data,
                                       model_proto= merged_model)
                 global_model.sub_models.append(sub_model)

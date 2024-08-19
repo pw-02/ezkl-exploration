@@ -32,3 +32,5 @@ python distributed_proving/dispatcher.py
 
 
 python distributed_proving/dispatcher.py model=mnist_gan model.num_splits=6 worker_addresses='["localhost:50053"]'
+
+ scp pwatters@134.197.95.82:/home/pwatters/projects/ezkl-exploration/distrubuted_proving/performance_logs.csv C:/Users/pw/Desktop/dist_zkp/performance_logs.csv
