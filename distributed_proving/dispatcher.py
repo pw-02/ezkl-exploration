@@ -79,7 +79,7 @@ class ZKPProver():
             input_data.append(intermediate_values[input_tensor.name])
         return input_data
     
-    def prepare_model_for_distributed_proving(self, model_name:str, onnx_model_path:str, json_input_file:str, num_splits = 1):
+    def prepare_model_for_distributed_proving(self, model_name:str, onnx_model_path:str, json_input_file:str, num_splits = None):
         logger.info(f'Analyzing model...')
 
         #get the output tensor(s) of every node node in the model during inference
@@ -89,12 +89,19 @@ class ZKPProver():
         
         logger.info(f'Num model params: {global_model.info["num_model_params"]}, Num rows in zk circuit: {global_model.info["zk_circuit_num_rows"]}, Number of nodes: {global_model.info["num_model_ops"]}')
         
-        if num_splits >1:
-
-            logger.info(f'Splitting model based on the configured number of splits..')
+        if num_splits is None:
+            logger.info(f'No split size provided. Proving the model as a whole..')
+            global_model.sub_models.append(global_model)
+        else:
+            logger.info(f'Splitting model based on the configured group size..')
             node_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
             all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_inference_outputs)
-            grouped_models = self.group_models(all_sub_models, len(all_sub_models)//num_splits)
+
+            if num_splits < len(all_sub_models):
+                grouped_models = self.group_models(all_sub_models, num_splits)
+            else:
+                grouped_models = all_sub_models
+
             logger.info(f'Total number of sub-models for distributed proving: {len(grouped_models)}' )
 
             for idx, group in enumerate(grouped_models):
@@ -246,7 +253,7 @@ def main(config: DictConfig):
 
     logger.info(f'Started Processing: {config.model}')
     # logging.info(f'Model Info: {onnx_model_for_proving.info}')
-    prover.prepare_model_for_distributed_proving(config.model.name, config.model.onnx_file, config.model.input_file, config.model.num_splits)
+    prover.prepare_model_for_distributed_proving(config.model.name, config.model.onnx_file, config.model.input_file, config.model.model_split_group_size)
 
 
 if __name__ == '__main__':

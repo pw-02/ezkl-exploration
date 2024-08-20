@@ -69,7 +69,10 @@ Here’s a refined version of your README section on running with model splittin
 
 ### 3. **Running with Model Splitting**
 
-To enable model splitting while running a proof, add the `model.num_splits` parameter to your command. 
+To enable model splitting while running a proof, add the `model.model_split_group_size` parameter to your command. This setting asks, 'After split the global model into the maximum number of splits, how many should I now combine to process together?' 
+
+   - If the value is '0' no splitting will occur, and the global model will be submitted for proving as a single entity.
+   - If the value is grater than the maximum number of splits it will defaualt to the maximum
 
  ```bash
       python distributed_proving/dispatcher.py model=mnist_gan model.num_splits=10 worker_addresses='["172.17.0.3:50052"]'

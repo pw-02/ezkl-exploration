@@ -1,4 +1,4 @@
 name: little_transformer
 onnx_file: examples/onnx/little_transformer/network.onnx
 input_file: examples/onnx/little_transformer/input.json
-num_splits: 1
+model_split_group_size: 1
