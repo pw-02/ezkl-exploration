@@ -69,22 +69,20 @@ Here’s a refined version of your README section on running with model splittin
 
 ### 3. **Running with Model Splitting**
 
-To enable model splitting while running a proof, add the `model.model_split_group_size` parameter to your command. This setting asks, 'After split the global model into the maximum number of splits, how many should I now combine to process together?' 
+To enable model splitting while running a proof, add the `model.split_group_size` parameter to your command. This setting asks, 'After split the global model into the maximum number of splits, how many should I now combine to process together?' 
 
-   - If `model.model_split_group_size` is set to `0` no splitting will occur, and the global model will be submitted for proving as a single entity.
-   - If the value of `model.model_split_group_size` is higher than the maximum number of splits, then splits will be proven individually and not combined.
+   - If `model.split_group_size` is set to `0` no splitting will occur, and the global model will be submitted for proving as a single entity.
+   - If the value of `model.split_group_size` is higher than the maximum number of splits, then splits will be proven individually and not combined.
 
  ```bash
       # Use 2 workers to prove MobileNet with splits being processed as pairs 
       # (maximum splits = 100, model_split_group_size = 2, resulting in 50 proofs to compute)  
       ​
-      python distributed_proving/dispatcher.py model=mobilenet model.model_split_group_size=2 worker_addresses='["172.17.0.3:50052", "172.17.0.3:50053"]'
+      python distributed_proving/dispatcher.py model=mobilenet model.split_group_size=2 worker_addresses='["172.17.0.3:50052", "172.17.0.3:50053"]'
       
       # Use 3 workers to prove MobileNet with splits being processed as triplets 
       # (maximum splits = 12, model_split_group_size = 3, resulting in 4 proofs to compute)  
-      python distributed_proving/dispatcher.py model=mobilenet model_split_group_size=3 worker_addresses='["172.17.0.3:50052", "172.17.0.3:50053", "172.17.0.3:50054"]'
-
-
+      python distributed_proving/dispatcher.py model=mobilenet model.split_group_size=3 worker_addresses='["172.17.0.3:50052", "172.17.0.3:50053", "172.17.0.3:50054"]'
    ```
 
 <!-- - **If `model.num_splits` is set to a value greater than 1**, the system will create as many splits as there are nodes in the model and will prove each split sequentially.
