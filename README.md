@@ -71,17 +71,25 @@ Here’s a refined version of your README section on running with model splittin
 
 To enable model splitting while running a proof, add the `model.model_split_group_size` parameter to your command. This setting asks, 'After split the global model into the maximum number of splits, how many should I now combine to process together?' 
 
-   - If the value is '0' no splitting will occur, and the global model will be submitted for proving as a single entity.
-   - If the value is grater than the maximum number of splits it will defaualt to the maximum
+   - If `model.model_split_group_size` is set to `0` no splitting will occur, and the global model will be submitted for proving as a single entity.
+   - If the value of `model.model_split_group_size` is higher than the maximum number of splits, then splits will be proven individually and not combined.
 
  ```bash
-      python distributed_proving/dispatcher.py model=mnist_gan model.num_splits=10 worker_addresses='["172.17.0.3:50052"]'
+      # Use 2 workers to prove MobileNet with splits being processed as pairs 
+      # (maximum splits = 100, model_split_group_size = 2, resulting in 50 proofs to compute)  
       ​
-      python distributed_proving/dispatcher.py model=mobilenet model.num_splits=100 worker_addresses='["172.17.0.3:50052"]'
+      python distributed_proving/dispatcher.py model=mobilenet model.model_split_group_size=2 worker_addresses='["172.17.0.3:50052", "172.17.0.3:50053"]'
+      
+      # Use 3 workers to prove MobileNet with splits being processed as triplets 
+      # (maximum splits = 12, model_split_group_size = 3, resulting in 4 proofs to compute)  
+      python distributed_proving/dispatcher.py model=mobilenet model_split_group_size=3 worker_addresses='["172.17.0.3:50052", "172.17.0.3:50053", "172.17.0.3:50054"]'
+
+
    ```
 
-- **If `model.num_splits` is set to a value greater than 1**, the system will create as many splits as there are nodes in the model and will prove each split sequentially.
-- **If `model.num_splits` is set to 1 or is not specified**, the model will not be split, and the proof will be processed as a single unit.
+<!-- - **If `model.num_splits` is set to a value greater than 1**, the system will create as many splits as there are nodes in the model and will prove each split sequentially.
+- **If `model.num_splits` is set to 1 or is not specified**, the model will not be split, and the proof will be processed as a single unit. -->
+
 ### 4. **Reporting**
 
    Once the proof has been computed the dispatcher will report all mettrics to `'/ezkl-exploration/distributed_proving/performance_logs.csv'` on the dispacther node.
