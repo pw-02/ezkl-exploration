@@ -201,6 +201,12 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
                 computed_proof = file.read()
                 verfification_result = True
 
+        if not request.cache_setup_files:
+            #delete directory_path folder
+            import shutil
+            shutil.rmtree(directory_path)
+
+
         logging.info("Proof computed and verified for request ID %s", request_id)
 
         with self.lock:

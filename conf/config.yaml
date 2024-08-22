@@ -7,7 +7,7 @@ defaults:
 num_model_parts: null  # set to 'null' to set it to the max number of splits
 worker_addresses: ["localhost:50053", "localhost:50052"]  # ["localhost:50052"]
 report_path: distributed_proving/performance_logs.csv
-
+cache_setup_files: False
 hydra:
   run:
     dir: .  # Current directory or a specific directory where Ray Tune expects to find it

@@ -79,7 +79,7 @@ class ZKPProver():
             input_data.append(intermediate_values[input_tensor.name])
         return input_data
     
-    def prepare_model_for_distributed_proving(self, model_name:str, onnx_model_path:str, json_input_file:str, split_group_size = None):
+    def prepare_model_for_distributed_proving(self, model_name:str, onnx_model_path:str, json_input_file:str, split_group_size = None, cache_setup_files = False):
         logger.info(f'Analyzing model...')
 
         #get the output tensor(s) of every node node in the model during inference
@@ -120,9 +120,9 @@ class ZKPProver():
                                       model_proto= merged_model)
                 global_model.sub_models.append(sub_model)
         
-        self.compute_proof(global_model)
+        self.compute_proof(global_model, cache_setup_files)
 
-    def compute_proof(self, onnx_model: OnnxModel):
+    def compute_proof(self, onnx_model: OnnxModel, cache_setup_files):
         logger.info(f'Starting proof computation for sub-models..')
         
         def send_proof_request(worker: Worker, sub_model: OnnxModel):
@@ -132,7 +132,8 @@ class ZKPProver():
                 request = pb2.ProofRequest(
                     model_id=sub_model.id,
                     onnx_model=sub_model.model_proto.SerializeToString(),
-                    input_data=json.dumps(sub_model.input_data)
+                    input_data=json.dumps(sub_model.input_data),
+                    cache_setup_files=cache_setup_files 
                 )
                 response = stub.ComputeProof(request)
                 request_id = response.request_id
@@ -253,7 +254,7 @@ def main(config: DictConfig):
 
     logger.info(f'Started Processing: {config.model}')
     # logging.info(f'Model Info: {onnx_model_for_proving.info}')
-    prover.prepare_model_for_distributed_proving(config.model.name, config.model.onnx_file, config.model.input_file, config.model.split_group_size)
+    prover.prepare_model_for_distributed_proving(config.model.name, config.model.onnx_file, config.model.input_file, config.model.split_group_size, config.cache_setup_files)
 
 
 if __name__ == '__main__':

@@ -17,6 +17,7 @@ message ProofRequest {
   string model_id = 1;  // Unique ID for the model
   bytes onnx_model = 2;  // The ONNX model as bytes
   string input_data = 3;  // The input data as a JSON string
+  bool cache_setup_files= 4;  // Whether to cache the setup files
 }
 
 message ProofStatusRequest {
