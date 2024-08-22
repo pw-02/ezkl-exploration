@@ -289,6 +289,10 @@ def merge_onnx_models(sub_models:OrderedDict):
     return {"model":merged_model, "input": model_input_data}
     
 def merge_onnx_models(sub_models:OrderedDict):
+
+    if len(sub_models) == 1:
+        return next(iter(sub_models.values()))
+    
     input_data = []
     # Get the first model from the OrderedDict
     first_model_id, first_model = next(iter(sub_models.items()))
