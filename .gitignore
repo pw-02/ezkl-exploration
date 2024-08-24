@@ -14,3 +14,4 @@ examples
 tmp
 worker_data
 micro_tests
+distributed_proving\__pycache__

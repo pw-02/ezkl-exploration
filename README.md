@@ -102,9 +102,6 @@ To enable model splitting while running a proof, add the `model.split_group_size
    For example, the following command processes MNIST GAN with an overall split group size of 2, but forces the dispatcher to group splits [1, 2, 3] together, give one group contain 3 splits (1,2,3) and all other grousp size of 2. 
 
    ```bash
-      # Use 2 workers to prove MobileNet with splits being processed as pairs 
-      # (maximum splits = 100, model_split_group_size = 2, resulting in 50 proofs to compute)  
-      ​
-      python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 worker_addresses='["172.17.0.3:50052""]' group_splits=[[1,2,3]]
+      python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 worker_addresses=["localhost:50052"] group_splits=[[1,2,3]]
    ```
 ------

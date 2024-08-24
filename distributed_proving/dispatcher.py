@@ -72,11 +72,12 @@ class ZKPProver():
 
         grouped_splits = []
         for target_list in group_split_lists:
-            tmp = []
+            tmp = {}
             for split_id in target_list:
                 item_key = f'split_model_{split_id}'
                 if item_key in models:
-                    tmp.append((item_key, models.pop(item_key)))
+                    tmp[item_key] = models.pop(item_key)
+                    # tmp.append((item_key, models.pop(item_key)))
             grouped_splits.append(tmp)
 
         if spot_test_only:
@@ -98,7 +99,7 @@ class ZKPProver():
                                               json_input_file:str, 
                                               split_group_size = None, 
                                               cache_setup_files = False,
-                                              group_splits = None,
+                                              group_split_lists = None,
                                               spot_test = False):
         logger.info(f'Analyzing model...')
 
@@ -113,13 +114,16 @@ class ZKPProver():
             logger.info(f'No split size provided. Proving the model as a whole..')
             global_model.sub_models.append(global_model)
         else:
-            logger.info(f'Splitting model based on the configured group size..')
+            if group_split_lists is None:
+                logger.info(f'Splitting model based on the configured group size {split_group_size}')
+            else:
+                logger.info(f'Splitting model based on the configured group size {split_group_size} and group split lists: {group_split_lists} ..')
+           
             node_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
             all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_inference_outputs)
 
-
             if split_group_size < len(all_sub_models):
-                grouped_models = self.group_models(all_sub_models, split_group_size, group_splits, spot_test)
+                grouped_models = self.group_models(all_sub_models, split_group_size, group_split_lists, spot_test)
             else:
                 grouped_models = all_sub_models
 
