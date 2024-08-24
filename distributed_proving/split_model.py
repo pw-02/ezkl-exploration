@@ -293,7 +293,8 @@ def merge_onnx_models(sub_models:OrderedDict):
     
     # Get the first model from the OrderedDict
     first_model_id, first_model = next(iter(sub_models.items()))
-    combined_node_indices.append(int(first_model_id[-1]))
+    combined_node_indices.append(int(first_model_id.split('_')[-1])  # Split by underscore and take the last part
+)
 
     if len(sub_models) == 1:
         return first_model, combined_node_indices
@@ -308,7 +309,7 @@ def merge_onnx_models(sub_models:OrderedDict):
     sub_model_list = list(sub_models.items())
     for idx, (model_id, model) in enumerate(sub_model_list[1:]):
         # sub_model = onnx.load(model_path)
-        combined_node_indices.append(int(model_id[-1]))
+        combined_node_indices.append(int(model_id.split('_')[-1]))  # Split by underscore and take the last part
         sub_model = model
         for input_tensor in sub_model.graph.input:
                 #also check it is not an output of any node

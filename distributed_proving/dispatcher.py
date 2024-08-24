@@ -47,7 +47,7 @@ class OnnxModel ():
         self.info.update(analyze_onnx_model_for_zk_proving(onnx_model=self.model_proto))
         self.info['combined_splits'] = combined_node_indices
         # self.combined_node_indices = combined_node_indices
-        # self.info (analyze_onnx_model_for_zk_proving(onnx_model=self.model_proto))
+        self.info (analyze_onnx_model_for_zk_proving(onnx_model=self.model_proto))
 
 
 class ZKPProver():
@@ -80,12 +80,16 @@ class ZKPProver():
                 for split_id in target_list:
                     item_key = f'split_model_{split_id}'
                     if item_key in models:
-                        tmp[item_key] = models.pop(item_key)
+                        tmp[item_key] = models[item_key]
                         # tmp.append((item_key, models.pop(item_key)))
                 grouped_splits.append(tmp)
-
             if spot_test_only:
                 return grouped_splits
+        
+        for tmp in grouped_splits:
+            for key in tmp.keys():
+                if key in models:
+                    models.pop(key)
            
         items = list(models.items())
         temp2 = [dict(items[i:i+n]) for i in range(0, len(items), n)]
@@ -106,14 +110,16 @@ class ZKPProver():
                                               group_split_lists = None,
                                               spot_test = False):
         logger.info(f'Analyzing model...')
+        node_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
+        all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_inference_outputs)
 
-        total_nodes_in_model = count_onnx_model_operations(onnx_model_path)
+        total_sub_models = len(all_sub_models)
 
         #get the output tensor(s) of every node node in the model during inference
         global_model = OnnxModel(id = f'global_{model_name}', 
                                  input_data=read_json_file_to_dict(json_input_file), 
                                  onnx_model_path= onnx_model_path,
-                                 combined_node_indices= list(range(total_nodes_in_model)))
+                                 combined_node_indices= list(range(total_sub_models)))
         
         logger.info(f'Num model params: {global_model.info["num_model_params"]}, Num rows in zk circuit: {global_model.info["zk_circuit_num_rows"]}, Number of nodes: {global_model.info["num_model_ops"]}')
 
@@ -126,8 +132,8 @@ class ZKPProver():
             else:
                 logger.info(f'Splitting model based on the configured group size {split_group_size} and group split lists: {group_split_lists} ..')
            
-            node_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
-            all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_inference_outputs)
+            # node_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
+            # all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_inference_outputs)
 
             if split_group_size < len(all_sub_models):
                 grouped_models = self.group_models(all_sub_models, split_group_size, group_split_lists, spot_test)

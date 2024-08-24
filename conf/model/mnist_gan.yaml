@@ -1,4 +1,4 @@
 name: mnist_gan
 onnx_file: examples/onnx/mnist_gan/network.onnx
 input_file: examples/onnx/mnist_gan/input.json
-split_group_size: 2
+split_group_size: 1
