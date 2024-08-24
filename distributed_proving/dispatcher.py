@@ -45,7 +45,7 @@ class OnnxModel ():
         self.sub_models: List[OnnxModel] = []
         self.info = {'model_id': self.id}
         self.info.update(analyze_onnx_model_for_zk_proving(onnx_model=self.model_proto))
-        self.info['combined_node_indices'] = combined_node_indices
+        self.info['combined_splits'] = combined_node_indices
         # self.combined_node_indices = combined_node_indices
         # self.info (analyze_onnx_model_for_zk_proving(onnx_model=self.model_proto))
 

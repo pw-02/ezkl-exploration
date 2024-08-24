@@ -93,7 +93,6 @@ To enable model splitting while running a proof, add the `model.split_group_size
    Once the proof has been computed the dispatcher will report all mettrics to `'/ezkl-exploration/distributed_proving/performance_logs.csv'` on the dispacther node.
 
    Sometimes the dispacther can lose connection with the worker (working on resolving this). If that happens, the worker may still run the proof job to completion and log its reporting metrics to `'/ezkl-exploration/distributed_proving/worker_log.csv'`. This same information is already in  `'/ezkl-exploration/distributed_proving/performance_logs.csv'` but we log twice for now for backup.
-
 ------
 
 
@@ -102,10 +101,10 @@ To enable model splitting while running a proof, add the `model.split_group_size
    For example, if you are processing MNIST GAN with a default split group size of 2, but you want to force the dispatcher to group splits [1, 2, 3] together as one group, while all other groups remain at the default size of 2, use the following:
    ```bash
       python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 worker_addresses=["localhost:50052"] group_splits=[[1,2,3]]
-   ```
+ ```
    - *Spot Test:*
       To restrict the dispatcher to compute proofs only for the specified groups, set spot_test to True. For instance, to compute a proof only for the group [1, 2, 3], use the following:
    ```bash
       python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 worker_addresses=["localhost:50052"] group_splits=[[1,2,3]] spot_test=True
-      ```
+   ```
 ------
