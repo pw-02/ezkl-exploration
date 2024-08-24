@@ -98,10 +98,14 @@ To enable model splitting while running a proof, add the `model.split_group_size
 
 
 ### 4. **Testing / Investigation**
-   To instruct the dispatcher to group specific sets of splits, provide a list of lists for the configuration setting `model.split_group_size`. Each sublist should contain the IDs of the splits you wish to combine. The ID of a split corresponds to its position in the overall list of model nodes.
-   For example, the following command processes MNIST GAN with an overall split group size of 2, but forces the dispatcher to group splits [1, 2, 3] together, give one group contain 3 splits (1,2,3) and all other grousp size of 2. 
-
+   - *Specifying splits to combine:* To instruct the dispatcher to group specific sets of splits, provide a list of lists for the configuration setting `group_splits`. Each sublist should contain the IDs of the splits you wish to combine. The ID of a split corresponds to its position in the overall list of model nodes.
+   For example, if you are processing MNIST GAN with a default split group size of 2, but you want to force the dispatcher to group splits [1, 2, 3] together as one group, while all other groups remain at the default size of 2, use the following:
    ```bash
       python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 worker_addresses=["localhost:50052"] group_splits=[[1,2,3]]
    ```
+   - *Spot Test:*
+      To restrict the dispatcher to compute proofs only for the specified groups, set spot_test to True. For instance, to compute a proof only for the group [1, 2, 3], use the following:
+   ```bash
+      python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 worker_addresses=["localhost:50052"] group_splits=[[1,2,3]] spot_test=True
+      ```
 ------
