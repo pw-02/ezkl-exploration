@@ -8,7 +8,7 @@ num_model_parts: null  # set to 'null' to set it to the max number of splits
 worker_addresses: ["localhost:50053", "localhost:50052"]  # ["localhost:50052"]
 report_path: distributed_proving/performance_logs.csv
 cache_setup_files: False
-group_splits:  [[1,2,3]] # [[1,3,5], [2,4,6], [7,8,9,10]]  # [[1,3,5], [2,4,6], [7,8,9,10]]
+group_splits: null # [[1,2,3]] # [[1,3,5], [2,4,6], [7,8,9,10]]  # [[1,3,5], [2,4,6], [7,8,9,10]]
 spot_test: False
 
 hydra:
