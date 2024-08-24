@@ -148,7 +148,7 @@ class ZKPProver():
 
                 sub_model = OnnxModel(id=f'{model_name}_sub_model_{idx+1}/{len(grouped_models)}',
                                       input_data=input_data,
-                                      model_proto= merged_model, node_indices = combined_node_indices)
+                                      model_proto= merged_model, combined_node_indices = combined_node_indices)
                 global_model.sub_models.append(sub_model)
         
         self.compute_proof(global_model, cache_setup_files)
