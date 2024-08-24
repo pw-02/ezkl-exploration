@@ -105,7 +105,7 @@ class ZKPProver():
                                               spot_test = False):
         logger.info(f'Analyzing model...')
 
-        total_nodes_in_model = count_onnx_model_operations(onnx_model_path=onnx_model_path)
+        total_nodes_in_model = count_onnx_model_operations(onnx_model_path)
 
         #get the output tensor(s) of every node node in the model during inference
         global_model = OnnxModel(id = f'global_{model_name}', 
