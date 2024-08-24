@@ -87,14 +87,24 @@ To enable model splitting while running a proof, add the `model.split_group_size
 
 <!-- - **If `model.num_splits` is set to a value greater than 1**, the system will create as many splits as there are nodes in the model and will prove each split sequentially.
 - **If `model.num_splits` is set to 1 or is not specified**, the model will not be split, and the proof will be processed as a single unit. -->
-
+---
 ### 4. **Reporting**
 
    Once the proof has been computed the dispatcher will report all mettrics to `'/ezkl-exploration/distributed_proving/performance_logs.csv'` on the dispacther node.
 
    Sometimes the dispacther can lose connection with the worker (working on resolving this). If that happens, the worker may still run the proof job to completion and log its reporting metrics to `'/ezkl-exploration/distributed_proving/worker_log.csv'`. This same information is already in  `'/ezkl-exploration/distributed_proving/performance_logs.csv'` but we log twice for now for backup.
 
-
-
 ------
 
+
+### 4. **Testing / Investigation**
+   To instruct the dispatcher to group specific sets of splits, provide a list of lists for the configuration setting `model.split_group_size`. Each sublist should contain the IDs of the splits you wish to combine. The ID of a split corresponds to its position in the overall list of model nodes.
+   For example, the following command processes MNIST GAN with an overall split group size of 2, but forces the dispatcher to group splits [1, 2, 3] together, give one group contain 3 splits (1,2,3) and all other grousp size of 2. 
+
+   ```bash
+      # Use 2 workers to prove MobileNet with splits being processed as pairs 
+      # (maximum splits = 100, model_split_group_size = 2, resulting in 50 proofs to compute)  
+      ​
+      python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 worker_addresses='["172.17.0.3:50052""]' group_splits=[[1,2,3]]
+   ```
+------

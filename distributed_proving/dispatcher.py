@@ -68,10 +68,24 @@ class ZKPProver():
             writer.writerow(report_data)
 
 
-    def group_models(self, models:OrderedDict, n):
-        items = list(models.items())  # Convert dictionary items to a list of tuples
-        grouped_items = [dict(items[i:i+n]) for i in range(0, len(items), n)]
-        return grouped_items
+    def group_models(self, models:OrderedDict, n, group_split_lists, spot_test_only):
+
+        grouped_splits = []
+        for target_list in group_split_lists:
+            tmp = []
+            for split_id in target_list:
+                item_key = f'split_model_{split_id}'
+                if item_key in models:
+                    tmp.append((item_key, models.pop(item_key)))
+            grouped_splits.append(tmp)
+
+        if spot_test_only:
+            return grouped_splits
+           
+        items = list(models.items())
+        temp2 = [dict(items[i:i+n]) for i in range(0, len(items), n)]
+        grouped_splits.extend(temp2)
+        return grouped_splits
     
     def get_model_inputs(self, model, intermediate_values):
         input_data = []
@@ -79,7 +93,13 @@ class ZKPProver():
             input_data.append(intermediate_values[input_tensor.name])
         return input_data
     
-    def prepare_model_for_distributed_proving(self, model_name:str, onnx_model_path:str, json_input_file:str, split_group_size = None, cache_setup_files = False):
+    def prepare_model_for_distributed_proving(self, model_name:str, 
+                                              onnx_model_path:str, 
+                                              json_input_file:str, 
+                                              split_group_size = None, 
+                                              cache_setup_files = False,
+                                              group_splits = None,
+                                              spot_test = False):
         logger.info(f'Analyzing model...')
 
         #get the output tensor(s) of every node node in the model during inference
@@ -97,8 +117,9 @@ class ZKPProver():
             node_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
             all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_inference_outputs)
 
+
             if split_group_size < len(all_sub_models):
-                grouped_models = self.group_models(all_sub_models, split_group_size)
+                grouped_models = self.group_models(all_sub_models, split_group_size, group_splits, spot_test)
             else:
                 grouped_models = all_sub_models
 
@@ -254,7 +275,13 @@ def main(config: DictConfig):
 
     logger.info(f'Started Processing: {config.model}')
     # logging.info(f'Model Info: {onnx_model_for_proving.info}')
-    prover.prepare_model_for_distributed_proving(config.model.name, config.model.onnx_file, config.model.input_file, config.model.split_group_size, config.cache_setup_files)
+    prover.prepare_model_for_distributed_proving(config.model.name, 
+                                                 config.model.onnx_file,
+                                                   config.model.input_file, 
+                                                   config.model.split_group_size, 
+                                                   config.cache_setup_files,
+                                                   config.group_splits,
+                                                   config.spot_test)
 
 
 if __name__ == '__main__':
