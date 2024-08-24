@@ -5,7 +5,7 @@ import zkpservice_pb2 as pb2
 import hydra
 from omegaconf import DictConfig
 import logging
-from utils import  analyze_onnx_model_for_zk_proving, load_onnx_model, read_json_file_to_dict
+from utils import  analyze_onnx_model_for_zk_proving, load_onnx_model, read_json_file_to_dict, count_onnx_model_operations
 from split_model import get_intermediate_outputs, split_onnx_model_at_every_node,  merge_onnx_models
 from typing import List
 import os
@@ -29,7 +29,7 @@ class Worker():
         self.channel:Channel = None
 
 class OnnxModel ():   
-    def __init__(self, id: int, input_data:str, onnx_model_path:str = None, model_proto:ModelProto = None):
+    def __init__(self, id: int, input_data:str, onnx_model_path:str = None, model_proto:ModelProto = None, combined_node_indices = None):
 
         if onnx_model_path is None and model_proto is None:
             raise TypeError("Model path or model proto must be provided")
@@ -45,6 +45,8 @@ class OnnxModel ():
         self.sub_models: List[OnnxModel] = []
         self.info = {'model_id': self.id}
         self.info.update(analyze_onnx_model_for_zk_proving(onnx_model=self.model_proto))
+        self.info['combined_node_indices'] = combined_node_indices
+        # self.combined_node_indices = combined_node_indices
         # self.info (analyze_onnx_model_for_zk_proving(onnx_model=self.model_proto))
 
 
@@ -103,13 +105,16 @@ class ZKPProver():
                                               spot_test = False):
         logger.info(f'Analyzing model...')
 
+        total_nodes_in_model = count_onnx_model_operations(onnx_model_path=onnx_model_path)
+
         #get the output tensor(s) of every node node in the model during inference
         global_model = OnnxModel(id = f'global_{model_name}', 
                                  input_data=read_json_file_to_dict(json_input_file), 
-                                 onnx_model_path= onnx_model_path)
+                                 onnx_model_path= onnx_model_path,
+                                 combined_node_indices= list(range(total_nodes_in_model)))
         
         logger.info(f'Num model params: {global_model.info["num_model_params"]}, Num rows in zk circuit: {global_model.info["zk_circuit_num_rows"]}, Number of nodes: {global_model.info["num_model_ops"]}')
-        
+
         if split_group_size is None:
             logger.info(f'No split size provided. Proving the model as a whole..')
             global_model.sub_models.append(global_model)
@@ -132,7 +137,7 @@ class ZKPProver():
             for idx, group in enumerate(grouped_models):
                 logger.info(f'Preparing sub-model {idx+1}..')
                 
-                merged_model = merge_onnx_models(group)
+                merged_model, combined_node_indices = merge_onnx_models(group)
                 inputs = self.get_model_inputs(merged_model, node_inference_outputs)
 
                 #flatttern input data so it can be sent to each worker as json
@@ -140,9 +145,10 @@ class ZKPProver():
                 for line in inputs:
                     flattened_inputs.append(line.flatten().tolist())
                 input_data = {"input_data": flattened_inputs}
+
                 sub_model = OnnxModel(id=f'{model_name}_sub_model_{idx+1}/{len(grouped_models)}',
                                       input_data=input_data,
-                                      model_proto= merged_model)
+                                      model_proto= merged_model, node_indices = combined_node_indices)
                 global_model.sub_models.append(sub_model)
         
         self.compute_proof(global_model, cache_setup_files)

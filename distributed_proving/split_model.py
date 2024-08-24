@@ -289,14 +289,15 @@ def merge_onnx_models(sub_models:OrderedDict):
     return {"model":merged_model, "input": model_input_data}
     
 def merge_onnx_models(sub_models:OrderedDict):
-
-    if len(sub_models) == 1:
-        return next(iter(sub_models.values()))
+    combined_node_indices = []
     
-    input_data = []
     # Get the first model from the OrderedDict
     first_model_id, first_model = next(iter(sub_models.items()))
-    # base_model = onnx.load(first_model_path)
+    combined_node_indices.append(int(first_model_id[-1]))
+
+    if len(sub_models) == 1:
+        return first_model, combined_node_indices
+    
     merged_model = first_model
 
     # for input_tensor in merged_model.graph.input:
@@ -307,6 +308,7 @@ def merge_onnx_models(sub_models:OrderedDict):
     sub_model_list = list(sub_models.items())
     for idx, (model_id, model) in enumerate(sub_model_list[1:]):
         # sub_model = onnx.load(model_path)
+        combined_node_indices.append(int(model_id[-1]))
         sub_model = model
         for input_tensor in sub_model.graph.input:
                 #also check it is not an output of any node
@@ -329,7 +331,7 @@ def merge_onnx_models(sub_models:OrderedDict):
                 merged_model.graph.value_info.append(value_info)
     #look up for the input_data for this model part
     
-    return merged_model
+    return merged_model, combined_node_indices
 
 def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outputs, output_folder = 'tmp', save_to_file = False):
 
