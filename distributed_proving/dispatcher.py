@@ -70,20 +70,22 @@ class ZKPProver():
             writer.writerow(report_data)
 
 
-    def group_models(self, models:OrderedDict, n, group_split_lists, spot_test_only):
+    def group_models(self, models:OrderedDict, n, group_split_lists = None, spot_test_only = False):
 
         grouped_splits = []
-        for target_list in group_split_lists:
-            tmp = {}
-            for split_id in target_list:
-                item_key = f'split_model_{split_id}'
-                if item_key in models:
-                    tmp[item_key] = models.pop(item_key)
-                    # tmp.append((item_key, models.pop(item_key)))
-            grouped_splits.append(tmp)
 
-        if spot_test_only:
-            return grouped_splits
+        if group_split_lists is not None:
+            for target_list in group_split_lists:
+                tmp = {}
+                for split_id in target_list:
+                    item_key = f'split_model_{split_id}'
+                    if item_key in models:
+                        tmp[item_key] = models.pop(item_key)
+                        # tmp.append((item_key, models.pop(item_key)))
+                grouped_splits.append(tmp)
+
+            if spot_test_only:
+                return grouped_splits
            
         items = list(models.items())
         temp2 = [dict(items[i:i+n]) for i in range(0, len(items), n)]
