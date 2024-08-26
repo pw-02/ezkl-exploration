@@ -90,13 +90,13 @@ To enable model splitting while running a proof, add the `model.split_group_size
 ---
 ### 4. **Reporting**
 
-   Once the proof has been computed the dispatcher will report all mettrics to `'/ezkl-exploration/distributed_proving/performance_logs.csv'` on the dispacther node.
+Once the proof has been computed the dispatcher will report all mettrics to `'/ezkl-exploration/distributed_proving/performance_logs.csv'` on the dispacther node.
 
-   Sometimes the dispacther can lose connection with the worker (working on resolving this). If that happens, the worker may still run the proof job to completion and log its reporting metrics to `'/ezkl-exploration/distributed_proving/worker_log.csv'`. This same information is already in  `'/ezkl-exploration/distributed_proving/performance_logs.csv'` but we log twice for now for backup.
-------
+Sometimes the dispacther can lose connection with the worker (working on resolving this). If that happens, the worker may still run the proof job to completion and log its reporting metrics to `'/ezkl-exploration/distributed_proving/worker_log.csv'`. This same information is already in  `'/ezkl-exploration/distributed_proving/performance_logs.csv'` but we log twice for now for backup.
 
 
-### 4. **Testing / Investigation**
+
+### 5. **Testing / Investigation**
    - *Specifying splits to combine:* To instruct the dispatcher to group specific sets of splits, provide a list of lists for the configuration setting `group_splits`. Each sublist should contain the IDs of the splits you wish to combine. The ID of a split corresponds to its position in the overall list of model nodes.
    For example, if you are processing MNIST GAN with a default split group size of 2, but you want to force the dispatcher to group splits [1, 2, 3] together as one group, while all other groups remain at the default size of 2, use the following:
    ```bash

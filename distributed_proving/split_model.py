@@ -6,6 +6,7 @@ import numpy as np
 import os
 from onnx.utils import Extractor
 from collections import OrderedDict
+import copy
 
 def flatten_ndarray_to_list(d):
     for key, value in d.items():
@@ -299,7 +300,7 @@ def merge_onnx_models(sub_models:OrderedDict):
     if len(sub_models) == 1:
         return first_model, combined_node_indices
     
-    merged_model = first_model
+    merged_model = copy.deepcopy(first_model)
 
     # for input_tensor in merged_model.graph.input:
     #     input_data.append(intermediate_values[input_tensor.name])
@@ -309,6 +310,7 @@ def merge_onnx_models(sub_models:OrderedDict):
     sub_model_list = list(sub_models.items())
     for idx, (model_id, model) in enumerate(sub_model_list[1:]):
         # sub_model = onnx.load(model_path)
+        model = copy.deepcopy(model)
         combined_node_indices.append(int(model_id.split('_')[-1]))  # Split by underscore and take the last part
         sub_model = model
         for input_tensor in sub_model.graph.input:
