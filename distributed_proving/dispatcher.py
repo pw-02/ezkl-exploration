@@ -119,7 +119,8 @@ class ZKPProver():
         global_model = OnnxModel(id = f'global_{model_name}', 
                                  input_data=read_json_file_to_dict(json_input_file), 
                                  onnx_model_path= onnx_model_path,
-                                 combined_node_indices= list(range(total_sub_models)))
+                                 combined_node_indices= list(range(1, total_sub_models + 1))
+)
         
         logger.info(f'Num model params: {global_model.info["num_model_params"]}, Num rows in zk circuit: {global_model.info["zk_circuit_num_rows"]}, Number of nodes: {global_model.info["num_model_ops"]}')
 
