@@ -81,6 +81,10 @@ class EZKLProver:
             return True
         else:
             assert ezkl.setup(self.compiled_model_path, self.vk_path, self.pk_path) == True
+            if os.path.isfile('halo2_ffts.csv'):
+                os.remove('halo2_ffts.csv')
+            if os.path.isfile('halo2_msms.csv'):
+                os.remove('halo2_msms.csv')
             assert os.path.isfile(self.vk_path)
             assert os.path.isfile(self.pk_path)
             assert os.path.isfile(self.settings_path)
