@@ -171,9 +171,9 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         # Calculate the average duration
 
         # Convert the DataFrame to a dictionary
-        data_dict = df.to_dict(orient='records')  # 'records' format creates a list of dictionaries
-        msm_data = json.dumps(data_dict)
-        msm_metrics['msm_data'] = msm_data
+        # data_dict = df.to_dict(orient='records')  # 'records' format creates a list of dictionaries
+        # msm_data = json.dumps(data_dict)
+        # msm_metrics['msm_data'] = msm_data
         return msm_metrics
 
     def get_fft_logs(self, fft_file):
@@ -187,9 +187,9 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         # Calculate the average duration
 
         # Convert the DataFrame to a dictionary
-        data_dict = df.to_dict(orient='records')  # 'records' format creates a list of dictionaries
-        fft_data = json.dumps(data_dict)
-        fft_metrics['fft_data'] = fft_data
+        # data_dict = df.to_dict(orient='records')  # 'records' format creates a list of dictionaries
+        # fft_data = json.dumps(data_dict)
+        # fft_metrics['fft_data'] = fft_data
         return fft_metrics     
 
 
