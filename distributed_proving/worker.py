@@ -81,10 +81,12 @@ class EZKLProver:
             return True
         else:
             assert ezkl.setup(self.compiled_model_path, self.vk_path, self.pk_path) == True
-            if os.path.isfile('halo2_ffts.csv'):
-                os.remove('halo2_ffts.csv')
-            if os.path.isfile('halo2_msms.csv'):
-                os.remove('halo2_msms.csv')
+            # if os.path.isfile('halo2_ffts.csv'):
+            #     os.remove('halo2_ffts.csv')
+
+            # if os.path.isfile('halo2_msms.csv'):
+            #     os.remove('halo2_msms.csv')
+
             assert os.path.isfile(self.vk_path)
             assert os.path.isfile(self.pk_path)
             assert os.path.isfile(self.settings_path)
@@ -169,7 +171,6 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         df = pd.read_csv(msm_file)  # Replace 'your_file.csv' with the actual file path
         # Calculate the total number of MSMs
         msm_metrics['msm_count'] = int(len(df))
-        msm_metrics['total_msm_size'] = int(df['num_coeffs'].sum())
         msm_metrics['largest_msm'] = int(df['num_coeffs'].max())
         msm_metrics['total_msm_time(s)'] = float(df['duration(s)'].sum())
         msm_metrics['avg_msm_time(s)'] = float(df['duration(s)'].mean())
@@ -186,8 +187,7 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         df = pd.read_csv(fft_file)  # Replace 'your_file.csv' with the actual file path
         # Calculate the total number of FFTs
         fft_metrics['fft_count'] = int(len(df))
-        fft_metrics['total_fft_size(logn)'] = int(df['logn'].sum())
-        fft_metrics['largest_fft(logn)'] = int(df['logn'].max())
+        fft_metrics['largest_fft'] = int(df['size'].max())
         fft_metrics['total_fft_time(s)'] = float(df['duration(s)'].sum())
         fft_metrics['avg_fft_time(s)'] = float(df['duration(s)'].mean())
         # Calculate the average duration
