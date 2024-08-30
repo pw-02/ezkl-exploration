@@ -164,6 +164,21 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
             request_data = self.requests.get(request_id)
 
         if request_data['status'] == 'Completed':
+
+            if  os.path.isfile('halo2_metrics.csv'):
+                #read in csv file
+                with open('halo2_metrics.csv', mode='r') as file:
+                    reader = csv.DictReader(file)
+                    performance_data = {}
+                    for row in reader:
+                        for key, value in row.items():
+                            key = f"halo2_{key}"
+                            performance_data[key] = value
+                #delete the file
+                os.remove('halo2_metrics.csv')
+
+                request_data['performance_data'].update(performance_data)
+
             return pb2.ProofStatusResponse(
                 success=True,
                 proof=request_data['proof'],
