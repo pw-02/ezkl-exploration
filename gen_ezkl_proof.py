@@ -12,7 +12,7 @@ from distributed_proving.log_utils import ResourceMonitor
 class EZKLProver():
     def __init__(self, worker_dir:str):
         self.directory = worker_dir
-        self.model_path =  os.path.join(self.directory, f'model.onnx')
+        self.model_path =  os.path.join(self.directory, f'network.onnx')
         self.data_path = os.path.join(self.directory, f'input.json')
         self.compiled_model_path = os.path.join(self.directory, f'network.compiled')
         self.pk_path = os.path.join(self.directory, f'key.pk')
@@ -97,6 +97,6 @@ class EZKLProver():
 if __name__ == '__main__':
    
 
-   prover = EZKLProver("examples/split_models/mobilenet_splits/split_11")
+   prover = EZKLProver("examples/onnx/mnist_classifier")
    prover.run_end_to_end_proof()
    print('Done')
