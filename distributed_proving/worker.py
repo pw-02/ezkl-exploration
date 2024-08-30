@@ -164,10 +164,10 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         msm_metrics = {}
         df = pd.read_csv(msm_file)  # Replace 'your_file.csv' with the actual file path
         # Calculate the total number of MSMs
-        msm_metrics['total_msms'] = int(len(df))
-        msm_metrics['total_msm_time(s)'] = float(df['duration(s)'].sum())
+        msm_metrics['msm_count'] = int(len(df))
         msm_metrics['largest_msm'] = int(df['num_coeffs'].max())
-        msm_metrics['avg_msm_duration'] = int(df['duration(s)'].mean())
+        msm_metrics['total_msm_time(s)'] = float(df['duration(s)'].sum())
+        msm_metrics['avg_msm_time(s)'] = float(df['duration(s)'].mean())
         # Calculate the average duration
 
         # Convert the DataFrame to a dictionary
@@ -180,10 +180,10 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         fft_metrics = {}
         df = pd.read_csv(fft_file)  # Replace 'your_file.csv' with the actual file path
         # Calculate the total number of FFTs
-        fft_metrics['total_ffts'] = int(len(df))
-        fft_metrics['total_fft_time(s)'] = float(df['duration(s)'].sum())
+        fft_metrics['fft_count'] = int(len(df))
         fft_metrics['largest_fft'] = int(df['size'].max())
-        fft_metrics['avg_fft_duration'] = float(df['duration(s)'].mean())
+        fft_metrics['total_fft_time(s)'] = float(df['duration(s)'].sum())
+        fft_metrics['avg_fft_time(s)'] = float(df['duration(s)'].mean())
         # Calculate the average duration
 
         # Convert the DataFrame to a dictionary
