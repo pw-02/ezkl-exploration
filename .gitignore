@@ -15,3 +15,5 @@ tmp
 worker_data
 micro_tests
 distributed_proving\__pycache__
+logs
+__pycache__

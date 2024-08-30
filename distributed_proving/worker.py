@@ -14,6 +14,8 @@ import time
 from concurrent import futures
 import threading
 import csv
+import pandas as pd
+
 # # Configure logging
 # logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 # # Configure logging
@@ -158,6 +160,40 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         threading.Thread(target=self.process_request, args=(request_id, request)).start()
         return pb2.ProofResponse(request_id=request_id, message="Request received")
     
+    def get_msm_logs(self,msm_file):
+        msm_metrics = {}
+        df = pd.read_csv(msm_file)  # Replace 'your_file.csv' with the actual file path
+        # Calculate the total number of MSMs
+        msm_metrics['total_msms'] = int(len(df))
+        msm_metrics['total_msm_time(s)'] = float(df['duration(s)'].sum())
+        msm_metrics['largest_msm'] = int(df['num_coeffs'].max())
+        msm_metrics['avg_msm_duration'] = int(df['duration(s)'].mean())
+        # Calculate the average duration
+
+        # Convert the DataFrame to a dictionary
+        data_dict = df.to_dict(orient='records')  # 'records' format creates a list of dictionaries
+        msm_data = json.dumps(data_dict)
+        msm_metrics['msm_data'] = msm_data
+        return msm_metrics
+
+    def get_fft_logs(self, fft_file):
+        fft_metrics = {}
+        df = pd.read_csv(fft_file)  # Replace 'your_file.csv' with the actual file path
+        # Calculate the total number of FFTs
+        fft_metrics['total_ffts'] = int(len(df))
+        fft_metrics['total_fft_time(s)'] = float(df['duration(s)'].sum())
+        fft_metrics['largest_fft'] = int(df['size'].max())
+        fft_metrics['avg_fft_duration'] = float(df['duration(s)'].mean())
+        # Calculate the average duration
+
+        # Convert the DataFrame to a dictionary
+        data_dict = df.to_dict(orient='records')  # 'records' format creates a list of dictionaries
+        fft_data = json.dumps(data_dict)
+        fft_metrics['fft_data'] = fft_data
+        return fft_metrics     
+
+
+    
     def CheckProofStatus(self, request, context):
         request_id = request.request_id
         with self.lock:
@@ -165,19 +201,28 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
 
         if request_data['status'] == 'Completed':
 
-            if  os.path.isfile('halo2_metrics.csv'):
+            halo2_metrics = {}
+            if  os.path.isfile('halo2_circuit.csv'):
                 #read in csv file
-                with open('halo2_metrics.csv', mode='r') as file:
+                with open('halo2_circuit.csv', mode='r') as file:
                     reader = csv.DictReader(file)
-                    performance_data = {}
                     for row in reader:
                         for key, value in row.items():
                             key = f"halo2_{key}"
-                            performance_data[key] = value
+                            halo2_metrics[key] = value
                 #delete the file
-                os.remove('halo2_metrics.csv')
+                os.remove('halo2_circuit.csv')
+            
+            if os.path.isfile('halo2_ffts.csv'):
+                halo2_metrics.update(self.get_fft_logs('halo2_ffts.csv'))
+                os.remove('halo2_ffts.csv')
 
-                request_data['performance_data'].update(performance_data)
+            if os.path.isfile('halo2_msms.csv'):
+                halo2_metrics.update(self.get_msm_logs('halo2_msms.csv'))
+                os.remove('halo2_msms.csv')
+
+            if halo2_metrics:
+                request_data['performance_data'].update(halo2_metrics)
 
             return pb2.ProofStatusResponse(
                 success=True,
@@ -231,13 +276,13 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
                 'performance_data': performance_data
             }
         
-        file_exists = os.path.isfile('distributed_proving/report_log.csv')
+        # file_exists = os.path.isfile('distributed_proving/report_log.csv')
 
-        with open('distributed_proving/worker_log.csv', mode='a', newline='') as file:
-            writer = csv.DictWriter(file, fieldnames=performance_data.keys())
-            if not file_exists:
-                writer.writeheader()
-            writer.writerow(performance_data)
+        # with open('distributed_proving/worker_log.csv', mode='a', newline='') as file:
+        #     writer = csv.DictWriter(file, fieldnames=performance_data.keys())
+        #     if not file_exists:
+        #         writer.writeheader()
+        #     writer.writerow(performance_data)
 
 def run_server(port):
     try:

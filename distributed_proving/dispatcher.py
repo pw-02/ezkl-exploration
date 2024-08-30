@@ -58,12 +58,40 @@ class ZKPProver():
     
     def write_report(self, worker_address, model_info: dict ,performance_data: dict):
 
+        log_folder = 'logs'
+        if not os.path.exists(log_folder):
+            os.makedirs(log_folder)
+
+        if 'fft_data' in performance_data:
+            fft_folder = os.path.join(log_folder, 'ffts')
+            if not os.path.exists(fft_folder):
+                os.makedirs(fft_folder)
+
+            fft_data = json.loads(performance_data.pop('fft_data'))
+            fft_file = os.path.join(fft_folder, f'{model_info["model_id"]}_ffts.csv')
+            with open(fft_file, 'a', newline='') as file:
+                writer = csv.DictWriter(file, fieldnames=fft_data[0].keys())
+                writer.writeheader()
+                writer.writerows(fft_data)
+
+        if 'msm_data' in performance_data:
+            msm_folder = os.path.join(log_folder, 'msms')
+            if not os.path.exists(msm_folder):
+                os.makedirs(msm_folder)
+            msm_data = json.loads(performance_data.pop('msm_data'))
+            msm_file = os.path.join(msm_folder, f'{model_info["model_id"]}_msms.csv')
+            with open(msm_file, 'a', newline='') as file:
+                writer = csv.DictWriter(file, fieldnames=msm_data[0].keys())
+                writer.writeheader()
+                writer.writerows(msm_data)
+
         report_data = {**model_info, **performance_data}
         report_data['worker_address'] = worker_address
 
-        file_exists = os.path.isfile(self.report_path)
+        report_file = os.path.join(log_folder, 'performance_logs.csv')
+        file_exists = os.path.isfile(report_file)
 
-        with open(self.report_path, mode='a', newline='') as file:
+        with open(report_file, mode='a', newline='') as file:
             writer = csv.DictWriter(file, fieldnames=report_data.keys())
             if not file_exists:
                 writer.writeheader()
