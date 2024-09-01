@@ -14,7 +14,7 @@
       docker run -it --rm pwatters991/ezkl-workloads:1.0
       ```
 
-      Upon startup, the Docker container should Git clone branch 'pw-dev' of the repo https://github.com/pw-02/ezkl-exploration.git.
+      Upon startup, the Docker container should Git clone branch 'pw-dev' of repo https://github.com/pw-02/ezkl-exploration.git.
 
    2. Run `hostname -i` and record the host IP of the container (this will be needed later).
 
@@ -63,48 +63,46 @@
       ​
       python distributed_proving/dispatcher.py model=mobilenet worker_addresses='["172.17.0.3:50052"]'
       ```
-Here’s a refined version of your README section on running with model splitting:
+
+      Here’s a refined version of your README section on running with model splitting:
 
 ---
 
-### 3. **Running with Model Splitting**
+### 4.  **Compute Proofs with Model Splitting**
 
-To enable model splitting while running a proof, add the `model.split_group_size` parameter to your command. This setting asks, 'After split the global model into the maximum number of splits, how many should I now combine to process together?' 
+To enable model splitting while running a proof, use the `model.split_group_size` parameter to your command. This setting asks, 'After splitting the global model into the maximum number of splits, how many should I now combine to process together? 
 
-   - If `model.split_group_size` is set to `0` no splitting will occur, and the global model will be submitted for proving as a single entity.
-   - If the value of `model.split_group_size` is higher than the maximum number of splits, then splits will be proven individually and not combined.
+   - If `model.split_group_size` is set to `null` no splitting will occur, and the global model will be submitted for proving as a single entity.
 
  ```bash
-      # Use 2 workers to prove MobileNet with splits being processed as pairs 
-      # (maximum splits = 100, model_split_group_size = 2, resulting in 50 proofs to compute)  
-      ​
-      python distributed_proving/dispatcher.py model=mobilenet model.split_group_size=2 worker_addresses='["172.17.0.3:50052", "172.17.0.3:50053"]'
-      
-      # Use 3 workers to prove MobileNet with splits being processed as triplets 
-      # (maximum splits = 12, model_split_group_size = 3, resulting in 4 proofs to compute)  
-      python distributed_proving/dispatcher.py model=mobilenet model.split_group_size=3 worker_addresses='["172.17.0.3:50052", "172.17.0.3:50053", "172.17.0.3:50054"]'
-   ```
-
-<!-- - **If `model.num_splits` is set to a value greater than 1**, the system will create as many splits as there are nodes in the model and will prove each split sequentially.
-- **If `model.num_splits` is set to 1 or is not specified**, the model will not be split, and the proof will be processed as a single unit. -->
----
-### 4. **Reporting**
-
-Once the proof has been computed the dispatcher will report all mettrics to `'/ezkl-exploration/distributed_proving/performance_logs.csv'` on the dispacther node.
-
-Sometimes the dispacther can lose connection with the worker (working on resolving this). If that happens, the worker may still run the proof job to completion and log its reporting metrics to `'/ezkl-exploration/distributed_proving/worker_log.csv'`. This same information is already in  `'/ezkl-exploration/distributed_proving/performance_logs.csv'` but we log twice for now for backup.
-
-
+     # Use 1 workers to prove MobileNet with splits being processed as pairs 
+     # (maximum splits = 100, model_split_group_size = 2,  50 proofs to compute in total)  
+     ​
+     python distributed_proving/dispatcher.py model=mobilenet model.split_group_size=2 worker_addresses ["172.17.0.3:50052"]
+     
+     # Use 2 workers to prove mnist_gan with splits being processed as triplets 
+     # (maximum splits = 12, model_split_group_size = 3, resulting in 4 proofs to compute)  
+     python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=3 worker_addresses=["172.17.0.3:50052", "172.17.0.3:50053"]
+ ```
 
 ### 5. **Testing / Investigation**
-   - *Specifying splits to combine:* To instruct the dispatcher to group specific sets of splits, provide a list of lists for the configuration setting `group_splits`. Each sublist should contain the IDs of the splits you wish to combine. The ID of a split corresponds to its position in the overall list of model nodes.
-   For example, if you are processing MNIST GAN with a default split group size of 2, but you want to force the dispatcher to group splits [1, 2, 3] together as one group, while all other groups remain at the default size of 2, use the following:
+
+   - ***Specifying splits to combine:*** To instruct the dispatcher to group specific sets of splits you can provide a list of lists to configuration setting  `model.group_splits`. Each subsist should contain the IDs of the splits you wish to combine. The ID of a split corresponds to its position in the overall list of model nodes. For example, if you are processing MNIST GAN with a default split group size of 2, but you want to force the dispatcher to group splits [1, 2, 3] together as one group, while all other groups remain at the default size of 2, use the following:
+
    ```bash
-      python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 worker_addresses=["localhost:50052"] group_splits=[[1,2,3]]
- ```
-   - *Spot Test:*
-      To restrict the dispatcher to compute proofs only for the specified groups, set spot_test to True. For instance, to compute a proof only for the group [1, 2, 3], use the following:
-   ```bash
-      python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 worker_addresses=["localhost:50052"] group_splits=[[1,2,3]] spot_test=True
+   python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 model.group_splits=[[1,2,3]] worker_addresses=["localhost:50052"]
    ```
+
+   - ***Spot Test:***
+     To force the dispatcher to compute proofs only for the specified groups given `model.group_splits` you can set the `spot_test` configuration setting to `True`. For instance, the following command will only compute a proof for the group  `[1, 2, 3]`. This is useful for debugging as it allow us to target specific proving tasks within the overall collection for a model. 
+
+   ```bash
+   python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 model.group_splits=[[1,2,3]] worker_addresses=["localhost:50052"] spot_test=True
+   ```
+
 ------
+
+### 5. **Reporting**
+
+- **Overall Performance Metrics:** The dispatcher will report metrics such as proving time, circuit size, resource usage to `exploration/logs/performance_logs.csv` on the dispatcher node. Each line in the report corresponds to a single proving operation performed by a worker. Note that if the exploration/logs/performance_logs.csv already exits, it will not be overwritten. The dispatcher will simply append a new row to the bottom of the file. 
+- **FFT and MSMS**: The dispatcher will also report the size and duration of all FTT ad MSM operations that happened during the proving phase. These will be stored under `exploration/logs/ffts/{id of model for proving}.csv` and `exploration/logs/msms/{id of model for proving}.csv`. 
