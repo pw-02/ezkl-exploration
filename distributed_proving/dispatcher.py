@@ -133,8 +133,8 @@ class ZKPProver():
                                               onnx_model_path:str, 
                                               json_input_file:str, 
                                               split_group_size = None, 
-                                              cache_setup_files = False,
                                               group_split_lists = None,
+                                              cache_setup_files = False,
                                               spot_test = False):
         logger.info(f'Analyzing model...')
         node_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
