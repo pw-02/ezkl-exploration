@@ -69,7 +69,7 @@ class ZKPProver():
 
             fft_data = json.loads(performance_data.pop('fft_data'))
             fft_file = os.path.join(fft_folder, f'{model_info["model_id"]}_ffts.csv')
-            with open(fft_file, 'a', newline='') as file:
+            with open(fft_file, 'w', newline='') as file:
                 writer = csv.DictWriter(file, fieldnames=fft_data[0].keys())
                 writer.writeheader()
                 writer.writerows(fft_data)
@@ -80,7 +80,7 @@ class ZKPProver():
                 os.makedirs(msm_folder)
             msm_data = json.loads(performance_data.pop('msm_data'))
             msm_file = os.path.join(msm_folder, f'{model_info["model_id"]}_msms.csv')
-            with open(msm_file, 'a', newline='') as file:
+            with open(msm_file, 'w', newline='') as file:
                 writer = csv.DictWriter(file, fieldnames=msm_data[0].keys())
                 writer.writeheader()
                 writer.writerows(msm_data)
@@ -220,6 +220,8 @@ class ZKPProver():
                                     sub_model.is_completed = True
                                     logger.info(f'Proof computation completed for sub-model {sub_model.id} by worker {worker.address}')
                                     performance_data = json.loads(status_response.performance_data)
+                                    channel.close() # Close the channel
+                                    worker.is_free = True
                                     self.write_report(worker.address, sub_model.info, performance_data)
                                     break
                             else:

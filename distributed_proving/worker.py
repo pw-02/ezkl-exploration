@@ -81,11 +81,11 @@ class EZKLProver:
             return True
         else:
             assert ezkl.setup(self.compiled_model_path, self.vk_path, self.pk_path) == True
-            # if os.path.isfile('halo2_ffts.csv'):
-            #     os.remove('halo2_ffts.csv')
+            if os.path.isfile('halo2_ffts.csv'):
+                os.remove('halo2_ffts.csv')
 
-            # if os.path.isfile('halo2_msms.csv'):
-            #     os.remove('halo2_msms.csv')
+            if os.path.isfile('halo2_msms.csv'):
+                os.remove('halo2_msms.csv')
 
             assert os.path.isfile(self.vk_path)
             assert os.path.isfile(self.pk_path)
@@ -130,16 +130,16 @@ class EZKLProver:
                 execution_time = func()
                 logger.info(f'{func_name} took {execution_time} seconds')
                 # print_func_exec_info(func_name, execution_time)
-                self.exp_logger.log_value(f'{func_name}(s)', execution_time)
+                self.exp_logger.log_value(f'ezkl_{func_name}_time(s)', execution_time)
             self.exp_logger.log_env_resources()
             resource_data = monitor.resource_data
-            self.exp_logger.log_value('avg_memory_usage_gb', resource_data["mem_used_gb"]["mean"])
-            self.exp_logger.log_value('max_memory_usage_gb', resource_data["mem_used_gb"]["max"])
-            self.exp_logger.log_value('avg_memory_usage%', resource_data["mem_used%"]["mean"])     
-            self.exp_logger.log_value('max_memory_usage%', resource_data["mem_used%"]["max"])
-            self.exp_logger.log_value('avg_cpu_usage%', resource_data["cpu_utilization%"]["mean"])
-            self.exp_logger.log_value('max_cpu_usage%', resource_data["cpu_utilization%"]["max"])
-            self.exp_logger.log_value("resource_usage", resource_data)
+            # self.exp_logger.log_value('avg_memory_usage_gb', resource_data["mem_used_gb"]["mean"])
+            # self.exp_logger.log_value('max_memory_usage_gb', resource_data["mem_used_gb"]["max"])
+            # self.exp_logger.log_value('avg_memory_usage%', resource_data["mem_used%"]["mean"])     
+            # self.exp_logger.log_value('max_memory_usage%', resource_data["mem_used%"]["max"])
+            # self.exp_logger.log_value('avg_cpu_usage%', resource_data["cpu_utilization%"]["mean"])
+            # self.exp_logger.log_value('max_cpu_usage%', resource_data["cpu_utilization%"]["max"])
+            # self.exp_logger.log_value("resource_usage", resource_data)
 
             # self.exp_logger.flush_log()
             return self.proof_path, self.exp_logger.data
@@ -170,36 +170,38 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         msm_metrics = {}
         df = pd.read_csv(msm_file)  # Replace 'your_file.csv' with the actual file path
         # Calculate the total number of MSMs
-        msm_metrics['msm_count'] = int(len(df))
-        msm_metrics['largest_msm'] = int(df['num_coeffs'].max())
-        msm_metrics['total_msm_time(s)'] = float(df['duration(s)'].sum())
-        msm_metrics['avg_msm_time(s)'] = float(df['duration(s)'].mean())
+        msm_metrics['halo2_msm_count'] = int(len(df))
+        msm_metrics['halo2_largest_msm'] = int(df['num_coeffs'].max())
+        msm_metrics['halo2_total_msm_time(s)'] = float(df['duration(s)'].sum())
+        msm_metrics['halo2_avg_msm_time(s)'] = float(df['duration(s)'].mean())
+        msm_metrics['halo2_msm_device'] = str(df['device'].iloc[0])
+
         # Calculate the average duration
 
         # Convert the DataFrame to a dictionary
-        # data_dict = df.to_dict(orient='records')  # 'records' format creates a list of dictionaries
-        # msm_data = json.dumps(data_dict)
-        # msm_metrics['msm_data'] = msm_data
+        data_dict = df.to_dict(orient='records')  # 'records' format creates a list of dictionaries
+        msm_data = json.dumps(data_dict)
+        msm_metrics['msm_data'] = msm_data
         return msm_metrics
 
     def get_fft_logs(self, fft_file):
         fft_metrics = {}
         df = pd.read_csv(fft_file)  # Replace 'your_file.csv' with the actual file path
         # Calculate the total number of FFTs
-        fft_metrics['fft_count'] = int(len(df))
-        fft_metrics['largest_fft'] = int(df['size'].max())
-        fft_metrics['total_fft_time(s)'] = float(df['duration(s)'].sum())
-        fft_metrics['avg_fft_time(s)'] = float(df['duration(s)'].mean())
+        fft_metrics['halo2_fft_count'] = int(len(df))
+        fft_metrics['halo2_largest_fft'] = int(df['size'].max())
+        fft_metrics['halo2_total_fft_time(s)'] = float(df['duration(s)'].sum())
+        fft_metrics['halo2_avg_fft_time(s)'] = float(df['duration(s)'].mean())
+        fft_metrics['halo2_fft_device'] = str(df['device'].iloc[0])
+
         # Calculate the average duration
 
         # Convert the DataFrame to a dictionary
-        # data_dict = df.to_dict(orient='records')  # 'records' format creates a list of dictionaries
-        # fft_data = json.dumps(data_dict)
-        # fft_metrics['fft_data'] = fft_data
+        data_dict = df.to_dict(orient='records')  # 'records' format creates a list of dictionaries
+        fft_data = json.dumps(data_dict)
+        fft_metrics['fft_data'] = fft_data
         return fft_metrics     
 
-
-    
     def CheckProofStatus(self, request, context):
         request_id = request.request_id
         with self.lock:
