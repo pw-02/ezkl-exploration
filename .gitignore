@@ -19,3 +19,5 @@ logs
 __pycache__
 model.onnx
 settings.json
+halo2_ffts.csv
+halo2_msms.csv

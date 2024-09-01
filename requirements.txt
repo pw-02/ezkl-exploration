@@ -1,5 +1,5 @@
 # ezkl-gpu==10.2.9
-
+https://github.com/pw-02/ezkl-exploration/raw/pw-dev/wheels/ezkl-0.0.0-cp37-abi3-manylinux_2_35_x86_64.whl
 onnxruntime==1.18.0
 onnx
 hydra-core
