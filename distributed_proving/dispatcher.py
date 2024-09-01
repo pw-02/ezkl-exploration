@@ -219,9 +219,9 @@ class ZKPProver():
                                     sub_model.is_completed = True
                                     logger.info(f'Proof computation completed for sub-model {sub_model.id} by worker {worker.address}')
                                     performance_data = json.loads(status_response.performance_data)
-                                    channel.close() # Close the channel
-                                    # worker.is_free = True
+                                    # channel.close() # Close the channel
                                     # self.write_report(worker.address, sub_model.info, performance_data)
+                                    # worker.is_free = True
                                     break
                             else:
                                     logger.info(f'Proof computation in progress for sub-model {sub_model.id} on worker {worker.address}. Waiting for 10 seconds before retrying.')
