@@ -17,3 +17,5 @@ micro_tests
 distributed_proving\__pycache__
 logs
 __pycache__
+model.onnx
+settings.json

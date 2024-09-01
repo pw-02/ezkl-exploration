@@ -54,7 +54,6 @@ class ZKPProver():
     def __init__(self, config: DictConfig):
         self.workers:List[Worker] = []
         self.check_worker_connections(config.worker_addresses)
-        self.report_path = config.report_path
     
     def write_report(self, worker_address, model_info: dict ,performance_data: dict):
 
@@ -183,7 +182,7 @@ class ZKPProver():
                     flattened_inputs.append(line.flatten().tolist())
                 input_data = {"input_data": flattened_inputs}
 
-                sub_model = OnnxModel(id=f'{model_name}_sub_model_{idx+1}/{len(grouped_models)}',
+                sub_model = OnnxModel(id=f'{model_name}({len(grouped_models)}_splits)_sub_model_{idx+1}',
                                       input_data=input_data,
                                       model_proto= merged_model, combined_node_indices = combined_node_indices)
                 global_model.sub_models.append(sub_model)
@@ -221,8 +220,8 @@ class ZKPProver():
                                     logger.info(f'Proof computation completed for sub-model {sub_model.id} by worker {worker.address}')
                                     performance_data = json.loads(status_response.performance_data)
                                     channel.close() # Close the channel
-                                    worker.is_free = True
-                                    self.write_report(worker.address, sub_model.info, performance_data)
+                                    # worker.is_free = True
+                                    # self.write_report(worker.address, sub_model.info, performance_data)
                                     break
                             else:
                                     logger.info(f'Proof computation in progress for sub-model {sub_model.id} on worker {worker.address}. Waiting for 10 seconds before retrying.')
@@ -240,6 +239,9 @@ class ZKPProver():
                             channel = grpc.insecure_channel(worker.address) # Reconnect to the worker
                             stub = pb2_grpc.ZKPWorkerServiceStub(channel) # Reinitialize the stub
                             continue
+                    self.write_report(worker.address, sub_model.info, performance_data)
+                    worker.is_free = True
+
             except Exception as e:
                 logger.error(f'Proof computation failed for sub-model {sub_model.id} by worker {worker.address}. Aborting...')
             finally:
@@ -326,11 +328,11 @@ def main(config: DictConfig):
     # logging.info(f'Model Info: {onnx_model_for_proving.info}')
     prover.prepare_model_for_distributed_proving(config.model.name, 
                                                  config.model.onnx_file,
-                                                   config.model.input_file, 
-                                                   config.model.split_group_size, 
-                                                   config.cache_setup_files,
-                                                   config.group_splits,
-                                                   config.spot_test)
+                                                 config.model.input_file, 
+                                                 config.model.split_group_size, 
+                                                 config.model.group_splits,
+                                                 config.cache_setup_files,
+                                                 config.spot_test)
 
 
 if __name__ == '__main__':
