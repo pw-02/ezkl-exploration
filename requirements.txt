@@ -8,3 +8,4 @@ psutil
 pynvml
 grpcio
 grpcio-tools
+pandas

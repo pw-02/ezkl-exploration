@@ -87,6 +87,9 @@ class EZKLProver:
             if os.path.isfile('halo2_msms.csv'):
                 os.remove('halo2_msms.csv')
 
+            if os.path.isfile('halo2_prover.csv'):
+                os.remove('halo2_prover.csv')
+
             assert os.path.isfile(self.vk_path)
             assert os.path.isfile(self.pk_path)
             assert os.path.isfile(self.settings_path)
@@ -183,6 +186,17 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         msm_data = json.dumps(data_dict)
         msm_metrics['msm_data'] = msm_data
         return msm_metrics
+    
+       
+    def get_prover_logs(self,prover_metrics_file):
+        prover_metrics = {}
+        with open(prover_metrics_file, mode='r') as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                for key, value in row.items():
+                    key = f"halo2_{key}"
+                    prover_metrics[key] = value
+        return prover_metrics
 
     def get_fft_logs(self, fft_file):
         fft_metrics = {}
@@ -228,6 +242,10 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
             if os.path.isfile('halo2_msms.csv'):
                 halo2_metrics.update(self.get_msm_logs('halo2_msms.csv'))
                 os.remove('halo2_msms.csv')
+            
+            if os.path.isfile('halo2_prover.csv'):
+                halo2_metrics.update(self.get_prover_logs('halo2_prover.csv'))
+                os.remove('halo2_prover.csv')
 
             if halo2_metrics:
                 request_data['performance_data'].update(halo2_metrics)

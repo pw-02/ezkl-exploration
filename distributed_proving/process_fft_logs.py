@@ -5,6 +5,19 @@ import json
 import pandas as pd
 
 
+def get_prover_logs(prover_metrics_file):
+    prover_metrics = {}
+    with open('halo2_prover.csv', mode='r') as file:
+                    reader = csv.DictReader(file)
+                    for row in reader:
+                        for key, value in row.items():
+                            key = f"halo2_{key}"
+                            prover_metrics[key] = value
+
+    return prover_metrics
+
+
+
 def process_msm(msm_file='halo2_msm_times.csv'):
     if os.path.isfile(msm_file):
         msm_metrics = {}
@@ -46,4 +59,6 @@ def process_fft (fft_file='halo2_fft_times.csv'):
       
        
 if __name__ == '__main__':
-    process_msm()
+    prover_metrics =get_prover_logs("halo2_prover.csv")
+    some_dict = {}
+    some_dict.update(prover_metrics)
