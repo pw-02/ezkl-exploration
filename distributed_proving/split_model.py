@@ -92,7 +92,9 @@ def load_json_input(input_path, input_shape, input_type, idx = 0):
     # # Check if the input data matches the expected shape
     # if list(input_data.shape) != input_shape:
     #     raise ValueError(f"Input data shape {input_data.shape} does not match the expected shape {input_shape}")
- 
+    if 'nanoGPT' in input_path:
+        input_data = np.reshape(input_data, (1, 64))  # Shape: (1, 64)
+
     return input_data
 
 def get_intermediate_outputs(onnx_model, json_input):

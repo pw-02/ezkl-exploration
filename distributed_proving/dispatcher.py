@@ -53,7 +53,7 @@ class OnnxModel ():
 class ZKPProver():
     def __init__(self, config: DictConfig):
         self.workers:List[Worker] = []
-        self.check_worker_connections(config.worker_addresses)
+        # self.check_worker_connections(config.worker_addresses)
     
     def write_report(self, worker_address, model_info: dict ,performance_data: dict):
 
@@ -175,6 +175,9 @@ class ZKPProver():
                 
                 merged_model, combined_node_indices = merge_onnx_models(group)
                 inputs = self.get_model_inputs(merged_model, node_inference_outputs)
+                # if 'nanoGPT' in model_name:
+                #     import numpy as np
+                #     inputs = np.reshape(inputs, (1, 64))  # Shape: (1, 64)
 
                 #flatttern input data so it can be sent to each worker as json
                 flattened_inputs =  []
