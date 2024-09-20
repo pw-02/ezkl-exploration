@@ -53,7 +53,7 @@ class OnnxModel ():
 class ZKPProver():
     def __init__(self, config: DictConfig):
         self.workers:List[Worker] = []
-        # self.check_worker_connections(config.worker_addresses)
+        self.check_worker_connections(config.worker_addresses)
     
     def write_report(self, worker_address, model_info: dict ,performance_data: dict):
 
