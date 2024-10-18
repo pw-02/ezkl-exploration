@@ -1,0 +1,5 @@
+name: shufflenet
+onnx_file: examples/onnx/resnet18/shufflenet-v2-12-qdq.onnx
+input_file: examples/onnx/resnet18/data.json
+split_group_size: 1
+group_splits: null 

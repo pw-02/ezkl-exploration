@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - model: lenet_5  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
+  - model: shufflenet  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
   # - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled
 
