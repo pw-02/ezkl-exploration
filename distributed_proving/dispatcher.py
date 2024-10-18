@@ -138,7 +138,7 @@ class ZKPProver():
                                               spot_test = False):
         logger.info(f'Analyzing model...')
         node_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
-        all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_inference_outputs)
+        all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_inference_outputs,'tmp',False)
 
         total_sub_models = len(all_sub_models)
 

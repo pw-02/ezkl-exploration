@@ -63,18 +63,21 @@ def count_weights_and_tensors_in_onnx_model(model):
         total_output_size += int(np.prod(shape))
 
     return total_weights + total_input_size + total_output_size
-
-def get_ezkl_settings(onnx_model, delete_file_afterwards=True):
+counter = 0
+def get_ezkl_settings(onnx_model, delete_file_afterwards=False):
+    global counter 
+    counter += 1
     """ Generate and return EZKL settings. """
     temp_dir = 'ezkl_settings'
+    temp_dir = os.path.join(temp_dir, str(counter))
     os.makedirs(temp_dir, exist_ok=True)
     settings_path = os.path.join(temp_dir, 'settings.json')
-
-    if isinstance(onnx_model, str):
-        ezkl.gen_settings(onnx_model, settings_path)
-    else:
-        onnx.save(onnx_model, os.path.join(temp_dir, 'model.onnx'))
-        ezkl.gen_settings(os.path.join(temp_dir, 'model.onnx'), settings_path)
+    if not os.path.exists(settings_path):
+        if isinstance(onnx_model, str):
+            ezkl.gen_settings(onnx_model, settings_path)
+        else:
+            onnx.save(onnx_model, os.path.join(temp_dir, 'model.onnx'))
+            ezkl.gen_settings(os.path.join(temp_dir, 'model.onnx'), settings_path)
 
     try:
         with open(settings_path, 'r') as f:
@@ -85,14 +88,13 @@ def get_ezkl_settings(onnx_model, delete_file_afterwards=True):
     finally:
         if delete_file_afterwards and os.path.isdir(temp_dir):
             shutil.rmtree(temp_dir)
-    
     return settings_data
 
 def analyze_onnx_model_for_zk_proving(onnx_model):
     model_ops_count = count_onnx_model_operations(onnx_model)
     model_params_count = count_onnx_model_parameters(onnx_model)
     weights_and_tensor_count = count_weights_and_tensors_in_onnx_model(onnx_model)
-    ezkl_settings = get_ezkl_settings(onnx_model, True)
+    ezkl_settings = get_ezkl_settings(onnx_model, False)
     data_dict = {
         "num_model_ops": model_ops_count,
         "num_model_params": model_params_count,
