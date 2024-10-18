@@ -1,5 +1,5 @@
 name: lenet_5
 onnx_file: examples/onnx/lenet_5/network.onnx
 input_file: examples/onnx/lenet_5/input.json
-split_group_size: 2
+split_group_size: 3
 group_splits: null 
