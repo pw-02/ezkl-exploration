@@ -7,7 +7,7 @@ data
 model_to_circuit_relationship
 test_parts
 test_outputs
-examples
+# examples
 *pk
 *vk
 *pf
@@ -21,3 +21,4 @@ model.onnx
 settings.json
 halo2_ffts.csv
 halo2_msms.csv
+examples/split_models/*
