@@ -96,6 +96,7 @@ def load_json_input(input_path, input_shape, input_type, idx = 0):
         input_data = np.array(input_data['input_data'][idx], dtype=np.float32)
         if len(input_shape)>1:
             try:
+                # input_shape.remove('N')
                 input_data = input_data.reshape(input_shape)
             except ValueError as e:
 
@@ -493,7 +494,8 @@ if __name__ == "__main__":
         # ('examples/onnx/mnist_gan/network.onnx', 'examples/onnx/mnist_gan/input.json')
         #  ('examples/onnx/nanoGPT/network.onnx', 'examples/onnx/nanoGPT/input.json'),
         # ( 'examples/onnx/mnist_classifier/network.onnx', 'examples/onnx/mnist_classifier/input.json'),
-        ('examples/onnx/lenet_5/network.onnx', 'examples/onnx/lenet_5/input.json'),
+        # ('examples/onnx/lenet_5/network.onnx', 'examples/onnx/lenet_5/input.json'),
+        ('examples/onnx/resnet18/shufflenet-v2-12-qdq.onnx', 'examples/onnx/resnet18/data.json'),
 
 
     ]
@@ -501,13 +503,13 @@ if __name__ == "__main__":
     for onnx_file, input_file in models_to_test:
 
         full_model_result = run_inference_on_onnx_model_using_input_file(onnx_file, input_file)
-
+        print(f"Full Model Inference Result: {full_model_result}")
         # Get the output tensor(s) of every node in the model during inference
         intermediate_results = get_intermediate_outputs(onnx_file, input_file)
         n_parts = np.inf
         # split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts, f'tmp', True)  
         #result  = split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts)  
 
-        all_sub_models = split_onnx_model_at_every_node(onnx_file, input_file, intermediate_results)
+        all_sub_models = split_onnx_model_at_every_node(onnx_file, input_file, intermediate_results, save_to_file=False)
 
         pass

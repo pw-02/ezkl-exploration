@@ -1,0 +1,5 @@
+name: lenet_5
+onnx_file: examples/onnx/resnet18/resnet18-v1-7.onnx
+input_file: examples/onnx/resnet18/data.json
+split_group_size: null
+group_splits: null 
