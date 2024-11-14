@@ -1,4 +1,44 @@
+## Deployment without Docker
 
+1. **Clone the repository** 
+
+   ```bash
+   git clone -b pw-dev https://github.com/pw-02/ezkl-exploration.git
+   ```
+
+2. **Install Python libraries**:
+
+   ```
+   pip install -r requirements.txt
+   ```
+
+3. **GPU Support**:
+
+   The `ezkl-exploration/wheels` directory contains three Python wheels, as described in the table below. Only one of these wheels should be installed at a time, so uninstall any previously installed wheel (if applicable) before installing the wheel that fits your requirements. By default ezkl_gpu_msmonly-0.0.0-cp37-abi3-manylinux_2_35_x86_64.whl` is installed.
+
+   | Name                                                       | Description                     | Status      | Command to Install                                           | Command to uninstall             |
+   | ---------------------------------------------------------- | ------------------------------- | ----------- | ------------------------------------------------------------ | -------------------------------- |
+   | ezkl_cpu-0.0.0-cp37-abi3-manylinux_2_35_x86_64.whl         | Support for CPU NTTs + CPU MSMs | Working     | `pip install https://github.com/pw-02/ezkl-exploration/raw/pw-dev/wheels/ezkl_cpu-0.0.0-cp37-abi3-manylinux_2_35_x86_64.whl` | `pip uninstall ezkl_cpu`         |
+   | ezkl_gpu_msmonly-0.0.0-cp37-abi3-manylinux_2_35_x86_64.whl | Support for CPU NTTs + GPU MSMs | Working     | `pip install https://github.com/pw-02/ezkl-exploration/raw/pw-dev/wheels/ezkl_gpu_msmonly-0.0.0-cp37-abi3-manylinux_2_35_x86_64.whl` | `pip uninstall ezkl_gpu_msmonly` |
+   | ezkl_gpu-0.0.0-cp37-abi3-manylinux_2_35_x86_64.whl         | Support for GPU NTTs +GPU MSMs  | Not Working | `pip install https://github.com/pw-02/ezkl-exploration/raw/pw-dev/wheels/ezkl_gpu-0.0.0-cp37-abi3-manylinux_2_35_x86_64.whl` | `pip uninstall ezkl_gpu`         |
+
+4. **Start a ZKP Worker Service:**
+
+   1. Open a terminal and start the Docker container by running the following. The choice of port is optional. 
+
+      ```bash
+      python distributed_proving/worker.py --port 50053
+      ```
+
+5. **Run the Dispatcher and Start a Proof Generation Task:**
+
+   1. Open another terminal run 
+
+      ```bash
+      python distributed_proving/dispatcher.py model=mnist_classifier worker_addresses='["172.17.0.3:50053"]'
+      ```
+---
+## Deployment without Docker
 
 1. **Download Docker Image:**
 
@@ -75,14 +115,14 @@ To enable model splitting while running a proof, use the `model.split_group_size
    - If `model.split_group_size` is set to `null` no splitting will occur, and the global model will be submitted for proving as a single entity.
 
  ```bash
-     # Use 1 workers to prove MobileNet with splits being processed as pairs 
-     # (maximum splits = 100, model_split_group_size = 2,  50 proofs to compute in total)  
-     ​
-     python distributed_proving/dispatcher.py model=mobilenet model.split_group_size=2 worker_addresses ["172.17.0.3:50052"]
-     
-     # Use 2 workers to prove mnist_gan with splits being processed as triplets 
-     # (maximum splits = 12, model_split_group_size = 3, resulting in 4 proofs to compute)  
-     python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=3 worker_addresses=["172.17.0.3:50052", "172.17.0.3:50053"]
+    # Use 1 workers to prove MobileNet with splits being processed as pairs 
+    # (maximum splits = 100, model_split_group_size = 2,  50 proofs to compute in total)  
+    ​
+    python distributed_proving/dispatcher.py model=mobilenet model.split_group_size=2 worker_addresses ["172.17.0.3:50052"]
+    
+    # Use 2 workers to prove mnist_gan with splits being processed as triplets 
+    # (maximum splits = 12, model_split_group_size = 3, resulting in 4 proofs to compute)  
+    python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=3 worker_addresses=["172.17.0.3:50052", "172.17.0.3:50053"]
  ```
 
 ### 5. **Testing / Investigation**
@@ -90,14 +130,14 @@ To enable model splitting while running a proof, use the `model.split_group_size
    - ***Specifying splits to combine:*** To instruct the dispatcher to group specific sets of splits you can provide a list of lists to configuration setting  `model.group_splits`. Each subsist should contain the IDs of the splits you wish to combine. The ID of a split corresponds to its position in the overall list of model nodes. For example, if you are processing MNIST GAN with a default split group size of 2, but you want to force the dispatcher to group splits [1, 2, 3] together as one group, while all other groups remain at the default size of 2, use the following:
 
    ```bash
-   python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 model.group_splits=[[1,2,3]] worker_addresses=["localhost:50052"]
+python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 model.group_splits=[[1,2,3]] worker_addresses=["localhost:50052"]
    ```
 
    - ***Spot Test:***
      To force the dispatcher to compute proofs only for the specified groups given `model.group_splits` you can set the `spot_test` configuration setting to `True`. For instance, the following command will only compute a proof for the group  `[1, 2, 3]`. This is useful for debugging as it allow us to target specific proving tasks within the overall collection for a model. 
 
    ```bash
-   python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 model.group_splits=[[1,2,3]] worker_addresses=["localhost:50052"] spot_test=True
+python distributed_proving/dispatcher.py model=mnist_gan model.split_group_size=2 model.group_splits=[[1,2,3]] worker_addresses=["localhost:50052"] spot_test=True
    ```
 
 ------
