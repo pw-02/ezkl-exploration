@@ -54,9 +54,9 @@ def extract_model(
     if input_names[0] == '/Shape_output_0':
         extracted.graph.ClearField('name')
         # extracted.graph.name = ""
-        print("Original nodes:")
-        for node in extracted.graph.node:
-            print(node.name)
+        # print("Original nodes:")
+        # for node in extracted.graph.node:
+        #     print(node.name)
         # Loop through nodes to filter out the subgraph
         # for node in extracted.graph.node:
         #     if node.name != "/Shape_output_0":
@@ -135,7 +135,7 @@ def get_intermediate_outputs(onnx_model, json_input):
         model.graph.output.pop()
     shape_info = onnx.shape_inference.infer_shapes(model)   
     for node_output in shape_info.graph.value_info:
-        print(node_output.name)
+        # print(node_output.name)
         # if node_output.name == '/Shape_output_0':
         #     continue
         # if node_output.type.tensor_type.shape.dim[0].dim_param == 'batch_size':
@@ -395,15 +395,15 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outp
         node_type = node.op_type
         if node_type == 'Shape':
             # shape_output_parents[node_outputs[0]] = node.name
-            print(f"Node {idx+1} is a Shape node...")
-            # continue
+            # print(f"Node {idx+1} is a Shape node...")
+            continue
         if node_inputs and node_outputs:                
             nodes[node.name] = (node_inputs, node_outputs) #only want nodes with input/outputs. The others are constants. 
         else:
             pass
 
     for idx, node_name in enumerate(nodes):
-        print(node_name)
+        # print(node_name)
         if node_name== "/Gather":
             pass
         sub_model_output_folder = os.path.join(output_folder, f'split_{idx+1}')
