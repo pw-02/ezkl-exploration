@@ -9,6 +9,8 @@ from onnx.utils import Extractor
 import ezkl
 import os
 import shutil
+from onnx import helper, TensorProto
+from oldonnx_split import split_onnx, get_all_cut_points
 
 def get_ezkl_settings(onnx_model):
     """Generate and return EZKL settings."""
@@ -91,63 +93,23 @@ def get_intermediate_outputs(onnx_model, json_input):
 
     return intermediate_inference_outputs
 
-def load_json_input(input_path, input_shape, input_type, idx = 0):
-    input_shape = [-1 if dim == 'batch_size' else dim for dim in input_shape]
 
-    with open(input_path, 'r') as f:
-        input_data = json.load(f)
-
+def load_json_input(json_input, input_shape, input_type):
+    # Logic to load and preprocess input data from the provided JSON
+    with open(json_input, 'r') as f:
+        data = json.load(f)
+        input_data = data['input_data'][0]
+    
+    # Convert input data to numpy array based on the type
     if input_type == 'tensor(float)':
-
-        input_data = np.array(input_data['input_data'][idx], dtype=np.float32)
-        if len(input_shape)>1:
-            try:
-                # input_shape.remove('N')
-                input_data = input_data.reshape(input_shape)
-            except ValueError as e:
-
-                raise ValueError(f"Input data cannot be reshaped from shape {input_data.shape} to the expected shape {input_shape}: {e}")
-
-    elif input_type == 'tensor(int64)': 
-        if len(input_shape)>0:
-            input_data = np.array(input_data['input_data'][idx], dtype=np.int64)
-        else:
-            input_data = np.array(input_data['input_data'][0][0],dtype=np.int64) 
-
+        input_data = np.array(input_data, dtype=np.float32)
+    elif input_type == 'tensor(int64)':
+        input_data = np.array(input_data, dtype=np.int64)
     elif input_type == 'tensor(int32)':
-        return input_data
-    
-    # Try to reshape the input data to match the expected shape
-    # try:
-    #     input_data = input_data.reshape(input_shape)
-    # except ValueError as e:
-    #     raise ValueError(f"Input data cannot be reshaped from shape {input_data.shape} to the expected shape {input_shape}: {e}")
- 
-
-    # # Check if the input data matches the expected shape
-    # if list(input_data.shape) != input_shape:
-    #     raise ValueError(f"Input data shape {input_data.shape} does not match the expected shape {input_shape}")
-    if 'nanoGPT' in input_path:
-        input_data = np.reshape(input_data, (1, 64))  # Shape: (1, 64)
-
+        input_data = np.array(input_data, dtype=np.int32)
+    input_data = input_data.reshape(1, 64)  # Shape: (1, 64)
+    # You can add preprocessing logic here if needed, like reshaping or converting types
     return input_data
-
-# def load_json_input(json_input, input_shape, input_type):
-#     # Logic to load and preprocess input data from the provided JSON
-#     with open(json_input, 'r') as f:
-#         data = json.load(f)
-#         input_data = data['input_data'][0] + data['input_data'][1]
-    
-#     # Convert input data to numpy array based on the type
-#     if input_type == 'tensor(float)':
-#         input_data = np.array(input_data, dtype=np.float32)
-#     elif input_type == 'tensor(int64)':
-#         input_data = np.array(input_data, dtype=np.int64)
-#     elif input_type == 'tensor(int32)':
-#         input_data = np.array(input_data, dtype=np.int32)
-#     input_data = input_data.reshape(2, 64)  # Shape: (1, 64)
-#     # You can add preprocessing logic here if needed, like reshaping or converting types
-#     return input_data
 
 
 def extract_model(onnx_model_path, node_inputs, node_outputs, model_save_path=None) -> None:
@@ -199,12 +161,13 @@ def split_onnx_model_at_every_node(onnx_model_path,
      
         node_inputs = [input for input in node.input if input not in initializers and 'Constant' not in input]
         node_outputs = [output for output in node.output if output not in initializers and 'Constant' not in output]
-        # node_inputs = ['input']
+
         # Save or generate sub-model
         sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
         session = ort.InferenceSession(sub_model.SerializeToString())
         input_names = [input.name for input in session.get_inputs()]
         if counter == 0:  # First part takes in the initial input
+            input_names = ['input']
             input = session.get_inputs()[0]
             input_shape = input.shape
             input_type = input.type
@@ -214,17 +177,16 @@ def split_onnx_model_at_every_node(onnx_model_path,
         for name in input_names:
             inputs.append(intermediate_outputs[name].flatten().tolist())
 
-        proving_input = {"input_data": inputs}
-
+  
         try:
             ezkl_settings = get_ezkl_settings(sub_model)
-            print(f"Processed node {node.name} of type {node.op_type}, num_rows: {ezkl_settings.get('num_rows', 0)}")
-            # current_node_inputs.clear()
             counter +=1
+            proving_input = {"input_data": inputs}
             sub_model_output_folder = os.path.join(output_folder, f'split_{counter}')
             model_save_path = f'{sub_model_output_folder}/model.onnx'
             input_data_save_path = f'{sub_model_output_folder}/input.json'
-            
+            print(f"Processed node {node.name} of type {node.op_type}, num_rows: {ezkl_settings.get('num_rows', 0)}")
+            # current_node_inputs.clear() 
             if save_to_file:
                 os.makedirs(sub_model_output_folder, exist_ok=True)
                 onnx.save(sub_model, model_save_path)
@@ -242,205 +204,96 @@ def split_onnx_model_at_every_node(onnx_model_path,
 
     return models_with_inputs
 
+def create_subgraph(onnx_model_path, output_folder):
+    # Define the inputs and outputs for the subgraph
+    node_inputs = ['/Shape_output_0']
+    node_outputs = ['/Gather_output_0']
 
+    # Extract the subgraph
+    sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
 
+    # Prepare paths for saving the subgraph and associated files
+    sub_model_output_folder = os.path.join(output_folder, 'split_test1')
+    model_save_path = os.path.join(sub_model_output_folder, 'model.onnx')
 
+    try:
+        # Retrieve and log EZKL settings
+        ezkl_settings = get_ezkl_settings(sub_model)
+        print(f"num_rows: {ezkl_settings.get('num_rows', 0)}")
 
-# def split_onnx_model_at_every_node_orgional(onnx_model_path, json_input, intermediate_outputs, output_folder='tmp', save_to_file=True):
-#     models_with_inputs = OrderedDict()
-#     model = onnx.load(onnx_model_path)
-#     initializers = {init.name for init in model.graph.initializer}
-#     nodes = {}
-#     parts = []
+        # Ensure the output folder exists
+    except Exception as e:
+        print(f"Error: {e}")
 
-#     # Define operation types to exclude from the split
-#     exclude_operations = ['Identity', 'Constant', 'Dropout', 'Reshape', 'Clip', 'Squeeze', 'Unsqueeze', 'Transpose', 'Shape', 'Gather','Cast']
-#     # exclude_operations.clear()
-#     # exclude_operations = ['Identity',  'Constant']
-#     counter =0
-#     for idx, node in enumerate(model.graph.node):
-#         # Skip excluded operations
-#         if node.op_type in exclude_operations:
-#             # print(f"Skipping {node.name} of type {node.op_type}...")
-#             continue
+    # Save the modified subgraph
+    os.makedirs(sub_model_output_folder, exist_ok=True)
+    onnx.save(sub_model, model_save_path)
 
-#         if node.name in initializers:
-#             print(f"{node.name} is an initializer. Skipping...")
-#             continue
+def create_submodel_for_node(onnx_model, node_idx, output_folder):
+    # Get the node
+    node = onnx_model.graph.node[node_idx]
 
-#         print(f"Processing node {node.name} of type {node.op_type}")
-#         # Filter out 'Constant' nodes from node.inputs and node.outputs
-#         node_inputs = [input for input in node.input if input not in initializers and 'Constant' not in input]
-#         node_outputs = [output for output in node.output if output not in initializers and 'Constant' not in output]
-#         # node_inputs = ['input']
-#         counter +=1
-#         sub_model_output_folder = os.path.join(output_folder, f'split_{counter}')
-#         model_save_path = f'{sub_model_output_folder}/model.onnx'
-#         input_data_save_path = f'{sub_model_output_folder}/input.json'
-       
-#         # Save or generate sub-model
-#         if save_to_file:
-#             os.makedirs(sub_model_output_folder, exist_ok=True)
-#             sub_model = extract_model(onnx_model_path, node_inputs, node_outputs, model_save_path)
-#         else:
-#             sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
+    if node.op_type == "Identity" or node.op_type == "Constant":
+        print(f"Skipping {node.op_type} node: {node.name}")
+        return  # Skip this node
 
-#         session = ort.InferenceSession(sub_model.SerializeToString())
-
-#         input_names = [input.name for input in session.get_inputs()]
-#         if idx == 0:  # First part takes in the initial input
-#             input = session.get_inputs()[0]
-#             input_shape = input.shape
-#             input_type = input.type
-#             input_data = load_json_input(json_input, input_shape, input_type)
-#             intermediate_outputs[input.name] = input_data
-
-#         inputs = []
-#         for name in input_names:
-#             inputs.append(intermediate_outputs[name].flatten().tolist())
-        
-#         proving_input = {"input_data": inputs}
-
-#         if save_to_file:
-#             with open(input_data_save_path, 'w') as json_file:
-#                 json.dump(proving_input, json_file, indent=4)
-
-#         models_with_inputs[f'split_model_{counter}'] = sub_model
+    # Get all the inputs and outputs associated with the node
+    node_inputs = node.input
+    node_outputs = node.output
     
-#         ezkl_settings = get_ezkl_settings(sub_model)
-#         print(f"Processed node {node.name} of type {node.op_type}, num_rows: {ezkl_settings.get('num_rows', 0)}")
+    node_inputs = [input_name for input_name in node_inputs if input_name not in [init.name for init in onnx_model.graph.initializer] and 'Constant' not in input_name]
 
-
-#         # print(f"num_rows {node.name}: {ezkl_settings.get('num_rows', 0)}")
-
-#     return models_with_inputs
-
-
-# def split_onnx_model_at_every_node(onnx_model_path, json_input, intermediate_outputs, output_folder='tmp', save_to_file=True):
-#     models_with_inputs = OrderedDict()
-#     model = onnx.load(onnx_model_path)
-#     initializers = {init.name for init in model.graph.initializer}
-#     nodes = {}
-#     parts = []
-
-#     # Define operation types to exclude from the split
-#     exclude_operations = ['Identity', 
-#                           'Constant', 
-#                           'Dropout', 
-#                           'Reshape', 
-#                           'Clip', 
-#                           'Squeeze', 
-#                           'Unsqueeze', 
-#                           'Transpose', 
-#                           'Shape', 
-#                           'Gather',
-#                           'Cast',
-#                           'Range',
-#                           'Div',
-#                           'Concat',
-#                           'Transpose',
-#                           'Where'
-#                         ]
-#     exclude_operations = ['Identity',  'Constant']
-#     counter =0
-#     for idx, node in enumerate(model.graph.node):
-#         # Skip excluded operations
-#         skip_node = False
-#         if node.op_type in exclude_operations:
-#             # print(f"Skipping {node.name} of type {node.op_type}...")
-#              skip_node = True
-
-#         if node.name in initializers:
-#             print(f"{node.name} is an initializer. Skipping...")
-#             skip_node = True
-
-#         #skip if and of nodes outputs in in the exclude_operations list and ignore case
-
-#         # for output in node.output:
-#         #     for operation in exclude_operations:
-#         #         if operation.lower() in output.lower():
-#         #             print(f"Skipping {node.name} of type {node.op_type}...")
-#         #             skip_node = True
-#         #             break
-#         #     if skip_node:
-#         #         break
-
-#         for input in node.input:
-#             for operation in exclude_operations:
-#                 if operation.lower() in input.lower():
-#                     # print(f"Skipping {node.name} of type {node.op_type}...")
-#                     skip_node = True
-#                     break
-#             if skip_node:
-#                 break
-
-#         if skip_node:
-#             continue
-
-
-#         print(f"Processing node {node.name} of type {node.op_type}")
-#         # Filter out 'Constant' nodes from node.inputs and node.outputs
-#         if counter == 0:
-#             node_inputs = ['input']
-#         else:
-#             node_inputs = [input for input in node.input if input not in initializers and 'Constant' not in input]
-#         node_outputs = [output for output in node.output if output not in initializers and 'Constant' not in output]
-#         # node_inputs = ['input']
-#         counter +=1
-#         sub_model_output_folder = os.path.join(output_folder, f'split_{counter}')
-#         model_save_path = f'{sub_model_output_folder}/model.onnx'
-#         input_data_save_path = f'{sub_model_output_folder}/input.json'
-       
-#         # Save or generate sub-model
-#         if save_to_file:
-#             os.makedirs(sub_model_output_folder, exist_ok=True)
-#             sub_model = extract_model(onnx_model_path, node_inputs, node_outputs, model_save_path)
-#         else:
-#             sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
-
-#         session = ort.InferenceSession(sub_model.SerializeToString())
-
-#         input_names = [input.name for input in session.get_inputs()]
-#         if idx == 0:  # First part takes in the initial input
-#             input = session.get_inputs()[0]
-#             input_shape = input.shape
-#             input_type = input.type
-#             input_data = load_json_input(json_input, input_shape, input_type)
-#             intermediate_outputs[input.name] = input_data
-
-#         inputs = []
-#         for name in input_names:
-#             inputs.append(intermediate_outputs[name].flatten().tolist())
-        
-#         proving_input = {"input_data": inputs}
-
-#         if save_to_file:
-#             with open(input_data_save_path, 'w') as json_file:
-#                 json.dump(proving_input, json_file, indent=4)
-
-#         models_with_inputs[f'split_model_{counter}'] = sub_model
+    # Create new graph with just this node
+    subgraph_nodes = [node]
     
-#         ezkl_settings = get_ezkl_settings(sub_model)
-#         if ezkl_settings.get('num_rows', 0) > 0:
-#             print(f"Processed node {node.name} of type {node.op_type}, num_rows: {ezkl_settings.get('num_rows', 0)}")
-#         else:
-#             pass
+    # Get the tensors (initializers) required for this node
+    subgraph_initializers = [init for init in onnx_model.graph.initializer if init.name in node_inputs or init.name in node_outputs]
+    
+    # Create a new graph containing only this node and its initializers
+    subgraph_graph = helper.make_graph(
+        nodes=subgraph_nodes,
+        name=f"subgraph_node_{node.name}",
+        inputs=[helper.make_tensor_value_info(input_name, TensorProto.FLOAT, []) for input_name in node_inputs],
+        outputs=[helper.make_tensor_value_info(output_name, TensorProto.FLOAT, []) for output_name in node_outputs],
+        initializer=subgraph_initializers
 
-#         # print(f"num_rows {node.name}: {ezkl_settings.get('num_rows', 0)}")
+    )
+    
+    # Create a new model with the subgraph graph
+    submodel = helper.make_model(subgraph_graph, opset_imports=[onnx.helper.make_opsetid("ai.onnx", 13)],
+                                 ir_version=7)  # Set IR version to 13)
+    print("Operator Set Version:", submodel.opset_import[0].version)
 
-#     return models_with_inputs
+    try:
+        ezkl_settings = get_ezkl_settings(submodel)
+        print(f"num_rows: {ezkl_settings.get('num_rows', 0)}")
+    except Exception as e:
+        print(f"Error: {e}")
 
+    # Ensure output folder exists
+    os.makedirs(output_folder, exist_ok=True)
+    submodel_output_path = os.path.join(output_folder, f"submodel_node_{node_idx}.onnx")
+    onnx.save(submodel, submodel_output_path)
 
+def split_model(onnx_model_path, output_folder):
+    # Load the original ONNX model
+    onnx_model = onnx.load(onnx_model_path)
+    print("Operator Set Version:", onnx_model.opset_import[0].version)
+
+    # Iterate over each node in the model and create a submodel for it
+    for node_idx in range(len(onnx_model.graph.node)):
+        create_submodel_for_node(onnx_model, node_idx, output_folder)
 
 # Example usage
 onnx_model_path = 'examples/onnx/nanoGPT/network.onnx'
 json_input = 'examples/onnx/nanoGPT/input.json'
 
-# onnx_model_path = 'examples/onnx/mobile_net/mobilenetv2-7.onnx'
-# json_input = 'examples/onnx/mobile_net/input.json' 
+cut_points = get_all_cut_points(onnx.load(onnx_model_path))
+# split_onnx(onnx.load(onnx_model_path), 'tmp')
 
-# onnx_model_path = 'examples/onnx/mobilenet_large/network.onnx'
-# json_input = 'examples/onnx/mobilenet_large/input.json' 
+# split_model(onnx_model_path, 'tmp')
+
+# create_subgraph(onnx_model_path, 'tmp')
 
 
 # Get intermediate outputs

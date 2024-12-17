@@ -1111,8 +1111,8 @@ def split_onnx(onnx_model, n_parts=None, cut_points=None,
     return res
 
 
-if __name__ == "__main__":
-    import onnx
-    onnx_model = onnx.load("examples/onnx/nanoGPT/network.onnx")
-    result = split_onnx(onnx_model, n_parts=16, verbose=1)
-    pass
+# if __name__ == "__main__":
+#     import onnx
+#     onnx_model = onnx.load("examples/onnx/nanoGPT/network.onnx")
+#     result = split_onnx(onnx_model, n_parts=16, verbose=1)
+#     pass
