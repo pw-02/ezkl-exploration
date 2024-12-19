@@ -221,7 +221,7 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
         with self.lock:
             request_data = self.requests.get(request_id)
 
-        if request_data['status'] == 'Completed':
+        if request_data['status'] == 'Completed' and request_data['success']:
             halo2_metrics = {}
             if  os.path.isfile('halo2_circuit.csv'):
                 #read in csv file
@@ -254,20 +254,25 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
                 proof=request_data['proof'],
                 performance_data=json.dumps(request_data['performance_data']),
                 message="Completed")
+        
+        elif request_data['status'] == 'Completed' and not request_data['success']:
+            return pb2.ProofStatusResponse(success=False,message="Failed to compute proof")
+        
         else:
             return pb2.ProofStatusResponse(success=False,message=request_data['status'])
+    
+
+
 
     def process_request(self, request_id, request):
         try:
             logging.info("Received 'Compute Proof' request.")
-
             # directory_name = datetime.now().strftime("%Y%m%d_%H%M%S")
             directory_path = os.path.join("data", request.model_id)
             os.makedirs(directory_path, exist_ok=True)
             # directory_name = datetime.now().strftime("%Y%m%d_%H%M%S")
             # directory_path = os.path.join("data", directory_name)
             # os.makedirs(directory_path, exist_ok=True)
-
             with open(os.path.join(directory_path, 'model.onnx'), 'wb') as f:
                 f.write(request.onnx_model)
 
@@ -276,7 +281,7 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
                 json.dump(model_input, f)
                 
             # json.dump(model_input, open(os.path.join(directory_path, 'input.json'), 'w'))
-            prover = EZKLProver(directory_path, self.log_dir,orverwrite=False)
+            prover = EZKLProver(directory_path, self.log_dir,orverwrite=True)
             proof_path, performance_data = prover.run_end_to_end_proof()   
             verfification_result= False
 
@@ -295,6 +300,7 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
             with self.lock:
                 self.requests[request_id] = {
                     'status': 'Completed',
+                    'success': True,
                     'proof': 'proof'.encode('utf-8'),
                     'performance_data': performance_data
                 }
@@ -304,6 +310,7 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
             with self.lock:
                 self.requests[request_id] = {
                     'status': 'Completed',
+                    'success': False,
                     'proof': 'None',
                     'performance_data': {}
                     }
