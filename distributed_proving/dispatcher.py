@@ -49,7 +49,6 @@ class OnnxModel ():
         # self.combined_node_indices = combined_node_indices
         # self.info = (analyze_onnx_model_for_zk_proving(onnx_model=self.model_proto))
 
-
 class ZKPProver():
     def __init__(self, config: DictConfig):
         self.workers:List[Worker] = []
@@ -137,8 +136,8 @@ class ZKPProver():
                                               cache_setup_files = False,
                                               spot_test = False):
         logger.info(f'Analyzing model...')
-        node_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
-        all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, node_inference_outputs,'tmp',False)
+        intermediate_inference_outputs = get_intermediate_outputs(onnx_model_path, json_input_file)
+        all_sub_models = split_onnx_model_at_every_node(onnx_model_path, json_input_file, intermediate_inference_outputs,'tmp',False)
 
         total_sub_models = len(all_sub_models)
 
@@ -146,8 +145,7 @@ class ZKPProver():
         global_model = OnnxModel(id = f'global_{model_name}', 
                                  input_data=read_json_file_to_dict(json_input_file), 
                                  onnx_model_path= onnx_model_path,
-                                 combined_node_indices= list(range(1, total_sub_models + 1))
-)
+                                 combined_node_indices= list(range(1, total_sub_models + 1)))
         
         logger.info(f'Num model params: {global_model.info["num_model_params"]}, Num rows in zk circuit: {global_model.info["zk_circuit_num_rows"]}, Number of nodes: {global_model.info["num_model_ops"]}')
 
@@ -174,7 +172,7 @@ class ZKPProver():
                 logger.info(f'Preparing sub-model {idx+1}..')
                 
                 merged_model, combined_node_indices = merge_onnx_models(group)
-                inputs = self.get_model_inputs(merged_model, node_inference_outputs)
+                inputs = self.get_model_inputs(merged_model, intermediate_inference_outputs)
                 # if 'nanoGPT' in model_name:
                 #     import numpy as np
                 #     inputs = np.reshape(inputs, (1, 64))  # Shape: (1, 64)

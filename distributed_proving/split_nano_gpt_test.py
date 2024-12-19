@@ -9,8 +9,8 @@ from onnx.utils import Extractor
 import ezkl
 import os
 import shutil
-from onnx import helper, TensorProto
-from oldonnx_split import split_onnx, get_all_cut_points
+from utils import analyze_onnx_model_for_zk_proving
+import csv
 
 def get_ezkl_settings(onnx_model):
     """Generate and return EZKL settings."""
@@ -179,13 +179,14 @@ def split_onnx_model_at_every_node(onnx_model_path,
 
   
         try:
-            ezkl_settings = get_ezkl_settings(sub_model)
+            model_info = analyze_onnx_model_for_zk_proving(sub_model)
+            # ezkl_settings = get_ezkl_settings(sub_model)
             counter +=1
             proving_input = {"input_data": inputs}
             sub_model_output_folder = os.path.join(output_folder, f'split_{counter}')
             model_save_path = f'{sub_model_output_folder}/model.onnx'
             input_data_save_path = f'{sub_model_output_folder}/input.json'
-            print(f"Processed node {node.name} of type {node.op_type}, num_rows: {ezkl_settings.get('num_rows', 0)}")
+            print(f"Processed node {node.name} of type {node.op_type}, num_rows: {model_info.get('zk_circuit_num_rows', 0)}")
             # current_node_inputs.clear() 
             if save_to_file:
                 os.makedirs(sub_model_output_folder, exist_ok=True)
@@ -194,6 +195,7 @@ def split_onnx_model_at_every_node(onnx_model_path,
                     json.dump(proving_input, json_file, indent=4)
             # current_node_inputs = node_outputs
             models_with_inputs[f'split_model_{counter}'] = sub_model
+          
         except Exception as e:
             print(f"Error: {e}")
             # if not current_node_inputs:
@@ -202,98 +204,30 @@ def split_onnx_model_at_every_node(onnx_model_path,
 
         # print(f"num_rows {node.name}: {ezkl_settings.get('num_rows', 0)}")
 
+        #save settings to csv and have first two coumns being node index and node name
+
+        log_folder = 'logs'
+        if not os.path.exists(log_folder):
+            os.makedirs(log_folder)
+        ezkl_settings_path = f'{log_folder}/ezkl_nanoGPT_settings.csv'
+        model_info['node_name'] = node.name
+        model_info['node_idx'] = counter
+        file_exists = os.path.isfile(ezkl_settings_path)
+        with open(ezkl_settings_path, mode='a', newline='') as file:
+            writer = csv.DictWriter(file, fieldnames=model_info.keys())
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(model_info)
+
+
+
     return models_with_inputs
 
-def create_subgraph(onnx_model_path, output_folder):
-    # Define the inputs and outputs for the subgraph
-    node_inputs = ['/Shape_output_0']
-    node_outputs = ['/Gather_output_0']
 
-    # Extract the subgraph
-    sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
-
-    # Prepare paths for saving the subgraph and associated files
-    sub_model_output_folder = os.path.join(output_folder, 'split_test1')
-    model_save_path = os.path.join(sub_model_output_folder, 'model.onnx')
-
-    try:
-        # Retrieve and log EZKL settings
-        ezkl_settings = get_ezkl_settings(sub_model)
-        print(f"num_rows: {ezkl_settings.get('num_rows', 0)}")
-
-        # Ensure the output folder exists
-    except Exception as e:
-        print(f"Error: {e}")
-
-    # Save the modified subgraph
-    os.makedirs(sub_model_output_folder, exist_ok=True)
-    onnx.save(sub_model, model_save_path)
-
-def create_submodel_for_node(onnx_model, node_idx, output_folder):
-    # Get the node
-    node = onnx_model.graph.node[node_idx]
-
-    if node.op_type == "Identity" or node.op_type == "Constant":
-        print(f"Skipping {node.op_type} node: {node.name}")
-        return  # Skip this node
-
-    # Get all the inputs and outputs associated with the node
-    node_inputs = node.input
-    node_outputs = node.output
-    
-    node_inputs = [input_name for input_name in node_inputs if input_name not in [init.name for init in onnx_model.graph.initializer] and 'Constant' not in input_name]
-
-    # Create new graph with just this node
-    subgraph_nodes = [node]
-    
-    # Get the tensors (initializers) required for this node
-    subgraph_initializers = [init for init in onnx_model.graph.initializer if init.name in node_inputs or init.name in node_outputs]
-    
-    # Create a new graph containing only this node and its initializers
-    subgraph_graph = helper.make_graph(
-        nodes=subgraph_nodes,
-        name=f"subgraph_node_{node.name}",
-        inputs=[helper.make_tensor_value_info(input_name, TensorProto.FLOAT, []) for input_name in node_inputs],
-        outputs=[helper.make_tensor_value_info(output_name, TensorProto.FLOAT, []) for output_name in node_outputs],
-        initializer=subgraph_initializers
-
-    )
-    
-    # Create a new model with the subgraph graph
-    submodel = helper.make_model(subgraph_graph, opset_imports=[onnx.helper.make_opsetid("ai.onnx", 13)],
-                                 ir_version=7)  # Set IR version to 13)
-    print("Operator Set Version:", submodel.opset_import[0].version)
-
-    try:
-        ezkl_settings = get_ezkl_settings(submodel)
-        print(f"num_rows: {ezkl_settings.get('num_rows', 0)}")
-    except Exception as e:
-        print(f"Error: {e}")
-
-    # Ensure output folder exists
-    os.makedirs(output_folder, exist_ok=True)
-    submodel_output_path = os.path.join(output_folder, f"submodel_node_{node_idx}.onnx")
-    onnx.save(submodel, submodel_output_path)
-
-def split_model(onnx_model_path, output_folder):
-    # Load the original ONNX model
-    onnx_model = onnx.load(onnx_model_path)
-    print("Operator Set Version:", onnx_model.opset_import[0].version)
-
-    # Iterate over each node in the model and create a submodel for it
-    for node_idx in range(len(onnx_model.graph.node)):
-        create_submodel_for_node(onnx_model, node_idx, output_folder)
 
 # Example usage
 onnx_model_path = 'examples/onnx/nanoGPT/network.onnx'
 json_input = 'examples/onnx/nanoGPT/input.json'
-
-cut_points = get_all_cut_points(onnx.load(onnx_model_path))
-# split_onnx(onnx.load(onnx_model_path), 'tmp')
-
-# split_model(onnx_model_path, 'tmp')
-
-# create_subgraph(onnx_model_path, 'tmp')
 
 
 # Get intermediate outputs

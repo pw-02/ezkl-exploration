@@ -17,11 +17,10 @@ def flatten_ndarray_to_list(d):
     return d
 
 def extract_model(
-    input_path: str | os.PathLike,
-    input_names: list[str],
-    output_names: list[str],
-    output_path: str = None,
-    check_model: bool = True,
+    onnx_model_path,
+    node_inputs,
+    node_outputs,
+    model_save_path: str = None,
 ) -> None:
     """Extracts sub-model from an ONNX model.
 
@@ -38,50 +37,21 @@ def extract_model(
         output_names (list of string): The names of the output tensors that to be extracted.
         check_model (bool): Whether to run model checker on the extracted model.
     """
-    if not os.path.exists(input_path):
-        raise ValueError(f"Invalid input model path: {input_path}")
+    if not os.path.exists(onnx_model_path):
+        raise ValueError(f"Invalid input model path: {onnx_model_path}")
 
-    if not output_names:
+    if not node_outputs:
         raise ValueError("Output tensor names shall not be empty!")
-
-    onnx.checker.check_model(input_path)
-    model = onnx.load(input_path)
-    from onnx import helper, TensorProto
-
-    e = Extractor(model)
-    extracted = e.extract_model(input_names, output_names)
-    # Print the current nodes for reference
-    if input_names[0] == '/Shape_output_0':
-        extracted.graph.ClearField('name')
-        # extracted.graph.name = ""
-        print("Original nodes:")
-        for node in extracted.graph.node:
-            print(node.name)
-        # Loop through nodes to filter out the subgraph
-        # for node in extracted.graph.node:
-        #     if node.name != "/Shape_output_0":
-        #         filtered_nodes.append(node)
-
-        # extracted.graph.ClearField('name')
-        # for input_tensor in extracted.graph.input:
-        #     if input_tensor.name == "/Shape_output_0":
-        #         shape = input_tensor.type.tensor_type.shape
-        #         while len(shape.dim) > 0:
-        #             del shape.dim[0]
-        #         new_dim_1 = shape.dim.add()
-        #         new_dim_1.dim_value = 1  # First dimension: batch size
-
-        #         new_dim_2 = shape.dim.add()
-        #         new_dim_2.dim_value = 64  # Second dimension: feature size
-        #         pass
-
     
+    model = onnx.load(onnx_model_path)
+    e = Extractor(model)
 
-    if output_path:
-        onnx.save(extracted, output_path)
-        if check_model:
-            onnx.checker.check_model(output_path)
-    return extracted
+    new_model = e.extract_model(node_inputs, node_outputs)
+    
+    if model_save_path:
+        onnx.save(new_model, model_save_path)
+    
+    return new_model
 
 
 
@@ -127,54 +97,53 @@ def load_json_input(input_path, input_shape, input_type, idx = 0):
     return input_data
 
 def get_intermediate_outputs(onnx_model, json_input):
-
     model = onnx.load(onnx_model)
 
-    #update the the model so the final output includes the output of every node, not just the last node
+    # Update the model so the final output includes the output of every node, not just the last node
     while len(model.graph.output) > 0:
         model.graph.output.pop()
-    shape_info = onnx.shape_inference.infer_shapes(model)   
- 
-    for node_output in shape_info.graph.value_info:
-        # print(node_output.name)
-        # if node_output.name == '/Shape_output_0':
-        #     continue
-        # if node_output.type.tensor_type.shape.dim[0].dim_param == 'batch_size':
-        #     pass
-        model.graph.output.extend([node_output])
-    
+
+    # Perform shape inference to update model with inferred shapes
+    shape_info = onnx.shape_inference.infer_shapes(model)
+
+       # Add all intermediate outputs to the graph's outputs
+    for node in shape_info.graph.node:
+        for output_name in node.output:
+            # Ensure the output name is not already in the outputs list
+            if not any(o.name == output_name for o in model.graph.output):
+                output_info = onnx.ValueInfoProto()
+                output_info.name = output_name
+                model.graph.output.append(output_info)
+
+    # Initialize InferenceSession with inferred model
     session = ort.InferenceSession(model.SerializeToString())
-    input = session.get_inputs()[0]
-    input_shape = input.shape
-    input_type = input.type
+
+    input_name = session.get_inputs()[0].name
+    input_shape = session.get_inputs()[0].shape
+    input_type = session.get_inputs()[0].type
+
+    # Load input data
     input_data = load_json_input(json_input, input_shape, input_type)
 
-    # Run inference
-    results = session.run(None, {input.name: input_data})
+    # Run inference for the initial input to get all intermediate outputs
     intermediate_inference_outputs = {}
-    intermediate_inference_outputs[input.name] = input_data
-    # Print intermediate results
-    for name, result in zip(session.get_outputs(), results):
-        # print(f"Intermediate Inference Output: {name.name}")
-        intermediate_inference_outputs[name.name] = result
-    return intermediate_inference_outputs
+    intermediate_inference_outputs[input_name] = input_data
 
-def run_inference_on_onnx_model_using_input_file(model_path, input_file):
-    model = onnx.load(model_path)
-    session = ort.InferenceSession(model.SerializeToString())
-    infer_input = {}
-    for idx, model_input in enumerate(session.get_inputs()):
-        input_shape = model_input.shape
-        input_type = model_input.type
-        input_data = load_json_input(input_file, input_shape, input_type, idx)
-        infer_input[model_input.name] = input_data
-    # input = session.get_inputs()[0]
-    # input_shape = input.shape
-    # input_type = input.type
-    # input_data = load_json_input(input_file, input_shape, input_type)
-    # results = session.run(None, {input.name: input_data})
-    results = session.run(None, infer_input)
-    return results
+    # Run inference for all outputs, including the intermediate outputs
+    results = session.run(None, {input_name: input_data})
+     # Collect the intermediate inference outputs
+    intermediate_inference_outputs = {}
+    intermediate_inference_outputs[input_name] = input_data
+
+     # Store results for each output
+    for name, result in zip(session.get_outputs(), results):
+        intermediate_inference_outputs[name.name] = result
+    
+    # Display the last item in the dictionary
+    # last_key = list(intermediate_inference_outputs.keys())[-]
+    # last_value = intermediate_inference_outputs[last_key]
+    # print(f"Last key: {last_key}, Last value: {last_value}")
+    return intermediate_inference_outputs
 
 
 def run_inference_on_onnx_model(model_path, itermediate_values):
@@ -380,96 +349,51 @@ def merge_onnx_models(sub_models:OrderedDict):
     
     return merged_model, combined_node_indices
 
-def split_onnx_model_at_every_node(onnx_model_path, json_input, itermediate_outputs, output_folder = 'tmp', save_to_file = True):
-
+def split_onnx_model_at_every_node(onnx_model_path, json_input, intermediate_outputs, output_folder = 'tmp', save_to_file = True):
     models_with_inputs = OrderedDict()
-
     model = onnx.load(onnx_model_path)
     initializers = {init.name for init in model.graph.initializer}
-
-    nodes = {}
-    parts = []
- 
+    exclude_operations = ['Identity',  'Constant']
+    counter =0
     for idx, node in enumerate(model.graph.node):
-
+        # Skip excluded operations
+        if node.op_type in exclude_operations:
+            print(f"Skipping {node.name} of type {node.op_type}...")
+            continue
+        if node.name in initializers:
+            print(f"{node.name} is an initializer. Skipping...")
+            continue
+        print(f"Processing node {node.name} of type {node.op_type}")
         node_inputs = [input for input in node.input if input not in initializers and 'Constant' not in input]
         node_outputs = [output for output in node.output if output not in initializers and 'Constant' not in output]
-        node_type = node.op_type
-        if node.op_type == 'Constant':
-            pass
-        if node_type == 'Shape':
-            # shape_output_parents[node_outputs[0]] = node.name
-            # print(f"Node {idx+1} is a Shape node...")
-            continue
-        if node_inputs and node_outputs:                
-            nodes[node.name] = (node_inputs, node_outputs) #only want nodes with input/outputs. The others are constants. 
-        else:
-            pass
-
-    for idx, node_name in enumerate(nodes):
-        # print(node_name)
-        if node_name== "/Gather":
-            pass
-        sub_model_output_folder = os.path.join(output_folder, f'split_{idx+1}')
-
-        model_save_path = f'{sub_model_output_folder}/model.onnx'
-        input_data_save_path = f'{sub_model_output_folder}/input.json'
-        # model_save_path = f'{sub_model_output_folder}/split_{idx+1}_model.onnx'
-        # input_data_save_path = f'{sub_model_output_folder}/split_{idx+1}_input.json'
-
-        # print(f"Processing Split {idx+1}, Node Name: {node_name}")
-        node_inputs, node_outputs = nodes[node_name]
-        node_inputs = remove_dups(node_inputs)
-        node_outputs = remove_dups(node_outputs)
-        if save_to_file:
-            os.makedirs(sub_model_output_folder, exist_ok=True)
-            sub_model = extract_model(onnx_model_path, node_inputs, node_outputs,model_save_path)
-        else:
-            sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
-
+        # Save or generate sub-model
+        sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
         session = ort.InferenceSession(sub_model.SerializeToString())
-
-        #the inputs to each node are the outputs of all parent nodes. 
-        # since the first node has no parent, we add it manually to 'itermediate_outputs'
-
         input_names = [input.name for input in session.get_inputs()]
-
-        if idx == 0: #first part takes in the inital input
+        if counter == 0:  # First part takes in the initial input
+            input_names = ['input']
             input = session.get_inputs()[0]
             input_shape = input.shape
             input_type = input.type
             input_data = load_json_input(json_input, input_shape, input_type)
-            itermediate_outputs[input.name] = input_data
-
-        # assert all(name in itermediate_outputs for name in input_names), "Input data dictionary keys must match the model input names."
-        # inference_input = {}
-        # for name in input_names:
-        #     inference_input[name] = itermediate_outputs[name] 
-        # results = session.run(None, inference_input)
-        # # print(f"Inference results for {node_name}:", results)
-
-        inputs =  []
-        # if node_name == '/Gather':
-        #      inputs.append(['batch_size', 64])
-        # else:
-        # for name in input_names:
-        #     inputs.append(itermediate_outputs[name].flatten().tolist())
+            intermediate_outputs[input.name] = input_data
+        inputs = []
         for name in input_names:
-            inputs.append(itermediate_outputs[name].flatten().tolist())
+            inputs.append(intermediate_outputs[name].flatten().tolist())
+        counter +=1
         proving_input = {"input_data": inputs}
+        # current_node_inputs.clear() 
         if save_to_file:
+            sub_model_output_folder = os.path.join(output_folder, f'split_{counter}')
+            model_save_path = f'{sub_model_output_folder}/model.onnx'
+            input_data_save_path = f'{sub_model_output_folder}/input.json'
+            os.makedirs(sub_model_output_folder, exist_ok=True)
+            onnx.save(sub_model, model_save_path)
             with open(input_data_save_path, 'w') as json_file:
                 json.dump(proving_input, json_file, indent=4)
-        
-        # if save_to_file:
-        #     models_with_inputs[f'split_model_{idx+1}'] = {"model": model_save_path, "input": input_data_save_path}
-            # models_with_inputs.append((model_save_path,input_data_save_path))
-        # else:
-            # models_with_inputs.append((sub_model,proving_input))
-        models_with_inputs[f'split_model_{idx+1}'] = sub_model
-
+        # current_node_inputs = node_outputs
+        models_with_inputs[f'split_model_{counter}'] = sub_model
     return models_with_inputs
-
 
 
 
@@ -583,17 +507,17 @@ if __name__ == "__main__":
 
 
     ]
-    analzuye()
-    for onnx_file, input_file in models_to_test:
+    # analzuye()
+    # for onnx_file, input_file in models_to_test:
 
-        full_model_result = run_inference_on_onnx_model_using_input_file(onnx_file, input_file)
-        print(f"Full Model Inference Result: {full_model_result}")
-        # Get the output tensor(s) of every node in the model during inference
-        intermediate_results = get_intermediate_outputs(onnx_file, input_file)
-        n_parts = np.inf
-        # split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts, f'tmp', True)  
-        #result  = split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts)  
+    #     full_model_result = run_inference_on_onnx_model_using_input_file(onnx_file, input_file)
+    #     print(f"Full Model Inference Result: {full_model_result}")
+    #     # Get the output tensor(s) of every node in the model during inference
+    #     intermediate_results = get_intermediate_outputs(onnx_file, input_file)
+    #     n_parts = np.inf
+    #     # split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts, f'tmp', True)  
+    #     #result  = split_onnx_model(onnx_file, input_file,  intermediate_results,n_parts)  
 
-        all_sub_models = split_onnx_model_at_every_node(onnx_file, input_file, intermediate_results, save_to_file=False)
+    #     all_sub_models = split_onnx_model_at_every_node(onnx_file, input_file, intermediate_results, save_to_file=False)
 
-        pass
+    #     pass
