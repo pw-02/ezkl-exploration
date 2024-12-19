@@ -26,10 +26,11 @@ message ProofStatusRequest {
 
 
 message ProofStatusResponse {
-    bool success = 1;
-    bytes proof = 2;
-    string performance_data = 3;
-    string message = 4;     // Status message (e.g., "Processing" or "Completed")
+    bool is_completed = 1;
+    bool is_success = 2;
+    bytes proof = 3;
+    string performance_data = 4;
+    string message = 5;     // Status message (e.g., "Processing" or "Completed")
 }
 
 
