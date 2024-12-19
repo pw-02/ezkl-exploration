@@ -32,7 +32,7 @@ class EZKLProver:
         self.vk_path = os.path.join(self.directory, 'key.vk')
         self.settings_path = os.path.join(self.directory, 'settings.json')
         self.witness_path = os.path.join(self.directory, 'witness.json')
-        self.cal_path = os.path.join(self.directory, 'calibration.json')
+        # self.cal_path = os.path.join(self.directory, 'calibration.json')
         self.proof_path = os.path.join(self.directory, 'test.pf')
         self.exp_logger = ExperimentLogger(log_dir=log_dir)
         self.overwrite = orverwrite
@@ -44,28 +44,28 @@ class EZKLProver:
             return True
         else:
             assert ezkl.gen_settings(self.model_path, self.settings_path) == True
-            ezkl.calibrate_settings(self.data_path, self.model_path, self.settings_path, "resources")
+            # ezkl.calibrate_settings(self.data_path, self.model_path, self.settings_path, "resources")
 
-    @time_function
-    def calibrate_settings(self):
-        if not self.overwrite and os.path.isfile(self.settings_path):
-            return True
-        else:
-            ezkl.calibrate_settings(self.data_path, self.model_path, self.settings_path, "resources")
+    # @time_function
+    # def calibrate_settings(self):
+    #     if not self.overwrite and os.path.isfile(self.settings_path):
+    #         return True
+    #     else:
+    #         ezkl.calibrate_settings(self.data_path, self.model_path, self.settings_path, "resources")
 
     @time_function
     def compile_circuit(self):
         if not self.overwrite and os.path.isfile(self.compiled_model_path):
             return True
         else:
-            assert ezkl.compile_circuit(self.model_path, self.compiled_model_path, self.cal_path) == True
+            assert ezkl.compile_circuit(self.model_path, self.compiled_model_path, self.settings_path) == True
 
     @time_function
     def get_srs(self):
         if not self.overwrite and os.path.isfile(self.vk_path):
             return True
         else:
-            ezkl.get_srs(self.cal_path)
+            ezkl.get_srs(self.settings_path)
 
     @time_function
     def gen_witness(self):
@@ -92,7 +92,7 @@ class EZKLProver:
 
             assert os.path.isfile(self.vk_path)
             assert os.path.isfile(self.pk_path)
-            assert os.path.isfile(self.cal_path)
+            assert os.path.isfile(self.settings_path)
 
     @time_function
     def prove(self):
@@ -102,7 +102,7 @@ class EZKLProver:
     @time_function  
     def verify(self):
         try:
-            res = ezkl.verify(self.proof_path, self.cal_path, self.vk_path)
+            res = ezkl.verify(self.proof_path, self.settings_path, self.vk_path)
             if res == True:
                 logger.info("verified")
                 self.exp_logger.log_value('verified', "True")
@@ -120,7 +120,7 @@ class EZKLProver:
             
             functions = [
                 ('gen_settings', self.gen_settings),
-                ('calibrate_settings', self.calibrate_settings),
+                # ('calibrate_settings', self.calibrate_settings),
                 ('compile_circuit', self.compile_circuit),
                 ('get_srs', self.get_srs),
                 ('gen_witness', self.gen_witness),
