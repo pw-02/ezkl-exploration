@@ -222,7 +222,6 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
             request_data = self.requests.get(request_id)
 
         if request_data['status'] == 'Completed':
-
             halo2_metrics = {}
             if  os.path.isfile('halo2_circuit.csv'):
                 #read in csv file
@@ -304,7 +303,10 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
             logging.exception("Error in processing request: %s", e)
             with self.lock:
                 self.requests[request_id] = {
-                    'status': 'Failed'}
+                    'status': 'Completed',
+                    'proof': 'None',
+                    'performance_data': {}
+                    }
         # file_exists = os.path.isfile('distributed_proving/report_log.csv')
 
         # with open('distributed_proving/worker_log.csv', mode='a', newline='') as file:
