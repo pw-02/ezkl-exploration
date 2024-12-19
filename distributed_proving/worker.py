@@ -249,7 +249,7 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
 
             if halo2_metrics:
                 request_data['performance_data'].update(halo2_metrics)
-
+            
             return pb2.ProofStatusResponse(
                 success=True,
                 proof=request_data['proof'],
@@ -261,7 +261,7 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
     def process_request(self, request_id, request):
         try:
             logging.info("Received 'Compute Proof' request.")
-            
+
             # directory_name = datetime.now().strftime("%Y%m%d_%H%M%S")
             directory_path = os.path.join("data", request.model_id)
             os.makedirs(directory_path, exist_ok=True)
@@ -275,12 +275,10 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
             model_input = json.loads(request.input_data)
             with open(os.path.join(directory_path, 'input.json'), 'w') as f:
                 json.dump(model_input, f)
-
+                
             # json.dump(model_input, open(os.path.join(directory_path, 'input.json'), 'w'))
-
             prover = EZKLProver(directory_path, self.log_dir,orverwrite=False)
-            proof_path, performance_data = prover.run_end_to_end_proof()
-            
+            proof_path, performance_data = prover.run_end_to_end_proof()   
             verfification_result= False
 
             if os.path.isfile(proof_path):
@@ -292,7 +290,6 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
                 #delete directory_path folder
                 import shutil
                 shutil.rmtree(directory_path)
-
 
             logging.info("Proof computed and verified for request ID %s", request_id)
 
@@ -307,12 +304,7 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
             logging.exception("Error in processing request: %s", e)
             with self.lock:
                 self.requests[request_id] = {
-                    'status': 'Failed',
-                    'proof': '',
-                    'performance_data': performance_data
-                    }
-                
-        
+                    'status': 'Failed'}
         # file_exists = os.path.isfile('distributed_proving/report_log.csv')
 
         # with open('distributed_proving/worker_log.csv', mode='a', newline='') as file:

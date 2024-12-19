@@ -227,7 +227,7 @@ class ZKPProver():
                             else:
                                     logger.info(f'Proof computation in progress for sub-model {sub_model.id} on worker {worker.address}. Waiting for 10 seconds before retrying.')
                                     time.sleep(10)
-                                                
+
                         except Exception as e:
                             polling_exccpetion_count += 1
                             # if polling_exccpetion_count > 25:
