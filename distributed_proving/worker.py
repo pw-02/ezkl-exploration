@@ -259,48 +259,59 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
             return pb2.ProofStatusResponse(success=False,message=request_data['status'])
 
     def process_request(self, request_id, request):
-        logging.info("Received 'Compute Proof' request.")
-        
-        # directory_name = datetime.now().strftime("%Y%m%d_%H%M%S")
-        directory_path = os.path.join("data", request.model_id)
-        os.makedirs(directory_path, exist_ok=True)
-        # directory_name = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # directory_path = os.path.join("data", directory_name)
-        # os.makedirs(directory_path, exist_ok=True)
+        try:
+            logging.info("Received 'Compute Proof' request.")
+            
+            # directory_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+            directory_path = os.path.join("data", request.model_id)
+            os.makedirs(directory_path, exist_ok=True)
+            # directory_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # directory_path = os.path.join("data", directory_name)
+            # os.makedirs(directory_path, exist_ok=True)
 
-        with open(os.path.join(directory_path, 'model.onnx'), 'wb') as f:
-            f.write(request.onnx_model)
+            with open(os.path.join(directory_path, 'model.onnx'), 'wb') as f:
+                f.write(request.onnx_model)
 
-        model_input = json.loads(request.input_data)
-        with open(os.path.join(directory_path, 'input.json'), 'w') as f:
-            json.dump(model_input, f)
+            model_input = json.loads(request.input_data)
+            with open(os.path.join(directory_path, 'input.json'), 'w') as f:
+                json.dump(model_input, f)
 
-        # json.dump(model_input, open(os.path.join(directory_path, 'input.json'), 'w'))
+            # json.dump(model_input, open(os.path.join(directory_path, 'input.json'), 'w'))
 
-        prover = EZKLProver(directory_path, self.log_dir,orverwrite=False)
-        proof_path, performance_data = prover.run_end_to_end_proof()
-        
-        verfification_result= False
+            prover = EZKLProver(directory_path, self.log_dir,orverwrite=False)
+            proof_path, performance_data = prover.run_end_to_end_proof()
+            
+            verfification_result= False
 
-        if os.path.isfile(proof_path):
-            with open(proof_path, "rb") as file:
-                computed_proof = file.read()
-                verfification_result = True
+            if os.path.isfile(proof_path):
+                with open(proof_path, "rb") as file:
+                    computed_proof = file.read()
+                    verfification_result = True
 
-        if not request.cache_setup_files:
-            #delete directory_path folder
-            import shutil
-            shutil.rmtree(directory_path)
+            if not request.cache_setup_files:
+                #delete directory_path folder
+                import shutil
+                shutil.rmtree(directory_path)
 
 
-        logging.info("Proof computed and verified for request ID %s", request_id)
+            logging.info("Proof computed and verified for request ID %s", request_id)
 
-        with self.lock:
-            self.requests[request_id] = {
-                'status': 'Completed',
-                'proof': 'proof'.encode('utf-8'),
-                'performance_data': performance_data
-            }
+            with self.lock:
+                self.requests[request_id] = {
+                    'status': 'Completed',
+                    'proof': 'proof'.encode('utf-8'),
+                    'performance_data': performance_data
+                }
+        except Exception as e:
+            logging.info("Failed to compute proof for request ID %s", request_id)
+            logging.exception("Error in processing request: %s", e)
+            with self.lock:
+                self.requests[request_id] = {
+                    'status': 'Failed',
+                    'proof': '',
+                    'performance_data': performance_data
+                    }
+                
         
         # file_exists = os.path.isfile('distributed_proving/report_log.csv')
 
