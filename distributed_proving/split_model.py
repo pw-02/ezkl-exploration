@@ -98,7 +98,7 @@ def load_json_input(input_path, input_shape, input_type, idx = 0):
 
 def get_intermediate_outputs(onnx_model, json_input):
     model = onnx.load(onnx_model)
-
+    
     # Update the model so the final output includes the output of every node, not just the last node
     while len(model.graph.output) > 0:
         model.graph.output.pop()
