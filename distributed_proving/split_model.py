@@ -358,12 +358,12 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, intermediate_out
     for idx, node in enumerate(model.graph.node):
         # Skip excluded operations
         if node.op_type in exclude_operations:
-            print(f"Skipping {node.name} of type {node.op_type}...")
+            # print(f"Skipping {node.name} of type {node.op_type}...")
             continue
         if node.name in initializers:
-            print(f"{node.name} is an initializer. Skipping...")
+            # print(f"{node.name} is an initializer. Skipping...")
             continue
-        print(f"Processing node {node.name} of type {node.op_type}")
+        # print(f"Processing node {node.name} of type {node.op_type}")
         node_inputs = [input for input in node.input if input not in initializers and 'Constant' not in input]
         node_outputs = [output for output in node.output if output not in initializers and 'Constant' not in output]
         # Save or generate sub-model

@@ -160,7 +160,8 @@ class GPT(nn.Module):
                     p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
 
         # report number of parameters
-        print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
+        print(f"number of parameters: {self.get_num_params()}")
+        # print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
 
     def get_num_params(self, non_embedding=True):
         """
@@ -203,10 +204,13 @@ class GPT(nn.Module):
         idx = self.lm_head(idx)
 
         return idx
+    
+n_layer = 4
+n_embd = 64
 
 
-gptconf = GPTConfig(block_size=64, vocab_size=65, n_layer=4,
-                    n_head=4, n_embd=64, dropout=0.0, bias=False)
+gptconf = GPTConfig(block_size=64, vocab_size=65, n_layer=n_layer,
+                    n_head=4, n_embd=n_embd, dropout=0.0, bias=False)
 model = GPT(gptconf)
 model.get_num_params()
 
@@ -215,14 +219,15 @@ shape = [1, 64]
 x = torch.randint(65, (1, 64))
 torch_out = model(x)
 
-torch.onnx.export(model, x, "network.onnx",
+torch.onnx.export(model, x, f"examples/onnx/nanoGPT/nano_gpt_{n_layer}_layers_{n_embd}_embd.onnx",
                   export_params=True,        # store the trained parameter weights inside the model file
                   opset_version=10,          # the ONNX version to export the model to
-                  do_constant_folding=False,  # whether to execute constant folding for optimization
+                  do_constant_folding=True,  # whether to execute constant folding for optimization
                   input_names=['input'],   # the model's input names
-                  output_names=['output'],  # the model's output names
-                  dynamic_axes={'input': {0: 'batch_size'},    # variable length axes
-                                'output': {0: 'batch_size'}})
+                  output_names=['output']  # the model's output names
+                #   dynamic_axes={'input': {0: 'batch_size'},    # variable length axes
+                #                 'output': {0: 'batch_size'}})
+)
 
 d = ((x).detach().numpy()).reshape([-1]).tolist()
 
