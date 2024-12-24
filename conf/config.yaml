@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - model: nano_gpt  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
+  - model: nano_gpt_4_layers_64_embd  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
   # - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled
 
@@ -19,3 +19,15 @@ hydra:
     level: DISABLE  # Disable job-specific logging
   hydra_logging:
     level: DISABLE  # Disable Hydra-specific logging
+
+#nano_gpt_4_layers_64_embd
+#nano_gpt_4_layers_80_embd
+#nano_gpt_4_layers_96_embd
+#nano_gpt_4_layers_112_embd
+#nano_gpt_4_layers_128_embd
+#nano_gpt_4_layers_144_embd
+#nano_gpt_5_layers_64_embd
+#nano_gpt_10_layers_64_embd
+#nano_gpt_15_layers_64_embd
+#nano_gpt_20_layers_64_embd
+#nano_gpt_25_layers_64_embd
