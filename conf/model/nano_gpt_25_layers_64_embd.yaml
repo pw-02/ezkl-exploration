@@ -1,4 +1,4 @@
-name: nano_gpt_20_layers_64_embd
+name: nano_gpt_25_layers_64_embd
 onnx_file: examples/onnx/nanoGPT/nano_gpt_25_layers_64_embd.onnx
 input_file: examples/onnx/nanoGPT/input.json
 split_group_size: 1
