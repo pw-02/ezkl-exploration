@@ -2,9 +2,9 @@
 
 # Execute dispatcher commands for different models
 #!/bin/bash
-source ~/anaconda3/etc/profile.d/conda.sh  # Load Conda into the shell
+# source ~/anaconda3/etc/profile.d/conda.sh  # Load Conda into the shell
 
-conda activate ezkl
+# conda activate ezkl
 
 # Execute dispatcher commands for different models
 
