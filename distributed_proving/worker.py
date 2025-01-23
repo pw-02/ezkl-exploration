@@ -96,6 +96,10 @@ class EZKLProver:
                 execution_time = func()
                 self.exp_logger.log_value(f'ezkl_{func_name}_time(s)', execution_time)
             self.exp_logger.log_env_resources()
+
+            resource_data = monitor.resource_data
+            self.exp_logger.log_value("resource_usage", resource_data)
+
             return self.proof_path, self.exp_logger.data
 
     def _cleanup_files(self, files):

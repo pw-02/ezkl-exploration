@@ -39,7 +39,7 @@ class ExperimentLogger:
     def log_env_resources(self):
         self.data['total_memory_gb'] =  psutil.virtual_memory().total / (1024.0 ** 3) #divide by 1024^3 to convert to GB
         self.data['total_cpu_count'] =  psutil.cpu_count(logical=True)
-
+  
 
     def flush_log(self):
 
