@@ -98,7 +98,7 @@ class ResourceMonitor:
     Set sleep_time_s carefully to avoid performance degradations.
     """
 
-    def __init__(self, sleep_time_s: float = 0.05, gpu_device: int = 0, chunk_size: int = 25_000):
+    def __init__(self, sleep_time_s: float = 1, gpu_device: int = 0, chunk_size: int = 25_000):
         # if torch.cuda.is_available():
         #     self.monitor_gpu = True
         #     nvmlInit()
