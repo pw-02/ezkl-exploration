@@ -304,27 +304,40 @@ def main(config: DictConfig):
     #check worker connections
     prover.validate_worker_connections(config.worker_addresses)
 
-    models_to_prove:List[OnnxModel] = prover.prepare_for_proof_generation(config.save_ezkl_settings)
-    if len(models_to_prove) == 1:
-        logger.info(f'Starting proof computation for the global model..')
+    if config.generate_ezkl_settings_only:
+        save_ezkl_settings = True
+    elif config.save_ezkl_settings:
+        save_ezkl_settings = True
     else:
-        logger.info(f'Starting proof computation for {len(models_to_prove)} sub-models..')
+        save_ezkl_settings = False
+
+    models_to_prove:List[OnnxModel] = prover.prepare_for_proof_generation(save_ezkl_settings)
     
-    with ThreadPoolExecutor(max_workers=len(prover.workers)) as executor:
-        future_to_model = {}
-        # Submit tasks for each model to compute the proof
-        for model in models_to_prove:
-            worker = prover.get_free_worker()
-            worker.is_free = False
-            future = executor.submit(prover.compute_proof_for_model, model, worker)
-            future_to_model[future] = model
+    if not config.generate_ezkl_settings_only:
 
-    all_proofs_computed = all(sub_model.computed_proof for sub_model in models_to_prove)
+        if len(models_to_prove) == 1:
+            logger.info(f'Starting proof computation for the global model..')
+        else:
+            logger.info(f'Starting proof computation for {len(models_to_prove)} sub-models..')
+        
+        with ThreadPoolExecutor(max_workers=len(prover.workers)) as executor:
+            future_to_model = {}
+            # Submit tasks for each model to compute the proof
+            for model in models_to_prove:
+                worker = prover.get_free_worker()
+                worker.is_free = False
+                future = executor.submit(prover.compute_proof_for_model, model, worker)
+                future_to_model[future] = model
 
-    if all_proofs_computed:
-        logger.info('All proofs computed successfully.')
+        all_proofs_computed = all(sub_model.computed_proof for sub_model in models_to_prove)
+
+    if config.generate_ezkl_settings_only:
+        logger.info('EZKL settings generated successfully for all models.')
     else:
-        logger.warning('Some proofs failed to compute.')
+        if all_proofs_computed:
+            logger.info('All proofs computed successfully.')
+        else:
+            logger.warning('Some proofs failed to compute.')
 
 
 if __name__ == '__main__':
