@@ -3,7 +3,7 @@
 # Execute dispatcher commands for different models
 
 # #nano gpt models
-python distributed_proving/dispatcher.py model=nano_gpt_5_layers_64_embd
+# python distributed_proving/dispatcher.py model=nano_gpt_5_layers_64_embd
 python distributed_proving/dispatcher.py model=nano_gpt_10_layers_64_embd
 python distributed_proving/dispatcher.py model=nano_gpt_15_layers_64_embd
 python distributed_proving/dispatcher.py model=nano_gpt_20_layers_64_embd
