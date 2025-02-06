@@ -15,7 +15,7 @@ import pandas as pd
 import csv
 
 # Global logging configuration
-logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.DEBUG)
 logger = logging.getLogger("ZKPWorker")
 
 class EZKLProver:
