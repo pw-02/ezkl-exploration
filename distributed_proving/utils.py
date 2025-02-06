@@ -5,6 +5,7 @@ import json
 import ezkl
 import os
 import shutil
+import re
 
 def read_json_file_to_string(file_path):
     with open(file_path, 'r') as file:
@@ -16,13 +17,28 @@ def read_json_file_to_dict(file_path):
         data = json.load(file)
     return data
 
+def get_shape_from_str(data):
+    # Extract the dimensions using regex
+    dims = re.findall(r'dims: (\d+)', data)
+
+    # Convert the dimensions to integers
+    shape = list(map(int, dims))
+
+    print("Extracted shape:", shape)
+
+
 def count_onnx_model_operations(model):
-    
     if isinstance(model, str):
         model = onnx.load(model)
     nodes = model.graph.node
     num_operations = len(nodes)
-    return num_operations
+    op_types = []
+    for node in nodes:
+        optype = node.op_type
+        dims = get_shape_from_str(str(node.attribute))
+        entry = f'op_type: {optype}, shape: {dims}'
+        op_types.append(entry)
+    return num_operations, str(op_types)
 
 def count_onnx_model_parameters(model):
     if isinstance(model, str):
@@ -63,6 +79,7 @@ def count_weights_and_tensors_in_onnx_model(model):
         total_output_size += int(np.prod(shape))
 
     return total_weights + total_input_size + total_output_size
+
 counter = 0
 def get_ezkl_settings(onnx_model, delete_file_afterwards=False):
     global counter 
@@ -91,17 +108,20 @@ def get_ezkl_settings(onnx_model, delete_file_afterwards=False):
     return settings_data
 
 def analyze_onnx_model_for_zk_proving(onnx_model):
-    model_ops_count = count_onnx_model_operations(onnx_model)
+    model_ops_count, op_types = count_onnx_model_operations(onnx_model)
     model_params_count = count_onnx_model_parameters(onnx_model)
     weights_and_tensor_count = count_weights_and_tensors_in_onnx_model(onnx_model)
     ezkl_settings = get_ezkl_settings(onnx_model, True)
     data_dict = {
         "num_model_ops": model_ops_count,
+        "op_types_and_shapes": op_types,
         "num_model_params": model_params_count,
         "num_model_constants": weights_and_tensor_count,
         "zk_circuit_num_rows": ezkl_settings.get("num_rows", 0),
         "zk_circuit_num_assignments": ezkl_settings.get("total_assignments", 0),
         }
+    #combine the dicts
+    ezkl_settings = {**ezkl_settings, **data_dict}
     return data_dict, ezkl_settings
 
 def load_onnx_model(model_path):

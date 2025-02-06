@@ -1,0 +1,68 @@
+[2025-01-24 05:39:28,197][ZKPProver][INFO] - Analyzing model examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx..
+[2025-01-24 05:39:28,198][ZKPProver][INFO] - No split size provided. Proving the model as a whole..
+[2025-01-24 05:40:42,300][ZKPProver][INFO] - Analyzing model examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx..
+[2025-01-24 05:40:42,301][ZKPProver][INFO] - Collecting intermediate inference outputs..
+[2025-01-24 05:40:42,550][ZKPProver][INFO] - Intermediate inference outputs collected
+[2025-01-24 05:40:42,551][ZKPProver][INFO] - Splitting model based on the configured group size 1
+[2025-01-24 05:40:45,054][ZKPProver][INFO] - Total number of sub-models for distributed proving: 192
+[2025-01-24 05:40:45,055][ZKPProver][INFO] - Preparing sub-models..
+[2025-01-24 05:49:29,504][ZKPProver][INFO] - Analyzing model examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx..
+[2025-01-24 05:49:29,505][ZKPProver][INFO] - Collecting intermediate inference outputs..
+[2025-01-24 05:49:29,684][ZKPProver][INFO] - Intermediate inference outputs collected
+[2025-01-24 05:49:29,684][ZKPProver][INFO] - Splitting model based on the configured group size 1
+[2025-01-24 05:49:32,309][ZKPProver][INFO] - Total number of sub-models for distributed proving: 192
+[2025-01-24 05:49:32,309][ZKPProver][INFO] - Preparing sub-models..
+[2025-01-24 05:49:54,413][ZKPProver][INFO] - Analyzing model examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx..
+[2025-01-24 05:49:54,414][ZKPProver][INFO] - Collecting intermediate inference outputs..
+[2025-01-24 05:49:54,588][ZKPProver][INFO] - Intermediate inference outputs collected
+[2025-01-24 05:49:54,588][ZKPProver][INFO] - Splitting model based on the configured group size 1
+[2025-01-24 05:49:56,977][ZKPProver][INFO] - Total number of sub-models for distributed proving: 192
+[2025-01-24 05:49:56,978][ZKPProver][INFO] - Preparing sub-models..
+[2025-01-24 05:51:19,371][ZKPProver][INFO] - Analyzing model examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx..
+[2025-01-24 05:51:19,372][ZKPProver][INFO] - Collecting intermediate inference outputs..
+[2025-01-24 05:51:19,548][ZKPProver][INFO] - Intermediate inference outputs collected
+[2025-01-24 05:51:19,548][ZKPProver][INFO] - Splitting model based on the configured group size 1
+[2025-01-24 05:51:22,039][ZKPProver][INFO] - Total number of sub-models for distributed proving: 192
+[2025-01-24 05:51:22,039][ZKPProver][INFO] - Preparing sub-models..
+[2025-01-24 05:51:39,246][ZKPProver][INFO] - Analyzing model examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx..
+[2025-01-24 05:51:39,247][ZKPProver][INFO] - Collecting intermediate inference outputs..
+[2025-01-24 05:51:39,439][ZKPProver][INFO] - Intermediate inference outputs collected
+[2025-01-24 05:51:39,440][ZKPProver][INFO] - Splitting model based on the configured group size 1
+[2025-01-24 05:51:41,859][ZKPProver][INFO] - Total number of sub-models for distributed proving: 192
+[2025-01-24 05:51:41,860][ZKPProver][INFO] - Preparing sub-models..
+[2025-01-24 05:52:50,726][ZKPProver][INFO] - EZKL settings generated successfully for all models.
+[2025-01-24 05:53:48,199][ZKPProver][INFO] - Analyzing model examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx..
+[2025-01-24 05:53:48,200][ZKPProver][INFO] - Collecting intermediate inference outputs..
+[2025-01-24 05:53:48,377][ZKPProver][INFO] - Intermediate inference outputs collected
+[2025-01-24 05:53:48,377][ZKPProver][INFO] - Splitting model based on the configured group size 1
+[2025-01-24 05:53:50,840][ZKPProver][INFO] - Total number of sub-models for distributed proving: 192
+[2025-01-24 05:53:50,840][ZKPProver][INFO] - Preparing sub-models..
+[2025-01-24 05:54:15,136][ZKPProver][INFO] - EZKL settings generated successfully for all models.
+[2025-01-24 05:55:59,525][ZKPProver][INFO] - Analyzing model examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx..
+[2025-01-24 05:55:59,526][ZKPProver][INFO] - Collecting intermediate inference outputs..
+[2025-01-24 05:55:59,707][ZKPProver][INFO] - Intermediate inference outputs collected
+[2025-01-24 05:55:59,707][ZKPProver][INFO] - Splitting model based on the configured group size 1
+[2025-01-24 05:56:02,197][ZKPProver][INFO] - Total number of sub-models for distributed proving: 192
+[2025-01-24 05:56:02,198][ZKPProver][INFO] - Preparing sub-models..
+[2025-01-24 05:56:26,351][ZKPProver][INFO] - EZKL settings generated successfully for all models.
+[2025-01-24 06:04:34,804][ZKPProver][INFO] - Analyzing model examples/onnx/nanoGPT/nano_gpt_4_layers_80_embd.onnx..
+[2025-01-24 06:04:34,805][ZKPProver][INFO] - Collecting intermediate inference outputs..
+[2025-01-24 06:04:35,000][ZKPProver][INFO] - Intermediate inference outputs collected
+[2025-01-24 06:04:35,001][ZKPProver][INFO] - Splitting model based on the configured group size 1
+[2025-01-24 06:04:37,777][ZKPProver][INFO] - Total number of sub-models for distributed proving: 192
+[2025-01-24 06:04:37,777][ZKPProver][INFO] - Preparing sub-models..
+[2025-01-24 06:05:10,688][ZKPProver][INFO] - EZKL settings generated successfully for all models.
+[2025-01-24 06:13:27,306][ZKPProver][INFO] - Analyzing model examples/onnx/nanoGPT/nano_gpt_4_layers_80_embd.onnx..
+[2025-01-24 06:13:27,306][ZKPProver][INFO] - Collecting intermediate inference outputs..
+[2025-01-24 06:13:27,503][ZKPProver][INFO] - Intermediate inference outputs collected
+[2025-01-24 06:13:27,504][ZKPProver][INFO] - Splitting model based on the configured group size 1
+[2025-01-24 06:14:06,841][ZKPProver][INFO] - Total number of sub-models for distributed proving: 192
+[2025-01-24 06:14:06,841][ZKPProver][INFO] - Preparing sub-models..
+[2025-01-24 06:16:28,053][ZKPProver][INFO] - EZKL settings generated successfully for all models.
+[2025-01-24 06:21:34,068][ZKPProver][INFO] - Analyzing model examples/onnx/nanoGPT/nano_gpt_4_layers_96_embd.onnx..
+[2025-01-24 06:21:34,069][ZKPProver][INFO] - Collecting intermediate inference outputs..
+[2025-01-24 06:21:34,258][ZKPProver][INFO] - Intermediate inference outputs collected
+[2025-01-24 06:21:34,259][ZKPProver][INFO] - Splitting model based on the configured group size 1
+[2025-01-24 06:22:20,601][ZKPProver][INFO] - Total number of sub-models for distributed proving: 192
+[2025-01-24 06:22:20,602][ZKPProver][INFO] - Preparing sub-models..
+[2025-01-24 06:22:59,614][ZKPProver][INFO] - EZKL settings generated successfully for all models.
