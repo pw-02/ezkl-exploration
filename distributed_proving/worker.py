@@ -286,7 +286,7 @@ def serve(port):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Run gRPC server")
-    parser.add_argument("--port", type=int, default=50053, help="Port number for the server to listen on")
+    parser.add_argument("--port", type=int, default=50051, help="Port number for the server to listen on")
     args = parser.parse_args()
     serve(args.port)
 
