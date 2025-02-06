@@ -4,7 +4,7 @@ defaults:
   # - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled
 
-worker_addresses: ["35.88.62.205:50051"]  # ["localhost:50052"]
+worker_addresses: ["10.0.22.137:50051"]  # ["localhost:50052"]
 cache_setup_files: False
 spot_test: False
 save_ezkl_settings: True
