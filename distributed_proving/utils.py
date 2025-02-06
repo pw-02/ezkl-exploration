@@ -24,7 +24,7 @@ def get_shape_from_str(data):
     # Convert the dimensions to integers
     shape = list(map(int, dims))
 
-    print("Extracted shape:", shape)
+    # print("Extracted shape:", shape)
 
 
 def count_onnx_model_operations(model):
