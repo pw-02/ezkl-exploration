@@ -9,11 +9,21 @@ def log_system_usage():
     with open(LOG_FILE, "a") as f:
         while True:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            cpu_usage = psutil.cpu_percent(interval=1)
-            memory_info = psutil.virtual_memory()
-            memory_usage = memory_info.percent
             
-            log_entry = f"{timestamp} | CPU: {cpu_usage}% | Memory: {memory_usage}%\n"
+            # CPU Usage
+            cpu_usage = psutil.cpu_percent(interval=1)
+            
+            # Memory Usage (GB and Percentage)
+            memory_info = psutil.virtual_memory()
+            total_memory_gb = memory_info.total / (1024 ** 3)  # Convert to GB
+            used_memory_gb = memory_info.used / (1024 ** 3)  # Convert to GB
+            memory_usage_percent = memory_info.percent
+            
+            log_entry = (
+                f"{timestamp} | CPU: {cpu_usage}% | "
+                f"Memory: {used_memory_gb:.2f}GB/{total_memory_gb:.2f}GB ({memory_usage_percent}%)\n"
+            )
+
             print(log_entry, end="")  # Print to console
             f.write(log_entry)  # Write to file
             f.flush()  # Ensure data is written immediately
