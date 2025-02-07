@@ -59,7 +59,9 @@ class EZKLProver:
     @time_function
     def setup(self):
         if not self.overwrite and os.path.isfile(self.pk_path):
+            logger.info("Skipping setup as key files already exist")
             return True
+        
         ezkl.setup(self.compiled_model_path, self.vk_path, self.pk_path)
         self._cleanup_files(['halo2_ffts.csv', 'halo2_msms.csv', 'halo2_prover.csv'])
         assert os.path.isfile(self.vk_path)
@@ -68,6 +70,7 @@ class EZKLProver:
 
     @time_function
     def prove(self):
+        logger.info("Starting proof generation")
         ezkl.prove(self.witness_path, self.compiled_model_path, self.pk_path, self.proof_path, "single")
         assert os.path.isfile(self.proof_path)
 
@@ -134,7 +137,7 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
 
         try:
             self._save_data(request, working_dir)
-            prover = EZKLProver(working_dir, self.log_dir)
+            prover = EZKLProver(working_dir, self.log_dir, overwrite=False)
             proof_path, performance_data = prover.run_end_to_end_proof()
 
             if not request.cache_setup_files:
