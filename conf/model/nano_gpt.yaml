@@ -1,4 +1,4 @@
-name: nanoGPT
+name: nano_gpt
 onnx_file: examples/onnx/nanoGPT/network.onnx
 input_file: examples/onnx/nanoGPT/input.json
 split_group_size: null
