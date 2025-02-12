@@ -9,9 +9,9 @@ docker run -it --rm pwatters991/ezkl-workloads:1.0
 python distributed_proving/worker.py --port 50053
 python distributed_proving/dispatcher.py
 
-nohup python distributed_proving/worker.py 2>&1 | tee workeroutput.log
-nohup python distributed_proving/dispatcher.py 2>&1 | tee dispatcheroutput.log
-nohup python distributed_proving/monitor.py 2>&1 | tee monitor.log
+nohup python distributed_proving/worker.py 2>&1 | tee worker.log
+nohup python distributed_proving/dispatcher.py 2>&1 | tee dispatcher.log
+nohup python distributed_proving/monitor.py
 
 
 python distributed_proving/dispatcher.py model=mnist_classifier worker_addresses='["172.17.0.5:50052"]'
