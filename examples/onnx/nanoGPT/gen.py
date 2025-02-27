@@ -205,8 +205,8 @@ class GPT(nn.Module):
 
         return idx
     
-n_layer = 2
-n_embd = 8
+n_layer = 12
+n_embd = 768
 
 
 gptconf = GPTConfig(block_size=64, vocab_size=65, n_layer=n_layer,

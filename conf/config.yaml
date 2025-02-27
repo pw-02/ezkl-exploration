@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - model: nano_gpt_4_layers_96_embd  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
+  - model: nano_gpt_12_layers_768_embd  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
   # - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled
 
@@ -8,7 +8,7 @@ worker_addresses: ["10.0.19.201:50051"]  # ["localhost:50052"]
 cache_setup_files: False
 spot_test: False
 save_ezkl_settings: True
-generate_ezkl_settings_only: False
+generate_ezkl_settings_only: True
 hydra:
   run:
     dir: .  # Current directory or a specific directory where Ray Tune expects to find it
