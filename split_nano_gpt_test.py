@@ -9,7 +9,7 @@ from onnx.utils import Extractor
 import ezkl
 import os
 import shutil
-from distributed_proving.utils import analyze_onnx_model_for_zk_proving
+from distributed_proving.usefulutils import analyze_onnx_model_for_zk_proving
 import csv
 from  distributed_proving.split_model import get_intermediate_outputs, split_onnx_model_at_every_node
 import math

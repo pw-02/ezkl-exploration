@@ -5,7 +5,7 @@ import zkpservice_pb2 as pb2
 import hydra
 from omegaconf import DictConfig
 import logging
-from utils import  analyze_onnx_model_for_zk_proving, load_onnx_model, read_json_file_to_dict, count_onnx_model_operations
+from usefulutils import  analyze_onnx_model_for_zk_proving, load_onnx_model, read_json_file_to_dict, count_onnx_model_operations
 from split_model import get_intermediate_outputs, split_onnx_model_at_every_node,  merge_onnx_models
 from typing import List
 import os
@@ -30,11 +30,13 @@ class Worker():
         self.channel:Channel = None
 
 class OnnxModel ():   
-    def __init__(self, id:str, 
+    def __init__(self, 
+                 id:str, 
                  input_data:str, 
                  onnx_model_path:str = None, 
                  model_proto:ModelProto = None, 
                  combined_node_indices = None):
+        self.onnx_model_path = onnx_model_path
         if onnx_model_path is None and model_proto is None:
             raise TypeError("Model path or model proto must be provided")
         elif model_proto:
@@ -46,7 +48,7 @@ class OnnxModel ():
         self.computed_witness = None
         self.computed_proof = None
         self.input_data = input_data
-        model_metrics, ezkl_settings = analyze_onnx_model_for_zk_proving(onnx_model=self.model_proto)
+        model_metrics, ezkl_settings = analyze_onnx_model_for_zk_proving(self.model_proto, self.onnx_model_path)
         self.ezkl_settings = {'model_id': self.id}
         self.ezkl_settings.update(ezkl_settings)
         self.model_info = {'model_id': self.id}
