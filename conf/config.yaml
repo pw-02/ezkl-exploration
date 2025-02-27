@@ -7,7 +7,7 @@ defaults:
 worker_addresses: ["10.0.31.154:50051"]  # ["localhost:50052"]
 cache_setup_files: False
 spot_test: False
-save_ezkl_settings: True
+save_ezkl_settings: False
 generate_ezkl_settings_only: False
 hydra:
   run:
