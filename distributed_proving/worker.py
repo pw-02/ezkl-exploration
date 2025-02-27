@@ -270,7 +270,15 @@ class ZKPWorkerServicer(pb2_grpc.ZKPWorkerServiceServicer):
 
 def serve(port):
     try:
-        server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+        max_message_length = 2**31 - 1  # This is 2,147,483,647 bytes (~2GB)
+
+        server = grpc.server(futures.ThreadPoolExecutor(max_workers=8),
+                             options=[
+                                 ('grpc.max_send_message_length', max_message_length),
+                                 ('grpc.max_receive_message_length', max_message_length),
+                            ])
+
+        # server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
         pb2_grpc.add_ZKPWorkerServiceServicer_to_server(ZKPWorkerServicer(), server)
         server.add_insecure_port(f'[::]:{port}')
         server.start()
