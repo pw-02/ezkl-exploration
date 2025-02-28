@@ -81,7 +81,7 @@ def count_weights_and_tensors_in_onnx_model(model):
     return total_weights + total_input_size + total_output_size
 
 counter = 0
-def get_ezkl_settings(onnx_model_path, delete_file_afterwards=False):
+def get_ezkl_settings(onnx_model, delete_file_afterwards=False):
     global counter 
     counter += 1
     """ Generate and return EZKL settings. """
@@ -89,14 +89,14 @@ def get_ezkl_settings(onnx_model_path, delete_file_afterwards=False):
     temp_dir = os.path.join(temp_dir, str(counter))
     os.makedirs(temp_dir, exist_ok=True)
     settings_path = os.path.join(temp_dir, 'settings.json')
-    ezkl.gen_settings(onnx_model_path, settings_path)
+    # ezkl.gen_settings(onnx_model_path, settings_path)
 
-    # if not os.path.exists(settings_path):
-    #     if isinstance(onnx_model, str):
-    #         ezkl.gen_settings(onnx_model, settings_path)
-    #     else:
-    #         onnx.save(onnx_model, os.path.join(temp_dir, 'model.onnx'))
-    #         ezkl.gen_settings(os.path.join(temp_dir, 'model.onnx'), settings_path)
+    if not os.path.exists(settings_path):
+        if isinstance(onnx_model, str):
+            ezkl.gen_settings(onnx_model, settings_path)
+        else:
+            onnx.save(onnx_model, os.path.join(temp_dir, 'model.onnx'))
+            ezkl.gen_settings(os.path.join(temp_dir, 'model.onnx'), settings_path)
 
     try:
         with open(settings_path, 'r') as f:
@@ -113,7 +113,10 @@ def analyze_onnx_model_for_zk_proving(onnx_model,  onnx_model_path):
     model_ops_count, op_types = count_onnx_model_operations(onnx_model)
     model_params_count = count_onnx_model_parameters(onnx_model)
     weights_and_tensor_count = count_weights_and_tensors_in_onnx_model(onnx_model)
-    ezkl_settings = get_ezkl_settings(onnx_model_path, True)
+    if onnx_model_path is None:
+        ezkl_settings = get_ezkl_settings(onnx_model, True)
+    else:
+        ezkl_settings = get_ezkl_settings(onnx_model_path, True)
     data_dict = {
         "num_model_ops": model_ops_count,
         "op_types_and_shapes": op_types,
