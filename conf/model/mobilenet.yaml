@@ -1,5 +1,5 @@
 name: mobilenet
-onnx_file: examples/onnx/mobile_net/mobilenetv2_050_Opset18.onnx # examples\onnx\mobile_net\mobilenetv2_050_Opset18.onnx
+onnx_file: examples/onnx/mobile_net/mobilenetv2-7.onnx # examples\onnx\mobile_net\mobilenetv2_050_Opset18.onnx
 input_file: examples/onnx/mobile_net/input.json
 split_group_size: null #1 splits the model into as many splits as possible
 group_splits: null #[[26,27]] #[[98,99],[97,98,99]] #null # [[1,2,3]] # [[1,3,5], [2,4,6], [7,8,9,10]]  # [[1,3,5], [2,4,6], [7,8,9,10]]
