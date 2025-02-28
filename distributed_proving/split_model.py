@@ -371,7 +371,7 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, intermediate_out
         session = ort.InferenceSession(sub_model.SerializeToString())
         input_names = [input.name for input in session.get_inputs()]
         if counter == 0:  # First part takes in the initial input
-            input_names = ['input']
+            input_names = input_names[0]
             input = session.get_inputs()[0]
             input_shape = input.shape
             input_type = input.type
