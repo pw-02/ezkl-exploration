@@ -1,14 +1,11 @@
 defaults:
   - _self_
-  - model: mobilenet_split_size_1  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
+  - model: mnist_classifier  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
   # - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled
 
-worker_addresses: ["35.92.153.193:50051"]  # ["localhost:50052"]
 cache_setup_files: False
-spot_test: False
 save_ezkl_settings: False
-generate_ezkl_settings_only: False
 hydra:
   run:
     dir: .  # Current directory or a specific directory where Ray Tune expects to find it
@@ -19,16 +16,3 @@ hydra:
     level: DISABLE  # Disable job-specific logging
   hydra_logging:
     level: DISABLE  # Disable Hydra-specific logging
-
-#nano_gpt_4_layers_64_embd
-#nano_gpt_4_layers_80_embd
-#nano_gpt_4_layers_96_embd
-
-#nano_gpt_4_layers_112_embd
-#nano_gpt_4_layers_128_embd
-#nano_gpt_4_layers_144_embd
-#nano_gpt_5_layers_64_embd
-#nano_gpt_10_layers_64_embd
-#nano_gpt_15_layers_64_embd
-#nano_gpt_20_layers_64_embd
-#nano_gpt_25_layers_64_embd
