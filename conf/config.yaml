@@ -1,14 +1,13 @@
 defaults:
   - _self_
   - model: mnist_classifier  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
-  # - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled
 
-worker_addresses: ["localhost:50051"]  # ["localhost:50052"]
+#dispacther defaults
+distpacther_host_address: "localhost:50051"
+worker_host_addresses: ["localhost:50052"]
 cache_setup_files: False
-spot_test: False
-save_ezkl_settings: False
-generate_ezkl_settings_only: False
+
 hydra:
   run:
     dir: .  # Current directory or a specific directory where Ray Tune expects to find it

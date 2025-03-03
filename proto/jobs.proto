@@ -1,5 +1,10 @@
 syntax = "proto3";
 
+//python -m grpc_tools.protoc -Iproto --python_out=generated --grpc_python_out=generated proto/jobs.proto
+
+
+
+
 
 service ZKMLProverDispatcher {
   rpc SubmitJob (JobRequest) returns (JobResponse);
