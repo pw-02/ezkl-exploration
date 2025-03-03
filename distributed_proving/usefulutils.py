@@ -32,28 +32,24 @@ def count_onnx_model_operations(model):
         model = onnx.load(model)
     nodes = model.graph.node
     num_operations = len(nodes)
-    op_types = []
-    for node in nodes:
-        optype = node.op_type
-        dims = get_shape_from_str(str(node.attribute))
-        entry = f'op_type: {optype}, shape: {dims}'
-        op_types.append(entry)
-    return num_operations, str(op_types)
+    # op_types = []
+    # for node in nodes:
+    #     optype = node.op_type
+    #     dims = get_shape_from_str(str(node.attribute))
+    #     entry = f'op_type: {optype}, shape: {dims}'
+    #     op_types.append(entry)
+    return num_operations
 
 def count_onnx_model_parameters(model):
     if isinstance(model, str):
         model = onnx.load(model)
     # Initialize the parameter counter
-    num_parameters = 0
+    total_params =  0
     # Iterate through all the initializers (weights, biases, etc.)
     for initializer in model.graph.initializer:
-        # Get the shape of the parameter
-        param_shape = onnx.numpy_helper.to_array(initializer).shape
-        # Calculate the total number of elements in this parameter
-        param_size = np.prod(param_shape)
-        # Add to the total parameter count
-        num_parameters += param_size
-    return num_parameters
+        param_array = onnx.numpy_helper.to_array(initializer)
+        total_params += param_array.size
+    return total_params
 
 def count_weights_and_tensors_in_onnx_model(model):
     # Load the ONNX model
@@ -109,25 +105,40 @@ def get_ezkl_settings(onnx_model, delete_file_afterwards=False):
             shutil.rmtree(temp_dir)
     return settings_data
 
-def analyze_onnx_model_for_zk_proving(onnx_model,  onnx_model_path):
-    model_ops_count, op_types = count_onnx_model_operations(onnx_model)
-    model_params_count = count_onnx_model_parameters(onnx_model)
-    weights_and_tensor_count = count_weights_and_tensors_in_onnx_model(onnx_model)
-    if onnx_model_path is None:
-        ezkl_settings = get_ezkl_settings(onnx_model, True)
-    else:
-        ezkl_settings = get_ezkl_settings(onnx_model_path, True)
-    data_dict = {
-        "num_model_ops": model_ops_count,
-        "op_types_and_shapes": op_types,
-        "num_model_params": model_params_count,
-        "num_model_constants": weights_and_tensor_count,
-        "zk_circuit_num_rows": ezkl_settings.get("num_rows", 0),
-        "zk_circuit_num_assignments": ezkl_settings.get("total_assignments", 0),
+def analyze_onnx_model_for_zk_proving(onnx_model_path):
+
+    tmp_settings_file = 'tmp_settings.json'
+
+    onnx_model = onnx.load(onnx_model_path)
+
+    #number of mode_operations
+    num_model_ops = len(onnx_model.graph.node)
+    #number of model parameters
+    num_model_params =  0
+    for initializer in onnx_model.graph.initializer:
+        param_array = onnx.numpy_helper.to_array(initializer)
+        num_model_params += param_array.size
+    
+    # weights_and_tensor_count = count_weights_and_tensors_in_onnx_model(onnx_model)
+    #get ezkl settings
+    ezkl.gen_settings(onnx_model_path, tmp_settings_file)
+    try:
+        with open(tmp_settings_file, 'r') as f:
+            ezkl_settings = json.load(f)
+    except (IOError, json.JSONDecodeError) as e:
+        print(f"Error reading JSON settings file: {e}")
+        ezkl_settings = {}
+
+    model_info = {
+        "num_model_ops": num_model_ops,
+        "num_model_params": num_model_params,
         }
-    #combine the dicts
-    ezkl_settings = {**ezkl_settings, **data_dict}
-    return data_dict, ezkl_settings
+    model_info = {**model_info, **ezkl_settings}
+
+    #delete temp file
+    os.remove(tmp_settings_file)  
+
+    return model_info
 
 def load_onnx_model(model_path):
     # Load the ONNX model

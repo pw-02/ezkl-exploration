@@ -1,16 +1,18 @@
 syntax = "proto3";
 
-package zkpservice;
 
-
-service ZKPWorkerService {
-    // Computes a zero-knowledge proof for the provided model and input data
-    rpc ComputeProof (ProofRequest) returns (ProofResponse);
-    // Check the status of the worker
-    rpc Ping (Message) returns (MessageResponse);
-    rpc CheckProofStatus (ProofStatusRequest) returns (ProofStatusResponse);
-
+service ZKMLProverDispatcher {
+  rpc SubmitJob (JobRequest) returns (JobResponse);
+  rpc RegisterWorker (WorkerInfo) returns (WorkerAck);
 }
+
+service Worker {
+  rpc ComputeProof (JobRequest) returns (JobResponse);
+  rpc Ping (Message) returns (MessageResponse);
+  rpc CheckProofStatus (ProofStatusRequest) returns (ProofStatusResponse);
+}
+
+
 
 // The request message containing the onnx model (as bytes) and input data.
 message ProofRequest {

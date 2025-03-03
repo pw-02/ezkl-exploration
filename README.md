@@ -38,7 +38,7 @@
       python distributed_proving/dispatcher.py model=mnist_classifier worker_addresses='["172.17.0.3:50053"]'
       ```
 ---
-## Deployment without Docker
+## Deployment With Docker
 
 1. **Download Docker Image:**
 
