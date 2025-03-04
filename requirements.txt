@@ -10,4 +10,4 @@ pynvml
 grpcio
 grpcio-tools
 pandas
-psutil
+psutils
