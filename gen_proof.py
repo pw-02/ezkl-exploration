@@ -87,7 +87,7 @@ def extract_model(onnx_model_path,node_inputs,node_outputs,model_save_path: str 
     return new_model
 
 
-def split_onnx_model_at_every_node(onnx_model_path, json_input, intermediate_outputs, cache_dir= None):
+def split_onnx_model_at_every_node(onnx_model_path, json_input, intermediate_outputs, cache_dir):
     models_with_inputs = OrderedDict()
     model = onnx.load(onnx_model_path)
     initializers = {init.name for init in model.graph.initializer}
@@ -109,11 +109,11 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, intermediate_out
         session = ort.InferenceSession(sub_model.SerializeToString())
         input_names = [input.name for input in session.get_inputs()]
         if counter == 0:  # First part takes in the initial input
-            input_names = input_names[0]
             input = session.get_inputs()[0]
+            input_names[0] = input.name
             input_shape = input.shape
             input_type = input.type
-            input_data = load_json_input(json_input, input_shape, input_type)
+            input_data = format_model_input(json_input, input_shape, input_type)
             intermediate_outputs[input.name] = input_data
         inputs = []
         for name in input_names:
@@ -130,7 +130,7 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, intermediate_out
             with open(input_data_save_path, 'w') as json_file:
                 json.dump(proving_input, json_file, indent=4)
         # current_node_inputs = node_outputs
-        models_with_inputs[f'split_model_{counter}'] = (input_data_save_path, onnx_model_path)
+        models_with_inputs[f'split_model_{counter}'] = input_data_save_path, model_save_path
     return models_with_inputs
     
 def collect_intermediate_inference_outputs(onnx_model_path, input_data_path):
@@ -327,11 +327,6 @@ class OnnxModelToProve():
             execution_time = func()
             function_times[f'ezkl_{func_name}(s)'] = f"{execution_time:.3f}"
             logger.info(f"{func_name} took {execution_time:.3f}s")
-
-
-
-
-
         return function_times
 
 class GlobalProvingJob():
@@ -384,20 +379,23 @@ class GlobalProvingJob():
                                                          onnx_model_path=onnx_model_cache_path))
         else:
             logger.info(f'Collecting intermediate inference outputs for sub-models')
-            intermediate_inference_outputs = collect_intermediate_inference_outputs(self.model_onnx_file, self.model_input_file)
+            intermediate_inference_outputs = collect_intermediate_inference_outputs(self.onnx_model_path, self.input_data_path)
             logger.info(f'Intermediate inference outputs collected') 
             all_sub_models = split_onnx_model_at_every_node(
                 self.onnx_model_path, 
                 self.input_data_path,
                 intermediate_outputs=intermediate_inference_outputs,
-                cache_dir=self.cache_directory,
-                save_to_file=True)
+                cache_dir=self.cache_directory)
             
             logger.info(f"total number of sub-models to prove: {len(all_sub_models)}")
-            for idx, (submodel_name, submodel_input_path, sub_model_onnx_path) in enumerate(all_sub_models.items()):
-                self.models_to_prove.append(OnnxModelToProve(job_name=submodel_name, 
-                                                             input_data_path=submodel_input_path, 
-                                                             onnx_model_path=sub_model_onnx_path))
+            for idx, (submodel_name) in enumerate(all_sub_models.keys()):
+                submodel_input_path, sub_model_onnx_path = all_sub_models[submodel_name]
+                submodel_name = f"{self.model_name}_{submodel_name}"
+                self.models_to_prove.append(OnnxModelToProve(
+                    job_id=idx+1,
+                    job_name=submodel_name, 
+                    input_data_path=submodel_input_path, 
+                    onnx_model_path=sub_model_onnx_path))
                 
         logger.info("generating settings for proving each model")
         #generate ezkl settings for each model and then summarize the model info in a report
@@ -418,15 +416,18 @@ class GlobalProvingJob():
                     if not file_exists:
                         writer.writeheader()
                     writer.writerow(info)
-                logger.info("ZK proving settings generated for each model")
-    logger.info("Job prepared for processing")
+
+    logger.info("Finished preparing job for processing")
 
     def gen_proof_for_sub_models(self):
         logger.info(f"Generating ZK proof for sub-models")
         for idx, model in enumerate (self.models_to_prove):
             logger.info(f"Generating ZK proof for model: {model.model_name} ({idx+1}/{len(self.models_to_prove)})")
             pref_metrics = model.generate_zk_proof()
-            report_file = os.path.join(self.report_directory, 'ezkl_perf.csv')
+            model_report_dir = os.path.join(self.report_directory, f'{model.model_name}')
+            os.makedirs(model_report_dir, exist_ok=True)
+
+            report_file = os.path.join(model_report_dir, 'ezkl_perf.csv')
             file_exists = os.path.isfile(report_file)
             with open(report_file, mode='a', newline='') as file:
                 writer = csv.DictWriter(file, fieldnames=pref_metrics.keys())
@@ -441,7 +442,7 @@ class GlobalProvingJob():
                              'halo2_ffts_verifier.csv','halo2_msms_verifier.csv']
             for file in files_to_copy:
                 if os.path.isfile(file):
-                    os.system(f'mv {file} {self.report_directory}')
+                    os.system(f'mv {file} {model_report_dir}')
             #generate proof for each model
         logger.info(f"ZK proof generation completed for all sub-models")
 
