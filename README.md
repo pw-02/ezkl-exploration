@@ -12,7 +12,7 @@
    pip install -r requirements.txt
    ```
 
-3. **Make 'to_run.sh' file executable:**
+3. **Make 'to_run.sh' executable:**
 
    ```bash
     chmod +x to_run.sh
