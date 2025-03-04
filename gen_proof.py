@@ -5,9 +5,6 @@ import logging
 from typing import List
 import os
 import json
-from onnx import ModelProto
-import csv
-import datetime
 from enum import Enum
 import onnx
 import ezkl
@@ -16,14 +13,174 @@ import onnxruntime as ort
 import json
 import numpy as np
 import os
-from onnx.utils import Extractor
+import logging
 from collections import OrderedDict
-import copy
-from onnx import shape_inference
+from onnx.utils import Extractor
+import csv
+from datetime import datetime, timezone
+import time
+from functools import wraps
 
-# Configure logging
-logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.DEBUG)
+# Decorator to time functions
+def time_function(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        execution_time = time.time() - start_time
+        return execution_time
+    return wrapper
+
+
+# Configure logging format
+logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG
+)
+# Create a logger for "ZKPProver"
 logger = logging.getLogger("ZKPProver")
+logger.setLevel(logging.INFO)
+
+def load_json_input(file_path):
+    """Load input data from a JSON file."""
+    with open(file_path, "r") as f:
+        return json.load(f)  # Expecting a nested list from np.array().tolist()
+
+def format_model_input(input_data_path, expected_shape, input_type, idx = 0):
+    expected_shape = [-1 if dim == 'batch_size' else dim for dim in expected_shape]
+    input_data = load_json_input(input_data_path)['input_data']
+    input_data = np.array(input_data, dtype=np.float32)  # Convert back to NumPy array
+    reshaped_input = input_data.reshape(expected_shape)
+    #import matplotlib.pyplot as plt
+    # plt.imshow(reshaped_input.squeeze(), cmap='gray')  # Removes batch and channel dimensions
+    # plt.title("Input Image")
+    # plt.axis("off")
+    # plt.show()
+    return reshaped_input
+
+def run_model_inference(onnx_model_path, input_data_path):
+        session = ort.InferenceSession(onnx_model_path)
+        # Ensure input matches ONNX model requirements
+        input_name = session.get_inputs()[0].name
+        input_shape = session.get_inputs()[0].shape
+        input_type = session.get_inputs()[0].type
+        input_tensor = format_model_input(input_data_path, input_shape, input_type)
+        # Run inference
+        outputs = session.run(None, {input_name: input_tensor})
+        return outputs
+
+
+def extract_model(onnx_model_path,node_inputs,node_outputs,model_save_path: str = None) -> None:
+    if not os.path.exists(onnx_model_path):
+        raise ValueError(f"Invalid input model path: {onnx_model_path}")
+    
+    if not node_outputs:
+        raise ValueError("Output tensor names shall not be empty!")
+    
+    model = onnx.load(onnx_model_path)
+    e = Extractor(model)
+    new_model = e.extract_model(node_inputs, node_outputs)
+    
+    if model_save_path:
+        onnx.save(new_model, model_save_path)
+    
+    return new_model
+
+
+def split_onnx_model_at_every_node(onnx_model_path, json_input, intermediate_outputs, cache_dir= None):
+    models_with_inputs = OrderedDict()
+    model = onnx.load(onnx_model_path)
+    initializers = {init.name for init in model.graph.initializer}
+    exclude_operations = ['Identity',  'Constant']
+    counter =0
+    for idx, node in enumerate(model.graph.node):
+        # Skip excluded operations
+        if node.op_type in exclude_operations:
+            # print(f"Skipping {node.name} of type {node.op_type}...")
+            continue
+        if node.name in initializers:
+            # print(f"{node.name} is an initializer. Skipping...")
+            continue
+        # print(f"Processing node {node.name} of type {node.op_type}")
+        node_inputs = [input for input in node.input if input not in initializers and 'Constant' not in input]
+        node_outputs = [output for output in node.output if output not in initializers and 'Constant' not in output]
+        # Save or generate sub-model
+        sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
+        session = ort.InferenceSession(sub_model.SerializeToString())
+        input_names = [input.name for input in session.get_inputs()]
+        if counter == 0:  # First part takes in the initial input
+            input_names = input_names[0]
+            input = session.get_inputs()[0]
+            input_shape = input.shape
+            input_type = input.type
+            input_data = load_json_input(json_input, input_shape, input_type)
+            intermediate_outputs[input.name] = input_data
+        inputs = []
+        for name in input_names:
+            inputs.append(intermediate_outputs[name].flatten().tolist())
+        counter +=1
+        proving_input = {"input_data": inputs}
+        # current_node_inputs.clear() 
+        if cache_dir:
+            sub_model_output_folder = os.path.join(cache_dir, f'split_{counter}')
+            model_save_path = f'{sub_model_output_folder}/model.onnx'
+            input_data_save_path = f'{sub_model_output_folder}/input.json'
+            os.makedirs(sub_model_output_folder, exist_ok=True)
+            onnx.save(sub_model, model_save_path)
+            with open(input_data_save_path, 'w') as json_file:
+                json.dump(proving_input, json_file, indent=4)
+        # current_node_inputs = node_outputs
+        models_with_inputs[f'split_model_{counter}'] = (input_data_save_path, onnx_model_path)
+    return models_with_inputs
+    
+def collect_intermediate_inference_outputs(onnx_model_path, input_data_path):
+        model = onnx.load(onnx_model_path)
+        # Update the model so the final output includes the output of every node, not just the last node
+        while len(model.graph.output) > 0: # Remove all existing outputs
+            model.graph.output.pop()
+
+        # Perform shape inference to update model with inferred shapes
+        shape_info = onnx.shape_inference.infer_shapes(model)
+
+        # Add all intermediate outputs to the graph's outputs
+        for node in shape_info.graph.node:
+            for output_name in node.output:
+                # Ensure the output name is not already in the outputs list
+                if not any(o.name == output_name for o in model.graph.output):
+                    output_info = onnx.ValueInfoProto()
+                    output_info.name = output_name
+                    model.graph.output.append(output_info)
+        # Initialize InferenceSession with inferred model
+        session = ort.InferenceSession(model.SerializeToString())
+        input_name = session.get_inputs()[0].name
+        input_shape = session.get_inputs()[0].shape
+        input_type = session.get_inputs()[0].type
+
+        # Load input data
+        input_data = format_model_input(input_data_path, input_shape, input_type)
+        
+        intermediate_inference_outputs = {}
+        intermediate_inference_outputs[input_name] = input_data  #store the input data
+
+        # Run inference for all outputs, including the intermediate outputs
+        results = session.run(None, {input_name: input_data})
+        # Collect the intermediate inference outputs
+        intermediate_inference_outputs = {}
+        intermediate_inference_outputs[input_name] = input_data
+
+        # Store results for each output
+        for name, result in zip(session.get_outputs(), results):
+            intermediate_inference_outputs[name.name] = result
+        
+        # Display the last item in the dictionary
+        # last_key = list(intermediate_inference_outputs.keys())[-]
+        # last_value = intermediate_inference_outputs[last_key]
+        # print(f"Last key: {last_key}, Last value: {last_value}")
+        return intermediate_inference_outputs
+
+
+
+
+
+
 
 class JobStatus(Enum):
     PENDING = "PENDING"
@@ -40,48 +197,148 @@ class JobStatus(Enum):
 
     
 class OnnxModelToProve():
-    def __init__(self, job_id, job_name, input_data, onnx_model_path, data_directory):
+    def __init__(self, 
+                 job_id, 
+                 job_name, 
+                 input_data_path,
+                 onnx_model_path,
+                 num_model_ops=None,
+                 num_model_params=None):
         self.job_id = job_id
         self.model_name = job_name
-        self.input_data = input_data
+        #set data dir to be paretn folder or onxx model file
+        self.data_dir = os.path.dirname(onnx_model_path)
+        self.input_data_path = input_data_path
         self.onnx_model_path = onnx_model_path
         self.status = JobStatus.PENDING
-        self.data_directory = data_directory
-    
+        self.num_model_ops = num_model_ops
+        self.num_model_params = num_model_params
+        self.overwrite = False
+
+        self.vk_path = os.path.join(self.data_dir, 'vk.json')
+        self.settings_path = os.path.join(self.data_dir, 'settings.json')
+        self.compiled_circuit_path = os.path.join(self.data_dir, 'network.compiled')
+        self.pk_path = os.path.join(self.data_dir, 'pk.json')
+        self.witness_path = os.path.join(self.data_dir, 'witness.json')
+        self.proof_path = os.path.join(self.data_dir, 'proof.pf')
+
     def generate_model_info(self):
-        tmp_settings_file = 'tmp_settings.json'
-        onnx_model = onnx.load(self.onnx_model_path)
-        num_model_ops = len(onnx_model.graph.node)
-        num_model_params =  0
-        for initializer in onnx_model.graph.initializer:
-            param_array = onnx.numpy_helper.to_array(initializer)
-            num_model_params += param_array.size
-        #get ezkl settings
-        ezkl.gen_settings(self.onnx_model_path, tmp_settings_file)
-        try:
-            with open(tmp_settings_file, 'r') as f:
+        if self.num_model_ops is None or self.num_model_params is None:
+            onnx_model = onnx.load(self.onnx_model_path)
+            self.num_model_ops  = len(onnx_model.graph.node)
+            self.num_model_params =  0
+            for initializer in onnx_model.graph.initializer:
+                param_array = onnx.numpy_helper.to_array(initializer)
+                self.num_model_params += param_array.size
+        
+        #get ezkl settings if file exists
+        info = {
+            "name": self.model_name,
+            "onnx_model_path": self.onnx_model_path,
+            "input_data_path": self.input_data_path,
+            "num_model_ops": self.num_model_ops,
+            "num_model_params": self.num_model_params}
+        
+        if os.path.exists(self.settings_path):
+            with open(self.settings_path, 'r') as f:
                 ezkl_settings = json.load(f)
-        except (IOError, json.JSONDecodeError) as e:
-            print(f"Error reading JSON settings file: {e}")
-            ezkl_settings = {}
+            info = {**info, **ezkl_settings}
+        return info
+    
+    @time_function
+    def _gen_settings(self):
+        if not self.overwrite and os.path.isfile(self.settings_path):
+            return True
+        ezkl.gen_settings(self.onnx_model_path, self.settings_path)
+        
+    @time_function
+    def _calibrate_settings(self):
+        ezkl.calibrate_settings(self.input_data_path, self.onnx_model_path, self.settings_path, "resources")
 
-        self.model_info = {"num_model_ops": num_model_ops,"num_model_params": num_model_params,}
-        self.model_info = {**self.model_info, **ezkl_settings}
-        #delete temp file
-        os.remove(tmp_settings_file)  
+    @time_function
+    def _compile_circuit(self):
+        if not self.overwrite and os.path.isfile(self.compiled_circuit_path):
+            return True
+        ezkl.compile_circuit(self.onnx_model_path, self.compiled_circuit_path, self.settings_path)
 
+    @time_function
+    def _get_srs(self):
+        ezkl.get_srs(self.settings_path)
 
+    @time_function
+    def _gen_witness(self):
+        ezkl.gen_witness(self.input_data_path, self.compiled_circuit_path, self.witness_path)
+        assert os.path.isfile(self.witness_path)
+    
+    @time_function
+    def _setup(self):
+        if not self.overwrite and os.path.isfile(self.pk_path):
+            logger.info("Skipping setup as key files already exist")
+            return True
+        
+        ezkl.setup(self.compiled_circuit_path, self.vk_path, self.pk_path)
+
+        #rename fft and msms reports so that they are for setup only
+        suffix = 'setup'
+        for file in 'halo2_ffts.csv', 'halo2_msms.csv', 'halo2_prover.csv':
+            if os.path.isfile(file):
+                        name, ext = os.path.splitext(file)  # Split filename and extension
+                        new_name = f"{name}_{suffix}{ext}"  # Append suffix before extension
+                        os.rename(file, new_name)
+        assert os.path.isfile(self.vk_path)
+        assert os.path.isfile(self.pk_path)
+        assert os.path.isfile(self.settings_path)
+    
+    @time_function
+    def _prove(self):
+        logger.info("Starting proof generation")
+        ezkl.prove(self.witness_path, self.compiled_circuit_path, self.pk_path, self.proof_path, "single")
+        assert os.path.isfile(self.proof_path)
+    
+    @time_function
+    def _verify(self):
+        try:
+            res = ezkl.verify(self.proof_path, self.settings_path, self.vk_path)
+            # self.exp_logger.log_value('verified', str(res))
+        except Exception as e:
+            # logger.exception("Error in verification: %s", e)
+            # self.exp_logger.log_value('verified', "False")
+            return False
+    
+    def generate_zk_proof(self):
+
+        function_times = {}
+        functions = [('gen_settings', self._gen_settings),
+                ('compile_circuit', self._compile_circuit),
+                ('get_srs', self._get_srs),
+                ('gen_witness', self._gen_witness),
+                ('setup', self._setup),
+                ('prove', self._prove),
+                ('verify', self._verify)]
+        
+        for func_name, func in functions:
+            execution_time = func()
+            function_times[f'ezkl_{func_name}_time(s)'] = execution_time
+            logger.info(f"{func_name} took {execution_time} seconds")
+        return function_times
 
 class GlobalProvingJob():
-    def __init__(self, job_name, input_data_path, onnx_model_path, num_of_splits):
+    def __init__(self, job_name, input_data_path, onnx_model_path, num_of_splits, cleanup_cache=True):
+        
         self.model_name = job_name
         self.input_data_path = input_data_path
         self.onnx_model_path = onnx_model_path
         self.num_of_splits = num_of_splits
+        self.inference_results = {} #stores results of model inference with and without ZKP proof
         self.status = JobStatus.PENDING
-        self.model_to_prove: List[OnnxModelToProve] = []
+        self.models_to_prove: List[OnnxModelToProve] = []
+        date_time_utc_str = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+        self.cache_directory = os.path.join('cache', self.model_name)
+        self.report_directory = os.path.join('reports', self.model_name, date_time_utc_str)
+        self.cleanup_cache = cleanup_cache
 
-    def pepare_for_processing(self, save_ezkl_settings = False):
+    def pepare_for_processing(self, save_ezkl_settings=True):
+        logger.info(f"Preparing job for processing: {self.model_name}")
         #verify the input data path and model path 
         if not os.path.exists(self.input_data_path):
             logger.error(f'Input data path does not exist: {self.input_data_path}')
@@ -89,22 +346,66 @@ class GlobalProvingJob():
         if not os.path.exists(self.onnx_model_path):
             logger.error(f'ONNX model path does not exist: {self.onnx_model_path}')
             raise FileNotFoundError(f"ONNX model path does not exist: {self.onnx_model_path}")
+        try:
+            #check if the model and input data are valid, and store the inference result
+            self.inference_results['non_zk_inference'] = run_model_inference(self.onnx_model_path, self.input_data_path)
+        except Exception as e:
+            logger.error(f"Error running model inference: {e}. Check the input data and model cmpatibility.")
+            raise e
+        logger.debug(f" Non-ZK inference output: {self.inference_results['non_zk_inference']}")
+        
+        if self.num_of_splits is None or self.num_of_splits < 1:
+            logger.info(f'No split size provided. Proving the model as a whole')
+            self.models_to_prove.append(OnnxModelToProve(job_id=1, 
+                                                         job_name=self.model_name,
+                                                         input_data_path=self.input_data_path,
+                                                        onnx_model_path=self.onnx_model_path))
+        else:
+            logger.info(f'Collecting intermediate inference outputs for sub-models')
+            intermediate_inference_outputs = collect_intermediate_inference_outputs(self.model_onnx_file, self.model_input_file)
+            logger.info(f'Intermediate inference outputs collected') 
+            all_sub_models = split_onnx_model_at_every_node(
+                self.onnx_model_path, 
+                self.input_data_path,
+                intermediate_outputs=intermediate_inference_outputs,
+                cache_dir=self.cache_directory,
+                save_to_file=True)
+            
+            logger.info(f"total number of sub-models to prove: {len(all_sub_models)}")
+            for idx, (submodel_name, submodel_input_path, sub_model_onnx_path) in enumerate(all_sub_models.items()):
+                self.models_to_prove.append(OnnxModelToProve(job_name=submodel_name, 
+                                                             input_data_path=submodel_input_path, 
+                                                             onnx_model_path=sub_model_onnx_path))
+                
+        logger.info("Generate ZK proving settings for each model")
+        #generate ezkl settings for each model and then summarize the model info in a report
+        
+        if save_ezkl_settings:
+            report_file = os.path.join(self.report_directory, 'models_to_proof_summary.csv')
+            for model in self.models_to_prove:
+                #get parent folder of model onnx file
+                model._gen_settings()
+                info = model.generate_model_info()
+                #save model info to report directory
 
-        #check if the model and input data are valid
-        result = self.run_model_inference()
+                #create report directory if it does not exist
+                os.makedirs(self.report_directory, exist_ok=True)
+                file_exists = os.path.isfile(report_file)
+                with open(report_file, mode='a', newline='') as file:
+                    writer = csv.DictWriter(file, fieldnames=info.keys())
+                    if not file_exists:
+                        writer.writeheader()
+                    writer.writerow(info)
+                logger.info("ZK proving settings generated for each model")
+    logger.info("Job prepared for processing")
 
-
-    def run_model_inference(self):
-        input_data = fo(self.input_data_path)
-        if 'input_data' in input_data:
-            input_tensor = input_data['input_data']      
-        session = ort.InferenceSession(self.onnx_model_path)
-        # Ensure input matches ONNX model requirements
-        input_name = session.get_inputs()[0].name
-        # Run inference
-        outputs = session.run(None, {input_name: input_tensor})
-        return outputs
-
+    def gen_proof_for_sub_models(self):
+        logger.info(f"Generating ZK proof for sub-models")
+        for idx, model in enumerate (self.models_to_prove):
+            logger.info(f"Generating ZK proof for model: {model.model_name} ({idx+1}/{len(self.models_to_prove)})")
+            pref_metrics = model.generate_zk_proof()
+            #generate proof for each model
+        logger.info(f"ZK proof generation completed for all sub-models")
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(config: DictConfig):
@@ -121,6 +422,8 @@ def main(config: DictConfig):
         onnx_model_path=config.model.onnx_file,
         num_of_splits=config.model.split_group_size)
     job.pepare_for_processing(save_ezkl_settings=True)
+    job.gen_proof_for_sub_models()
+    logger.info("ZK proof generation completed")
     
 if __name__ == '__main__':
     main()
