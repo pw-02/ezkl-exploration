@@ -442,7 +442,7 @@ class GlobalProvingJob():
                              'halo2_ffts_verifier.csv','halo2_msms_verifier.csv']
             for file in files_to_copy:
                 if os.path.isfile(file):
-                    os.system(f'mv {file} {model_report_dir}')
+                    os.system(f'mv {file} {model_report_dir}')ls
             #generate proof for each model
         logger.info(f"ZK proof generation completed for all sub-models")
 
