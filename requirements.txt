@@ -1,5 +1,6 @@
 # ezkl-gpu==10.2.9
 # ls# /home/pw/dzkml/ezkl-exploration/wheels/ezkl-0.0.0-cp37-abi3-manylinux_2_35_x86_64.whl
+wheels/ezkl_cpu-0.0.0-cp37-abi3-manylinux_2_35_x86_64.whl
 onnxruntime==1.18.0
 onnx
 hydra-core
