@@ -41,6 +41,10 @@ for handler in logger.handlers[:]:
 # Ensure logging only prints to console
 logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO, force=True)
 
+
+def file_exists(file_path):
+    return os.path.exists(file_path)
+
 def load_json_input(file_path):
     """Load input data from a JSON file."""
     with open(file_path, "r") as f:
@@ -57,6 +61,12 @@ def format_model_input(input_data_path, expected_shape, input_type, idx = 0):
     # plt.axis("off")
     # plt.show()
     return reshaped_input
+
+def read_csv_into_dict(file_path):
+    with open(file_path, mode='r') as infile:
+        reader = csv.reader(infile)
+        return {rows[0]:rows[1] for rows in reader}
+
 
 def run_model_inference(onnx_model_path, input_data_path):
         session = ort.InferenceSession(onnx_model_path)
@@ -407,6 +417,7 @@ class GlobalProvingJob():
                 model._gen_settings()
                 info = model.generate_model_info()
                 #save model info to report directory
+                
 
                 #create report directory if it does not exist
                 os.makedirs(self.report_directory, exist_ok=True)
@@ -421,19 +432,50 @@ class GlobalProvingJob():
 
     def gen_proof_for_sub_models(self):
         logger.info(f"Generating ZK proof for sub-models")
+
+        halo_2_circuit_sumamry_file = os.path.join(self.report_directory, 'halo2_circuit_summary.csv')
+        halo_2_porver_sumamry_file = os.path.join(self.report_directory, 'halo2_prover_summary.csv')
+        ezkl_perf_summary_file = os.path.join(self.report_directory, 'ezkl_perf_summary.csv')
+        msms_summary_file = os.path.join(self.report_directory, 'msms_summary_file.csv')
+        ffts_summary_file = os.path.join(self.report_directory, 'ffts_summary_file.csv')
+
+        # overall_perf_summary_file = os.path.join(self.report_directory, 'overall_perf_summary.csv')
+        
         for idx, model in enumerate (self.models_to_prove):
             logger.info(f"Generating ZK proof for model: {model.model_name} ({idx+1}/{len(self.models_to_prove)})")
-            pref_metrics = model.generate_zk_proof()
-            model_report_dir = os.path.join(self.report_directory, f'{model.model_name}')
-            os.makedirs(model_report_dir, exist_ok=True)
-
-            report_file = os.path.join(model_report_dir, 'ezkl_perf.csv')
-            file_exists = os.path.isfile(report_file)
-            with open(report_file, mode='a', newline='') as file:
-                writer = csv.DictWriter(file, fieldnames=pref_metrics.keys())
+            ezkl_pref_metrics = model.generate_zk_proof()
+            model_info = {'name': model.model_name, 'num_ops': model.num_model_ops, 'num_params': model.num_model_params, 'onnx_model_path': model.onnx_model_path}
+            #halo2 circuit summary
+            circuit_info = read_csv_into_dict('halo2_circuit.csv')
+            #append circuit with model info
+            circuit_info = {**model_info, **circuit_info}
+            file_exists = os.path.isfile(halo_2_circuit_sumamry_file)
+            with open(halo_2_circuit_sumamry_file, mode='a', newline='') as file:
+                writer = csv.DictWriter(file, fieldnames=circuit_info.keys())
                 if not file_exists:
                     writer.writeheader()
-                writer.writerow(pref_metrics)
+                writer.writerow(circuit_info)
+            #halo2 prover summary
+            prover_info = read_csv_into_dict('halo2_prover.csv')
+            #append prover with model info
+            prover_info = {**model_info, **prover_info}
+            file_exists = os.path.isfile(halo_2_porver_sumamry_file)
+            with open(halo_2_porver_sumamry_file, mode='a', newline='') as file:
+                writer = csv.DictWriter(file, fieldnames=prover_info.keys())
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow(prover_info)
+            #ezkl performance summary
+            ezkl_perf_metrics = {**model_info, **ezkl_pref_metrics}
+            file_exists = os.path.isfile(ezkl_perf_summary_file)
+            with open(ezkl_perf_summary_file, mode='a', newline='') as file:
+                writer = csv.DictWriter(file, fieldnames=ezkl_perf_metrics.keys())
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow(ezkl_perf_metrics)
+  
+            model_report_dir = os.path.join(self.report_directory, f'{model.model_name}')
+            os.makedirs(model_report_dir, exist_ok=True)
 
             #copy the following files to the report directory
             files_to_copy = ['halo2_circuit.csv', 'halo2_prover.csv','halo2_ffts_setup.csv',
@@ -442,7 +484,7 @@ class GlobalProvingJob():
                              'halo2_ffts_verifier.csv','halo2_msms_verifier.csv']
             for file in files_to_copy:
                 if os.path.isfile(file):
-                    os.system(f'mv {file} {model_report_dir}')ls
+                    os.system(f'mv {file} {model_report_dir}')
             #generate proof for each model
         logger.info(f"ZK proof generation completed for all sub-models")
 
