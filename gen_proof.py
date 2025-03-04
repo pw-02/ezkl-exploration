@@ -25,19 +25,21 @@ from functools import wraps
 def time_function(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
-        start_time = time.time()
+        start_time = time.perf_counter()
         result = func(*args, **kwargs)
-        execution_time = time.time() - start_time
+        execution_time = time.perf_counter() - start_time
         return execution_time
     return wrapper
 
 
-# Configure logging format
-logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG
-)
-# Create a logger for "ZKPProver"
-logger = logging.getLogger("ZKPProver")
+logger = logging.getLogger("dizt-zkml")
 logger.setLevel(logging.INFO)
+# Remove any existing file handlers
+for handler in logger.handlers[:]:
+    if isinstance(handler, logging.FileHandler):
+        logger.removeHandler(handler)
+# Ensure logging only prints to console
+logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO, force=True)
 
 def load_json_input(file_path):
     """Load input data from a JSON file."""
@@ -177,11 +179,6 @@ def collect_intermediate_inference_outputs(onnx_model_path, input_data_path):
         return intermediate_inference_outputs
 
 
-
-
-
-
-
 class JobStatus(Enum):
     PENDING = "PENDING"
     IN_PROGRESS = "IN_PROGRESS"
@@ -204,6 +201,7 @@ class OnnxModelToProve():
                  onnx_model_path,
                  num_model_ops=None,
                  num_model_params=None):
+        
         self.job_id = job_id
         self.model_name = job_name
         #set data dir to be paretn folder or onxx model file
@@ -280,50 +278,64 @@ class OnnxModelToProve():
 
         #rename fft and msms reports so that they are for setup only
         suffix = 'setup'
-        for file in 'halo2_ffts.csv', 'halo2_msms.csv', 'halo2_prover.csv':
+        for file in 'halo2_ffts.csv', 'halo2_msms.csv':
             if os.path.isfile(file):
                         name, ext = os.path.splitext(file)  # Split filename and extension
                         new_name = f"{name}_{suffix}{ext}"  # Append suffix before extension
                         os.rename(file, new_name)
-        assert os.path.isfile(self.vk_path)
-        assert os.path.isfile(self.pk_path)
-        assert os.path.isfile(self.settings_path)
-    
+
     @time_function
     def _prove(self):
         logger.info("Starting proof generation")
         ezkl.prove(self.witness_path, self.compiled_circuit_path, self.pk_path, self.proof_path, "single")
+
+        suffix = 'prover'
+        for file in 'halo2_ffts.csv', 'halo2_msms.csv':
+            if os.path.isfile(file):
+                        name, ext = os.path.splitext(file)  # Split filename and extension
+                        new_name = f"{name}_{suffix}{ext}"  # Append suffix before extension
+                        os.rename(file, new_name)
+
         assert os.path.isfile(self.proof_path)
     
     @time_function
     def _verify(self):
         try:
             res = ezkl.verify(self.proof_path, self.settings_path, self.vk_path)
+            suffix = 'verifier'
+            for file in 'halo2_ffts.csv', 'halo2_msms.csv':
+                if os.path.isfile(file):
+                        name, ext = os.path.splitext(file)  # Split filename and extension
+                        new_name = f"{name}_{suffix}{ext}"  # Append suffix before extension
+                        os.rename(file, new_name)
             # self.exp_logger.log_value('verified', str(res))
         except Exception as e:
             # logger.exception("Error in verification: %s", e)
             # self.exp_logger.log_value('verified', "False")
             return False
     
-    def generate_zk_proof(self):
-
+    def generate_zk_proof(self, report_dir=None):
         function_times = {}
         functions = [('gen_settings', self._gen_settings),
                 ('compile_circuit', self._compile_circuit),
                 ('get_srs', self._get_srs),
-                ('gen_witness', self._gen_witness),
+                ('witness_gen', self._gen_witness),
                 ('setup', self._setup),
                 ('prove', self._prove),
                 ('verify', self._verify)]
-        
         for func_name, func in functions:
             execution_time = func()
-            function_times[f'ezkl_{func_name}_time(s)'] = execution_time
-            logger.info(f"{func_name} took {execution_time} seconds")
+            function_times[f'ezkl_{func_name}(s)'] = f"{execution_time:.3f}"
+            logger.info(f"{func_name} took {execution_time:.3f}s")
+
+
+
+
+
         return function_times
 
 class GlobalProvingJob():
-    def __init__(self, job_name, input_data_path, onnx_model_path, num_of_splits, cleanup_cache=True):
+    def __init__(self, job_name, input_data_path, onnx_model_path, num_of_splits, cache_setup_files=True):
         
         self.model_name = job_name
         self.input_data_path = input_data_path
@@ -335,9 +347,10 @@ class GlobalProvingJob():
         date_time_utc_str = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
         self.cache_directory = os.path.join('cache', self.model_name)
         self.report_directory = os.path.join('reports', self.model_name, date_time_utc_str)
-        self.cleanup_cache = cleanup_cache
+        self.cache_setup_files = cache_setup_files
 
     def pepare_for_processing(self, save_ezkl_settings=True):
+        
         logger.info(f"Preparing job for processing: {self.model_name}")
         #verify the input data path and model path 
         if not os.path.exists(self.input_data_path):
@@ -355,11 +368,20 @@ class GlobalProvingJob():
         logger.debug(f" Non-ZK inference output: {self.inference_results['non_zk_inference']}")
         
         if self.num_of_splits is None or self.num_of_splits < 1:
+
+            #copy into cache directory
+            os.makedirs(self.cache_directory, exist_ok=True)
+            onnx_model_cache_path = os.path.join(self.cache_directory, 'model.onnx')
+            input_data_cache_path = os.path.join(self.cache_directory, 'input.json')
+            os.system(f'cp {self.onnx_model_path} {onnx_model_cache_path}')
+            os.system(f'cp {self.input_data_path} {input_data_cache_path}')
+
+
             logger.info(f'No split size provided. Proving the model as a whole')
             self.models_to_prove.append(OnnxModelToProve(job_id=1, 
                                                          job_name=self.model_name,
-                                                         input_data_path=self.input_data_path,
-                                                        onnx_model_path=self.onnx_model_path))
+                                                         input_data_path=input_data_cache_path,
+                                                         onnx_model_path=onnx_model_cache_path))
         else:
             logger.info(f'Collecting intermediate inference outputs for sub-models')
             intermediate_inference_outputs = collect_intermediate_inference_outputs(self.model_onnx_file, self.model_input_file)
@@ -377,11 +399,11 @@ class GlobalProvingJob():
                                                              input_data_path=submodel_input_path, 
                                                              onnx_model_path=sub_model_onnx_path))
                 
-        logger.info("Generate ZK proving settings for each model")
+        logger.info("generating settings for proving each model")
         #generate ezkl settings for each model and then summarize the model info in a report
         
         if save_ezkl_settings:
-            report_file = os.path.join(self.report_directory, 'models_to_proof_summary.csv')
+            report_file = os.path.join(self.report_directory, 'models_to_pove_summary.csv')
             for model in self.models_to_prove:
                 #get parent folder of model onnx file
                 model._gen_settings()
@@ -404,6 +426,22 @@ class GlobalProvingJob():
         for idx, model in enumerate (self.models_to_prove):
             logger.info(f"Generating ZK proof for model: {model.model_name} ({idx+1}/{len(self.models_to_prove)})")
             pref_metrics = model.generate_zk_proof()
+            report_file = os.path.join(self.report_directory, 'ezkl_perf.csv')
+            file_exists = os.path.isfile(report_file)
+            with open(report_file, mode='a', newline='') as file:
+                writer = csv.DictWriter(file, fieldnames=pref_metrics.keys())
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow(pref_metrics)
+
+            #copy the following files to the report directory
+            files_to_copy = ['halo2_circuit.csv', 'halo2_prover.csv','halo2_ffts_setup.csv',
+                             'halo2_msms_setup.csv',
+                             'halo2_ffts_prover.csv','halo2_msms_prover.csv',
+                             'halo2_ffts_verifier.csv','halo2_msms_verifier.csv']
+            for file in files_to_copy:
+                if os.path.isfile(file):
+                    os.system(f'mv {file} {self.report_directory}')
             #generate proof for each model
         logger.info(f"ZK proof generation completed for all sub-models")
 
@@ -420,10 +458,17 @@ def main(config: DictConfig):
         job_name=config.model.name,
         input_data_path=config.model.input_file,
         onnx_model_path=config.model.onnx_file,
-        num_of_splits=config.model.split_group_size)
+        num_of_splits=config.model.split_group_size,
+        cache_setup_files=config.cache_setup_files)
+    
     job.pepare_for_processing(save_ezkl_settings=True)
     job.gen_proof_for_sub_models()
-    logger.info("ZK proof generation completed")
+
+    if not job.cache_setup_files:
+        logger.info(f"Cleaning up cache directory: {job.cache_directory}")
+        os.system(f'rm -rf {job.cache_directory}')
+
+    logger.info("All done. Shutting down...")
     
 if __name__ == '__main__':
     main()
