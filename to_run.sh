@@ -1,0 +1,1 @@
+python gen_proof.py model=mnist_classifier
