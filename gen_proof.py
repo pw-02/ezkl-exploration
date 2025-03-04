@@ -53,8 +53,20 @@ def load_json_input(file_path):
 def format_model_input(input_data_path, expected_shape, input_type, idx = 0):
     expected_shape = [-1 if dim == 'batch_size' else dim for dim in expected_shape]
     input_data = load_json_input(input_data_path)['input_data']
-    input_data = np.array(input_data, dtype=np.float32)  # Convert back to NumPy array
-    reshaped_input = input_data.reshape(expected_shape)
+    
+    if input_type == 'tensor(float)':
+        input_data = np.array(input_data, dtype=np.float32)  # Convert back to NumPy array
+        reshaped_input = input_data.reshape(expected_shape)
+    
+    elif input_type == 'tensor(int64)':
+        if len(expected_shape)>0:
+            reshaped_input = np.array(input_data[idx], dtype=np.int64)
+        else:
+            reshaped_input = np.array(input_data[0][0],dtype=np.int64) 
+    
+    if 'gpt' in str(input_data_path).lower():
+        reshaped_input = np.reshape(input_data, (1, 64))  # Shape: (1, 64)
+
     #import matplotlib.pyplot as plt
     # plt.imshow(reshaped_input.squeeze(), cmap='gray')  # Removes batch and channel dimensions
     # plt.title("Input Image")
@@ -91,7 +103,7 @@ def get_msm_summary(msm_file, prefix):
         msm_metrics = {}
         df = pd.read_csv(msm_file)  # Replace 'your_file.csv' with the actual file path
         # Calculate the total number of MSMs
-        msm_metrics[f'{prefix}_hmsm_count'] = int(len(df))
+        msm_metrics[f'{prefix}_msm_count'] = int(len(df))
         msm_metrics[f'{prefix}_msm_largest'] = int(df['num_coeffs'].max())
         msm_metrics[f'{prefix}_msm_total_time(s)'] = float(df['duration(s)'].sum())
         msm_metrics[f'{prefix}_msm_avg_time(s)'] = float(df['duration(s)'].mean())
@@ -133,12 +145,13 @@ def extract_model(onnx_model_path,node_inputs,node_outputs,model_save_path: str 
     return new_model
 
 
-def split_onnx_model_at_every_node(onnx_model_path, json_input, intermediate_outputs, cache_dir):
-    models_with_inputs = OrderedDict()
+def split_model(onnx_model_path, json_input, intermediate_outputs, split_group_size, cache_dir, test_inference=True):
     model = onnx.load(onnx_model_path)
     initializers = {init.name for init in model.graph.initializer}
     exclude_operations = ['Identity',  'Constant']
-    counter =0
+    all_sub_models = OrderedDict()
+    models_with_inputs = OrderedDict()
+    
     for idx, node in enumerate(model.graph.node):
         # Skip excluded operations
         if node.op_type in exclude_operations:
@@ -152,32 +165,73 @@ def split_onnx_model_at_every_node(onnx_model_path, json_input, intermediate_out
         node_outputs = [output for output in node.output if output not in initializers and 'Constant' not in output]
         # Save or generate sub-model
         sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
-        session = ort.InferenceSession(sub_model.SerializeToString())
-        input_names = [input.name for input in session.get_inputs()]
-        if counter == 0:  # First part takes in the initial input
-            input = session.get_inputs()[0]
-            input_names[0] = input.name
-            input_shape = input.shape
-            input_type = input.type
-            input_data = format_model_input(json_input, input_shape, input_type)
-            intermediate_outputs[input.name] = input_data
-        inputs = []
-        for name in input_names:
-            inputs.append(intermediate_outputs[name].flatten().tolist())
-        counter +=1
-        proving_input = {"input_data": inputs}
-        # current_node_inputs.clear() 
-        if cache_dir:
-            sub_model_output_folder = os.path.join(cache_dir, f'split_{counter}')
-            model_save_path = f'{sub_model_output_folder}/model.onnx'
-            input_data_save_path = f'{sub_model_output_folder}/input.json'
-            os.makedirs(sub_model_output_folder, exist_ok=True)
-            onnx.save(sub_model, model_save_path)
-            with open(input_data_save_path, 'w') as json_file:
-                json.dump(proving_input, json_file, indent=4)
-        # current_node_inputs = node_outputs
-        models_with_inputs[f'split_model_{counter}'] = input_data_save_path, model_save_path
+        all_sub_models[f'split_model_{idx+1}'] = sub_model
+
+    if split_group_size > 1:
+        grouped_splits = []
+        items = list(all_sub_models.items())
+        temp2 = [dict(items[i:i+split_group_size]) for i in range(0, len(items), split_group_size)]
+        grouped_splits.extend(temp2)
+        all_sub_models = [merge_onnx_models(group) for group in grouped_splits]
+    
+    for idx, sub_model in enumerate(all_sub_models):
+       
+        sub_model_name = f'split_model_{idx+1}'
+
+        flattened_inputs = []
+        for input_tensor in sub_model.graph.input:
+            flattened_inputs.append(intermediate_outputs[input_tensor.name].flatten().tolist())
+        
+        input_data = {"input_data": flattened_inputs}
+    
+        sub_model_data_folder = os.path.join(cache_dir, sub_model_name)
+        model_save_path = os.path.join(sub_model_data_folder, 'model.onnx')
+        input_data_save_path = os.path.join(sub_model_data_folder, 'input.json')
+        os.makedirs(sub_model_data_folder, exist_ok=True)
+        onnx.save(sub_model, model_save_path)
+        with open(input_data_save_path, 'w') as json_file:
+            json.dump(input_data, json_file, indent=4)
+
+        # if test_inference:
+        #     output = run_model_inference(model_save_path, input_data_save_path)
+
+        models_with_inputs[sub_model_name] = input_data_save_path, model_save_path
+
     return models_with_inputs
+
+def merge_onnx_models(sub_models:OrderedDict):
+    
+    # Get the first model from the OrderedDict
+    first_model_id, first_model = next(iter(sub_models.items()))
+    # base_model = onnx.load(first_model_path)
+    merged_model = first_model
+    # model_input_data = first_model['input']
+    merged_model.graph.ClearField('output')
+   
+    sub_model_list = list(sub_models.items())
+    for idx, (model_id, model) in enumerate(sub_model_list[1:]):
+        # sub_model = onnx.load(model_path)
+        sub_model = model
+        for input_tensor in sub_model.graph.input:
+            if input_tensor not in merged_model.graph.input:
+                merged_model.graph.input.append(input_tensor)
+        sub_model.graph.ClearField('input')
+        for node in sub_model.graph.node:
+            merged_model.graph.node.append(node)
+        for initializer in sub_model.graph.initializer:
+            merged_model.graph.initializer.append(initializer)
+
+        if idx == len(sub_model_list) - 2:  # Last model in the iteration
+            for output_tensor in sub_model.graph.output:
+                if output_tensor not in merged_model.graph.output:
+                    merged_model.graph.output.append(output_tensor)
+        for value_info in sub_model.graph.value_info:
+            if value_info not in merged_model.graph.value_info:
+                merged_model.graph.value_info.append(value_info)
+    #look up for the input_data for this model part
+    return merged_model
+    # return {"model":merged_model, "input": model_input_data}
+    
     
 def collect_intermediate_inference_outputs(onnx_model_path, input_data_path):
         model = onnx.load(onnx_model_path)
@@ -376,12 +430,13 @@ class OnnxModelToProve():
         return function_times
 
 class GlobalProvingJob():
-    def __init__(self, job_name, input_data_path, onnx_model_path, num_of_splits, cache_setup_files=True):
+    def __init__(self, job_name, input_data_path, onnx_model_path, num_of_splits,split_group_size, cache_setup_files=True):
         
         self.model_name = job_name
         self.input_data_path = input_data_path
         self.onnx_model_path = onnx_model_path
         self.num_of_splits = num_of_splits
+        self.split_group_size = split_group_size
         self.inference_results = {} #stores results of model inference with and without ZKP proof
         self.status = JobStatus.PENDING
         self.models_to_prove: List[OnnxModelToProve] = []
@@ -426,16 +481,22 @@ class GlobalProvingJob():
         else:
             logger.info(f'Collecting intermediate inference outputs for sub-models')
             intermediate_inference_outputs = collect_intermediate_inference_outputs(self.onnx_model_path, self.input_data_path)
-            logger.info(f'Intermediate inference outputs collected') 
-            all_sub_models = split_onnx_model_at_every_node(
+            logger.info(f'Intermediate inference outputs collected')
+
+            logger.info(f"Splitting model at every node")
+            sub_models = split_model(
                 self.onnx_model_path, 
                 self.input_data_path,
                 intermediate_outputs=intermediate_inference_outputs,
+                split_group_size=self.split_group_size,
                 cache_dir=self.cache_directory)
             
-            logger.info(f"total number of sub-models to prove: {len(all_sub_models)}")
-            for idx, (submodel_name) in enumerate(all_sub_models.keys()):
-                submodel_input_path, sub_model_onnx_path = all_sub_models[submodel_name]
+            # if self.split_group_size < len(all_sub_models):
+            #     all_sub_models = self.group_models(all_sub_models, self.split_group_size, self.group_split_lists, False)
+            
+            logger.info(f"total number of sub-models to prove: {len(sub_models)}")
+            for idx, (submodel_name) in enumerate(sub_models.keys()):
+                submodel_input_path, sub_model_onnx_path = sub_models[submodel_name]
                 submodel_name = f"{self.model_name}_{submodel_name}"
                 self.models_to_prove.append(OnnxModelToProve(
                     job_id=idx+1,
@@ -465,6 +526,7 @@ class GlobalProvingJob():
                     writer.writerow(info)
 
     logger.info("Finished preparing job for processing")
+
 
     def gen_proof_for_sub_models(self):
         logger.info(f"Generating ZK proof for sub-models")
@@ -573,6 +635,7 @@ def main(config: DictConfig):
         input_data_path=config.model.input_file,
         onnx_model_path=config.model.onnx_file,
         num_of_splits=config.model.split_group_size,
+        split_group_size=config.model.split_group_size,
         cache_setup_files=config.cache_setup_files)
     
     job.pepare_for_processing(save_ezkl_settings=True)
