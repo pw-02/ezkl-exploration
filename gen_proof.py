@@ -178,12 +178,15 @@ def split_model(onnx_model_path, json_input, intermediate_outputs, split_group_s
     
     for idx, sub_model in enumerate(all_sub_models):
        
-        sub_model_name = f'split_model_{idx+1}'
-
         flattened_inputs = []
         for input_tensor in sub_model.graph.input:
             flattened_inputs.append(intermediate_outputs[input_tensor.name].flatten().tolist())
         
+        #check if flattened inputs are empty
+        if not flattened_inputs:
+            continue
+        sub_model_name = f'split_model_{idx+1}'
+
         input_data = {"input_data": flattened_inputs}
     
         sub_model_data_folder = os.path.join(cache_dir, sub_model_name)
