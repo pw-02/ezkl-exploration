@@ -1,11 +1,11 @@
 defaults:
   - _self_
-  - model: mnist_classifier  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
+  - model: mnist_gan  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
   # - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled
+cache_setup_files: True
 
-cache_setup_files: False
-save_ezkl_settings: False
+
 hydra:
   run:
     dir: .  # Current directory or a specific directory where Ray Tune expects to find it
