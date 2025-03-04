@@ -173,6 +173,8 @@ def split_model(onnx_model_path, json_input, intermediate_outputs, split_group_s
         temp2 = [dict(items[i:i+split_group_size]) for i in range(0, len(items), split_group_size)]
         grouped_splits.extend(temp2)
         all_sub_models = [merge_onnx_models(group) for group in grouped_splits]
+    else:
+        all_sub_models = list(all_sub_models.values())
     
     for idx, sub_model in enumerate(all_sub_models):
        
