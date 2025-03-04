@@ -419,6 +419,7 @@ class OnnxModelToProve():
     def generate_zk_proof(self, report_dir=None):
         function_times = {}
         functions = [('gen_settings', self._gen_settings),
+                ('calibrate_settings', self._calibrate_settings),
                 ('compile_circuit', self._compile_circuit),
                 ('get_srs', self._get_srs),
                 ('witness_gen', self._gen_witness),
