@@ -20,7 +20,7 @@ import csv
 from datetime import datetime, timezone
 import time
 from functools import wraps
-
+import pandas as pd
 # Decorator to time functions
 def time_function(func):
     @wraps(func)
@@ -63,9 +63,45 @@ def format_model_input(input_data_path, expected_shape, input_type, idx = 0):
     return reshaped_input
 
 def read_csv_into_dict(file_path):
-    with open(file_path, mode='r') as infile:
-        reader = csv.reader(infile)
-        return {rows[0]:rows[1] for rows in reader}
+    data = {}
+    with open(file_path, mode='r') as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            for key, value in row.items():
+                data[key] = value
+    return data
+
+
+def get_fft_summary(fft_file, prefix):
+        fft_metrics = {}
+        df = pd.read_csv(fft_file)  # Replace 'your_file.csv' with the actual file path
+        # Calculate the total number of FFTs
+        fft_metrics[f'{prefix}_fft_count'] = int(len(df))
+        fft_metrics[f'{prefix}_fft_largest'] = int(df['size'].max())
+        fft_metrics[f'{prefix}_fft_total_time(s)'] = float(df['duration(s)'].sum())
+        fft_metrics[f'{prefix}_fft_avg_time(s)'] = float(df['duration(s)'].mean())
+        fft_metrics[f'{prefix}_fft_device'] = str(df['device'].iloc[0])
+        # Convert the DataFrame to a dictionary
+        # data_dict = df.to_dict(orient='records')  # 'records' format creates a list of dictionaries
+        # fft_data = json.dumps(data_dict)
+        # fft_metrics[f'{prefix}_fft_data'] = fft_data
+        return fft_metrics
+
+def get_msm_summary(msm_file, prefix):
+        msm_metrics = {}
+        df = pd.read_csv(msm_file)  # Replace 'your_file.csv' with the actual file path
+        # Calculate the total number of MSMs
+        msm_metrics[f'{prefix}_hmsm_count'] = int(len(df))
+        msm_metrics[f'{prefix}_msm_largest'] = int(df['num_coeffs'].max())
+        msm_metrics[f'{prefix}_msm_total_time(s)'] = float(df['duration(s)'].sum())
+        msm_metrics[f'{prefix}_msm_avg_time(s)'] = float(df['duration(s)'].mean())
+        msm_metrics[f'{prefix}_msm_device'] = str(df['device'].iloc[0])
+        # Calculate the average duration
+        # Convert the DataFrame to a dictionary
+        # data_dict = df.to_dict(orient='records')  # 'records' format creates a list of dictionaries
+        # msm_data = json.dumps(data_dict)
+        # msm_metrics['msm_data'] = msm_data
+        return msm_metrics
 
 
 def run_model_inference(onnx_model_path, input_data_path):
@@ -411,7 +447,7 @@ class GlobalProvingJob():
         #generate ezkl settings for each model and then summarize the model info in a report
         
         if save_ezkl_settings:
-            report_file = os.path.join(self.report_directory, 'models_to_pove_summary.csv')
+            report_file = os.path.join(self.report_directory, 'models_to_prove_summary.csv')
             for model in self.models_to_prove:
                 #get parent folder of model onnx file
                 model._gen_settings()
@@ -436,8 +472,8 @@ class GlobalProvingJob():
         halo_2_circuit_sumamry_file = os.path.join(self.report_directory, 'halo2_circuit_summary.csv')
         halo_2_porver_sumamry_file = os.path.join(self.report_directory, 'halo2_prover_summary.csv')
         ezkl_perf_summary_file = os.path.join(self.report_directory, 'ezkl_perf_summary.csv')
-        msms_summary_file = os.path.join(self.report_directory, 'msms_summary_file.csv')
-        ffts_summary_file = os.path.join(self.report_directory, 'ffts_summary_file.csv')
+        msms_summary_file = os.path.join(self.report_directory, 'msms_summary.csv')
+        ffts_summary_file = os.path.join(self.report_directory, 'ntts_summary.csv')
 
         # overall_perf_summary_file = os.path.join(self.report_directory, 'overall_perf_summary.csv')
         
@@ -476,6 +512,41 @@ class GlobalProvingJob():
   
             model_report_dir = os.path.join(self.report_directory, f'{model.model_name}')
             os.makedirs(model_report_dir, exist_ok=True)
+
+            fft_data = model_info
+            if os.path.isfile('halo2_ffts_setup.csv'):
+                fft_setup_summary = get_fft_summary('halo2_ffts_setup.csv', 'steup')
+                fft_data = {**fft_data, **fft_setup_summary}
+            if os.path.isfile('halo2_ffts_prover.csv'):
+                fft_prover_summary = get_fft_summary('halo2_ffts_prover.csv', 'prove')
+                fft_data = {**fft_data, **fft_prover_summary}
+            if os.path.isfile('halo2_ffts_verifier.csv'):
+                fft_verifier_summary = get_fft_summary('halo2_ffts_verifier.csv', 'verify')
+                fft_data = {**fft_data, **fft_verifier_summary}
+            file_exists = os.path.isfile(ffts_summary_file)
+
+            with open(ffts_summary_file, mode='a', newline='') as file:
+                writer = csv.DictWriter(file, fieldnames=fft_data.keys())
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow(fft_data)
+
+            msm_data = model_info
+            if os.path.isfile('halo2_msms_setup.csv'):
+                msm_setup_summary = get_msm_summary('halo2_msms_setup.csv', 'setup')
+                msm_data = {**msm_data, **msm_setup_summary}
+            if os.path.isfile('halo2_msms_prover.csv'):
+                msm_prover_summary = get_msm_summary('halo2_msms_prover.csv', 'prover')
+                msm_data = {**msm_data, **msm_prover_summary}
+            if os.path.isfile('halo2_msms_verifier.csv'):
+                msm_verifier_summary = get_msm_summary('halo2_msms_verifier.csv', 'verifier')
+                msm_data = {**msm_data, **msm_verifier_summary}
+            file_exists = os.path.isfile(msms_summary_file)
+            with open(msms_summary_file, mode='a', newline='') as file:
+                writer = csv.DictWriter(file, fieldnames=msm_data.keys())
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow(msm_data)
 
             #copy the following files to the report directory
             files_to_copy = ['halo2_circuit.csv', 'halo2_prover.csv','halo2_ffts_setup.csv',
