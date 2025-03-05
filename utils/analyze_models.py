@@ -8,7 +8,6 @@ import numpy as np
 mdoels_to_analyze = [
     ('examples/onnx/mnist_classifier/network.onnx','mnist_classifier'),
     ('examples/onnx/mnist_gan/network.onnx','mnist_gan'),
-    ('examples/onnx/yolov3tiny/yolov3-tiny.onnx','yolov3tiny'),
     ('examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx','nano_gpt_4_layers_64_embd'),
     ('examples/onnx/nanoGPT/nano_gpt_4_layers_80_embd.onnx','nano_gpt_4_layers_80_embd'),
     ('examples/onnx/nanoGPT/nano_gpt_4_layers_96_embd.onnx','nano_gpt_4_layers_96_embd'),
@@ -24,6 +23,8 @@ mdoels_to_analyze = [
     ('examples/onnx/mobile_net/network.onnx','mobilenet'),
     ('examples/onnx/mobilenet_large/network.onnx','mobilenet_large'),
     ('examples/onnx/clip/network.onnx','clip'),
+    ('examples/onnx/xgboost/network.onnx','xgboost'),
+
 
 ]
 
