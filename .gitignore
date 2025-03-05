@@ -27,3 +27,4 @@ figures/*
 gen_proof.log
 reports/*
 cache/*
+utils/report.csv
