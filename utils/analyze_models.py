@@ -24,7 +24,13 @@ mdoels_to_analyze = [
     ('examples/onnx/mobilenet_large/network.onnx','mobilenet_large'),
     ('examples/onnx/clip/network.onnx','clip'),
     ('examples/onnx/xgboost/network.onnx','xgboost'),
-    ('dinov2_vits14.onnx','dinov2_vits14.onnx'),
+    ('examples/onnx/random_forest/network.onnx','random_forest'),
+    ('examples/onnx/lstm_large/network.onnx','lstm_large'),
+    ('examples/onnx/linear_regression/network.onnx','linear_regression'),
+    ('examples/onnx/lightgbm/network.onnx','lightgbm'),
+    ('examples/onnx/rnn/network.onnx','rnn'),
+
+
 ]
 
 def count_weights_and_tensors_in_onnx_model(model):
