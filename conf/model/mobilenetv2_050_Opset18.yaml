@@ -1,4 +1,4 @@
-name: mobilenet
+name: mobilenetv2_050_Opset18
 onnx_file: examples/onnx/mobile_net/mobilenetv2_050_Opset18.onnx # examples\onnx\mobile_net\mobilenetv2_050_Opset18.onnx
 input_file: examples/onnx/mobile_net/input.json
 split_group_size: 1 #1 splits the model into as many splits as possible
