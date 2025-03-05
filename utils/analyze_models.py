@@ -11,17 +11,19 @@ mdoels_to_analyze = [
     ('examples/onnx/nanoGPT/nano_gpt_4_layers_112_embd.onnx','nano_gpt_4_layers_112_embd'),
     ('examples/onnx/nanoGPT/nano_gpt_4_layers_128_embd.onnx','nano_gpt_4_layers_128_embd'),
     ('examples/onnx/nanoGPT/nano_gpt_4_layers_144_embd.onnx','nano_gpt_4_layers_144_embd'),
-
     ('examples/onnx/nanoGPT/nano_gpt_5_layers_64_embd.onnx','nano_gpt_5_layers_64_embd'),
     ('examples/onnx/nanoGPT/nano_gpt_10_layers_64_embd.onnx','nano_gpt_10_layers_64_embd'),
     ('examples/onnx/nanoGPT/nano_gpt_15_layers_64_embd.onnx','nano_gpt_15_layers_64_embd'),
     ('examples/onnx/nanoGPT/nano_gpt_20_layers_64_embd.onnx','nano_gpt_20_layers_64_embd'),
     ('examples/onnx/nanoGPT/nano_gpt_25_layers_64_embd.onnx','nano_gpt_25_layers_64_embd'),
-
-    # ('examples/onnx/nanoGPT/nano_gpt_12_layers_768_embd.onnx','nano_gpt_12_layers_768_embd'),
     ('examples/onnx/mobile_net/mobilenetv2_050_Opset18.onnx','mobilenetv2_050_Opset18'),
     ('examples/onnx/mobile_net/network.onnx','mobilenet'),
-    # ('examples/onnx/resnet18/resnet18-v1-7.onnx','resnet18-v1-7.onnx'),
+    ('examples/onnx/mobilenet_large/network.onnx','mobilenet_large')
+    ('examples/onnx/clip/network.onnx','clip'),
+
+
+
+
 ]
 
 def analyze_model(onnx_model_path, model_name):
