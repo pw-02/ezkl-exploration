@@ -93,9 +93,10 @@ def main(models_to_analyze):
 
     for onnx_model_path, model_name in models_to_analyze:
         if model_name in analyzed_models:
-            continue
-
+          continue
+    
         info = analyze_model(onnx_model_path, model_name)
+        file_exists = os.path.isfile(report_file)
         with open(report_file, mode='a', newline='') as file:
             writer = csv.DictWriter(file, fieldnames=info.keys())
             if not file_exists:
