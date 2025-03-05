@@ -19,10 +19,9 @@ mdoels_to_analyze = [
     ('examples/onnx/nanoGPT/nano_gpt_25_layers_64_embd.onnx','nano_gpt_25_layers_64_embd'),
 
     # ('examples/onnx/nanoGPT/nano_gpt_12_layers_768_embd.onnx','nano_gpt_12_layers_768_embd'),
-
     ('examples/onnx/mobile_net/mobilenetv2_050_Opset18.onnx','mobilenetv2_050_Opset18'),
     ('examples/onnx/mobile_net/network.onnx','mobilenet'),
-    ('examples/onnx/resnet18/resnet18-v1-7.onnx','resnet18-v1-7.onnx'),
+    # ('examples/onnx/resnet18/resnet18-v1-7.onnx','resnet18-v1-7.onnx'),
 ]
 
 def analyze_model(onnx_model_path, model_name):
