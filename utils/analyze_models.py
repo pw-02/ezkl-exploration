@@ -18,11 +18,8 @@ mdoels_to_analyze = [
     ('examples/onnx/nanoGPT/nano_gpt_25_layers_64_embd.onnx','nano_gpt_25_layers_64_embd'),
     ('examples/onnx/mobile_net/mobilenetv2_050_Opset18.onnx','mobilenetv2_050_Opset18'),
     ('examples/onnx/mobile_net/network.onnx','mobilenet'),
-    ('examples/onnx/mobilenet_large/network.onnx','mobilenet_large')
+    ('examples/onnx/mobilenet_large/network.onnx','mobilenet_large'),
     ('examples/onnx/clip/network.onnx','clip'),
-
-
-
 
 ]
 
