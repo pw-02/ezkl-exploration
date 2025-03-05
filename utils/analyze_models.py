@@ -3,6 +3,7 @@ import os
 import onnx
 import json
 import csv
+import numpy as np
 
 mdoels_to_analyze = [
     ('examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx','nano_gpt_4_layers_64_embd'),
@@ -23,6 +24,31 @@ mdoels_to_analyze = [
 
 ]
 
+def count_weights_and_tensors_in_onnx_model(model):
+    # Load the ONNX model
+    if isinstance(model, str):
+        model = onnx.load(model)
+    
+    total_weights = 0
+    total_input_size = 0
+    total_output_size = 0
+
+    # Count weights in initializers
+    for initializer in model.graph.initializer:
+        total_weights += len(onnx.numpy_helper.to_array(initializer).flatten())
+
+    # Count input tensor sizes
+    for input_tensor in model.graph.input:
+        shape = [dim.dim_value for dim in input_tensor.type.tensor_type.shape.dim]
+        total_input_size += int(np.prod(shape))
+
+    # Count output tensor sizes
+    for output_tensor in model.graph.output:
+        shape = [dim.dim_value for dim in output_tensor.type.tensor_type.shape.dim]
+        total_output_size += int(np.prod(shape))
+
+    return total_weights + total_input_size + total_output_size
+
 def analyze_model(onnx_model_path, model_name):
     data_dir = r'utils'
     tmp_file = os.path.join(data_dir, 'settings.json')
@@ -34,12 +60,16 @@ def analyze_model(onnx_model_path, model_name):
     for initializer in onnx_model.graph.initializer:
         param_array = onnx.numpy_helper.to_array(initializer)
         num_model_params += param_array.size
+    num_combined_params = count_weights_and_tensors_in_onnx_model(onnx_model)
+
+    
     
     info = {
         "name": model_name,
         "onnx_model_path": onnx_model_path,
         "num_model_ops": num_model_ops,
-        "num_model_params": num_model_params}
+        "num_model_params": num_model_params,
+        "num_combined_params": num_combined_params}
     
     if os.path.exists(tmp_file):
         with open(tmp_file, 'r') as f:
