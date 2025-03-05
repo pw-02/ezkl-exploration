@@ -6,6 +6,9 @@ import csv
 import numpy as np
 
 mdoels_to_analyze = [
+    ('examples/onnx/mnist_classifier/network.onnx','mnist_classifier'),
+    ('examples/onnx/mnist_gan/network.onnx','mnist_gan'),
+    ('examples/onnx/yolov3tiny/yolov3-tiny.onnx','yolov3tiny'),
     ('examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx','nano_gpt_4_layers_64_embd'),
     ('examples/onnx/nanoGPT/nano_gpt_4_layers_80_embd.onnx','nano_gpt_4_layers_80_embd'),
     ('examples/onnx/nanoGPT/nano_gpt_4_layers_96_embd.onnx','nano_gpt_4_layers_96_embd'),
@@ -53,7 +56,6 @@ def analyze_model(onnx_model_path, model_name):
     data_dir = r'utils'
     tmp_file = os.path.join(data_dir, 'settings.json')
 
-    ezkl.gen_settings(onnx_model_path, tmp_file)
     onnx_model = onnx.load(onnx_model_path)
     num_model_ops  = len(onnx_model.graph.node)
     num_model_params =  0
@@ -62,7 +64,8 @@ def analyze_model(onnx_model_path, model_name):
         num_model_params += param_array.size
     num_combined_params = count_weights_and_tensors_in_onnx_model(onnx_model)
 
-    
+    ezkl.gen_settings(onnx_model_path, tmp_file)
+
     
     info = {
         "name": model_name,
