@@ -21,6 +21,9 @@ from datetime import datetime, timezone
 import time
 from functools import wraps
 import pandas as pd
+import threading
+from utils.resource_monitor import log_system_usage
+import multiprocessing
 # Decorator to time functions
 def time_function(func):
     @wraps(func)
@@ -449,6 +452,8 @@ class GlobalProvingJob():
         date_time_utc_str = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
         self.cache_directory = os.path.join('cache', self.model_name)
         self.report_directory = os.path.join('reports', self.model_name, date_time_utc_str)
+        #create report directory if it does not exist
+        os.makedirs(self.report_directory, exist_ok=True)
         self.cache_setup_files = cache_setup_files
 
     def pepare_for_processing(self, save_ezkl_settings=True):
@@ -644,6 +649,14 @@ def main(config: DictConfig):
         split_group_size=config.model.split_group_size,
         cache_setup_files=config.cache_setup_files)
     
+      # Start the logging in a separate thread
+    log_file = os.path.join(job.report_directory, "system_usage.log")
+    # logging_thread = threading.Thread(target=log_system_usage, args=(log_file,), daemon=True)
+    # logging_thread.start()
+    # Start logging in a separate process
+    logging_process = multiprocessing.Process(target=log_system_usage, args=(log_file,))
+    logging_process.start()
+    
     job.pepare_for_processing(save_ezkl_settings=True)
     job.gen_proof_for_sub_models()
 
@@ -651,6 +664,7 @@ def main(config: DictConfig):
         logger.info(f"Cleaning up cache directory: {job.cache_directory}")
         os.system(f'rm -rf {job.cache_directory}')
 
+    logging_process.terminate()
     logger.info("All done. Shutting down...")
     
 if __name__ == '__main__':
