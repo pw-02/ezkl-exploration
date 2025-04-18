@@ -184,7 +184,7 @@ def split_model(onnx_model_path, json_input, intermediate_outputs, split_group_s
         flattened_inputs = []
         for input_tensor in sub_model.graph.input:
             flattened_inputs.append(intermediate_outputs[input_tensor.name].flatten().tolist())
-        
+            # flattened_inputs.append(intermediate_outputs[input_tensor.name].numpy()).reshape([-1]).tolist()
         #check if flattened inputs are empty
         if not flattened_inputs:
             continue

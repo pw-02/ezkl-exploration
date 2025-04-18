@@ -1,0 +1,5 @@
+name: custom
+onnx_file: tests/splt_model/network.onnx
+input_file: tests/splt_model/input_0.json
+split_group_size: 1
+group_splits: null 
