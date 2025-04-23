@@ -336,12 +336,14 @@ class OnnxModelToProve():
             for initializer in onnx_model.graph.initializer:
                 param_array = onnx.numpy_helper.to_array(initializer)
                 self.num_model_params += param_array.size
-        
+        #save all model ops as a list in the settings file
+        num_model_ops_str = [node.op_type for node in onnx_model.graph.node]
         #get ezkl settings if file exists
         info = {
             "name": self.model_name,
             "onnx_model_path": self.onnx_model_path,
             "input_data_path": self.input_data_path,
+            "model_ops": num_model_ops_str,
             "num_model_ops": self.num_model_ops,
             "num_model_params": self.num_model_params}
         
