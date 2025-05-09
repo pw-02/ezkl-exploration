@@ -1,0 +1,156 @@
+import matplotlib.pyplot as plt
+import pandas as pd
+import io
+from matplotlib.ticker import FuncFormatter
+
+# Raw data as provided
+data = """
+ModelParameters,ZKCircuitConstraints
+351680,13422116
+401408,10235909
+401568,12042259
+401408,10235907
+301192,7024654
+702896,30908454
+1204224,30707737
+753120,12870158
+301056,7676934
+201488,4716558
+352864,16658462
+602112,15353867
+603072,18063385
+602112,15353865
+352784,7125013
+150528,1655808
+352864,16658461
+602112,15353868
+377280,6435082
+150528,3838467
+89360,1781254
+89440,4164617
+150528,3838467
+151488,4515844
+150528,3838470
+89360,1781254
+37632,413954
+89440,4164618
+150528,3838470
+151488,4515847
+150528,3838465
+89360,1781258
+37632,413953
+89440,4164617
+150528,3838466
+95040,1608771
+37632,959616
+28192,740100
+50240,2383365
+75264,1919236
+77184,2257925
+75264,1919233
+50080,1191686
+18816,206976
+50240,2383365
+75264,1919235
+77184,2257921
+75264,1919234
+50080,1191686
+18816,206976
+50240,2383364
+75264,1919234
+77184,2257922
+75264,1919234
+50080,1191685
+18816,206976
+50240,2383367
+75264,1919234
+77184,2257925
+75264,1919234
+56304,1637000
+79968,4026635
+112896,2878852
+115776,3386886
+112896,2878851
+79728,2239115
+28224,310464
+79968,4026635
+112896,2878851
+115776,3386889
+112896,2878851
+79728,2239115
+28224,310464
+79968,4026636
+112896,2878853
+73440,1206580
+28224,719712
+41152,857701
+66320,2054087
+47040,1199520
+51840,1411203
+47040,1199520
+65920,1309287
+11760,129360
+66320,2054087
+47040,1199520
+51840,1411203
+47040,1199520
+65920,1309287
+11760,129360
+66320,2054086
+47040,1199520
+51840,1411203
+47040,1199520
+108320,2430414
+276640,7965482
+125440,3198722
+64000,592642
+2560,31360
+1283280,696244
+"""
+import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
+import pandas as pd
+import io
+
+# Load into DataFrame
+df = pd.read_csv(io.StringIO(data))
+
+# Define a formatter to convert to "M" format
+def millions(x, pos):
+    return f'{x*1e-6:.1f}M'
+
+def millions1(x, pos):
+    return f'{x*1e-6:.0f}M'
+
+# Define figure size (width, height) in inches
+plt.figure(figsize=(8, 4))  # You can adjust these numbers to your preference
+
+# Scatter plot with larger markers and semi-transparency
+plt.scatter(
+    df['ModelParameters'],
+    df['ZKCircuitConstraints'],
+    s=90,              # marker size
+    alpha=0.8,         # transparency
+    edgecolors='black'  # avoid edgecolor warnings
+)
+
+# Apply the formatter to both axes
+plt.gca().xaxis.set_major_formatter(FuncFormatter(millions))
+plt.gca().yaxis.set_major_formatter(FuncFormatter(millions1))
+
+# Labels and title with increased font size
+plt.xlabel('Model Parameters', fontsize=14)
+plt.ylabel('ZK Circuit Constraints', fontsize=14)
+# plt.title('Model Size vs. ZK Constraints (Splt MobileNet Model)', fontsize=16)
+
+# Grid with lighter dashed lines
+plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+
+# Increase tick label size
+plt.tick_params(axis='both', labelsize=12)
+
+# Tight layout to avoid clipping
+plt.tight_layout()
+
+# Show plot
+plt.show()
