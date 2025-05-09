@@ -1,6 +1,10 @@
 defaults:
   - _self_
+<<<<<<< HEAD
   - model: custom  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
+=======
+  - model: mnist_gan  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
+>>>>>>> fbd8c76c48878301aec44c1718f59f008b68a93a
   # - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled
 cache_setup_files: True

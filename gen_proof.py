@@ -221,13 +221,32 @@ def merge_onnx_models(sub_models:OrderedDict):
         # sub_model = onnx.load(model_path)
         sub_model = model
         for input_tensor in sub_model.graph.input:
-            if input_tensor not in merged_model.graph.input:
-                merged_model.graph.input.append(input_tensor)
+            # Check if the input tensor is already in the merged mode
+            name = input_tensor.name
+            non_in_mergerd = True
+            for merged_input in merged_model.graph.input:
+                if merged_input.name == name:
+                    non_in_mergerd = False
+                    break
+            if non_in_mergerd:
+                merged_model.graph.input.append(input_tensor) 
+            # if input_tensor not in merged_model.graph.input:
+            #     merged_model.graph.input.append(input_tensor)
         sub_model.graph.ClearField('input')
         for node in sub_model.graph.node:
             merged_model.graph.node.append(node)
         for initializer in sub_model.graph.initializer:
             merged_model.graph.initializer.append(initializer)
+
+        #remove duplicates from inputs 
+        inputs_already_in_merged = set()
+        for input_tensor in merged_model.graph.input:
+            if input_tensor.name in inputs_already_in_merged:
+                merged_model.graph.input.remove(input_tensor)
+            else:
+                inputs_already_in_merged.add(input_tensor.name)
+        #remove duplicates from outputs
+
 
         if idx == len(sub_model_list) - 2:  # Last model in the iteration
             for output_tensor in sub_model.graph.output:
@@ -300,7 +319,33 @@ class JobStatus(Enum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
 
+
+def count_weights_and_tensors_in_onnx_model(model):
+    # Load the ONNX model
+    if isinstance(model, str):
+        model = onnx.load(model)
     
+    total_weights = 0
+    total_input_size = 0
+    total_output_size = 0
+
+    # Count weights in initializers
+    for initializer in model.graph.initializer:
+        total_weights += len(onnx.numpy_helper.to_array(initializer).flatten())
+
+    # Count input tensor sizes
+    for input_tensor in model.graph.input:
+        shape = [dim.dim_value for dim in input_tensor.type.tensor_type.shape.dim]
+        total_input_size += int(np.prod(shape))
+
+    # Count output tensor sizes
+    for output_tensor in model.graph.output:
+        shape = [dim.dim_value for dim in output_tensor.type.tensor_type.shape.dim]
+        total_output_size += int(np.prod(shape))
+
+    return total_weights + total_input_size + total_output_size
+
+
 class OnnxModelToProve():
     def __init__(self, 
                  job_id, 
@@ -336,14 +381,20 @@ class OnnxModelToProve():
             for initializer in onnx_model.graph.initializer:
                 param_array = onnx.numpy_helper.to_array(initializer)
                 self.num_model_params += param_array.size
-        
+            
+            num_combined_params = count_weights_and_tensors_in_onnx_model(onnx_model)
+
+
+        #save all model ops as a list in the settings file
+        num_model_ops_str = [node.op_type for node in onnx_model.graph.node]
         #get ezkl settings if file exists
         info = {
             "name": self.model_name,
             "onnx_model_path": self.onnx_model_path,
             "input_data_path": self.input_data_path,
+            "model_ops": num_model_ops_str,
             "num_model_ops": self.num_model_ops,
-            "num_model_params": self.num_model_params}
+            "num_model_params": num_combined_params}
         
         if os.path.exists(self.settings_path):
             with open(self.settings_path, 'r') as f:
