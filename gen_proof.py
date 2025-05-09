@@ -1,29 +1,40 @@
-
-import hydra
-from omegaconf import DictConfig
-import logging
-from typing import List
+# Standard library
 import os
 import json
+import csv
+import time
+import logging
+import threading
+import multiprocessing
 from enum import Enum
-import onnx
-import ezkl
+from datetime import datetime, timezone
+from functools import wraps
+from collections import OrderedDict
+from typing import List
+# Third-party libraries
+import numpy as np
+import pandas as pd
 import onnx
 import onnxruntime as ort
-import json
-import numpy as np
-import os
-import logging
-from collections import OrderedDict
 from onnx.utils import Extractor
-import csv
-from datetime import datetime, timezone
-import time
-from functools import wraps
-import pandas as pd
-import threading
+import ezkl
+import hydra
+from omegaconf import DictConfig
+import shutil  # at the top of your file
+# Local modules
 from utils.resource_monitor import log_system_usage
-import multiprocessing
+
+
+def make_json_serializable(obj):
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {k: make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [make_json_serializable(v) for v in obj]
+    else:
+        return obj
+
 # Decorator to time functions
 def time_function(func):
     @wraps(func)
@@ -507,19 +518,18 @@ class GlobalProvingJob():
         os.makedirs(self.report_directory, exist_ok=True)
         self.cache_setup_files = cache_setup_files
 
-    def pepare_for_processing(self, save_ezkl_settings=True):
+    def prepare_for_processing(self, save_ezkl_settings=True):
         
         logger.info(f"Preparing job for processing: {self.model_name}")
-        #verify the input data path and model path 
-        if not os.path.exists(self.input_data_path):
-            logger.error(f'Input data path does not exist: {self.input_data_path}')
-            raise FileNotFoundError(f"Input data path does not exist: {self.input_data_path}")
-        if not os.path.exists(self.onnx_model_path):
-            logger.error(f'ONNX model path does not exist: {self.onnx_model_path}')
-            raise FileNotFoundError(f"ONNX model path does not exist: {self.onnx_model_path}")
         try:
             #check if the model and input data are valid, and store the inference result
             self.inference_results['non_zk_inference'] = run_model_inference(self.onnx_model_path, self.input_data_path)
+            #save the inference result to a file
+            inference_result_file = os.path.join(self.report_directory, 'inference_results_nonzk.json')
+            serializable_output = make_json_serializable(self.inference_results['non_zk_inference'])
+
+            with open(inference_result_file, 'w') as f:
+                json.dump(serializable_output, f, indent=4)
         except Exception as e:
             logger.error(f"Error running model inference: {e}. Check the input data and model cmpatibility.")
             raise e
@@ -570,13 +580,12 @@ class GlobalProvingJob():
         #generate ezkl settings for each model and then summarize the model info in a report
         
         if save_ezkl_settings:
-            report_file = os.path.join(self.report_directory, 'models_to_prove_summary.csv')
+            report_file = os.path.join(self.report_directory, 'ezkl_settings_summary.csv')
             for model in self.models_to_prove:
                 #get parent folder of model onnx file
                 model._gen_settings()
                 info = model.generate_model_info()
                 #save model info to report directory
-                
 
                 #create report directory if it does not exist
                 os.makedirs(self.report_directory, exist_ok=True)
@@ -700,23 +709,24 @@ def main(config: DictConfig):
         split_group_size=config.model.split_group_size,
         cache_setup_files=config.cache_setup_files)
     
-      # Start the logging in a separate thread
+    # Start system usage logging in a separate process (more isolated than a thread)
     log_file = os.path.join(job.report_directory, "system_usage.log")
-    # logging_thread = threading.Thread(target=log_system_usage, args=(log_file,), daemon=True)
-    # logging_thread.start()
-    # Start logging in a separate process
     logging_process = multiprocessing.Process(target=log_system_usage, args=(log_file,))
     logging_process.start()
     
-    job.pepare_for_processing(save_ezkl_settings=True)
-    job.gen_proof_for_sub_models()
+    try:
+        job.prepare_for_processing(save_ezkl_settings=True)
+        job.gen_proof_for_sub_models()
 
-    if not job.cache_setup_files:
-        logger.info(f"Cleaning up cache directory: {job.cache_directory}")
-        os.system(f'rm -rf {job.cache_directory}')
+        if not job.cache_setup_files:
+            logger.info(f"Cleaning up cache directory: {job.cache_directory}")
+            shutil.rmtree(job.cache_directory, ignore_errors=True)
 
-    logging_process.terminate()
-    logger.info("All done. Shutting down...")
+    finally:
+        if logging_process.is_alive():
+            logging_process.terminate()
+            logging_process.join()
+        logger.info("All done. Shutting down...")
     
 if __name__ == '__main__':
     main()

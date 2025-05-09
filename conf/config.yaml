@@ -1,10 +1,10 @@
 defaults:
   - _self_
-  - model: custom  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
+  - model: mnist_classifier  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
   # - override hydra/job_logging: disabled
   - override hydra/hydra_logging: disabled
-cache_setup_files: True
-
+cache_setup_files: False  # Disable cache setup files
+save_ezkl_settings: True  # Disable saving ezkl settings
 
 hydra:
   run:
@@ -16,4 +16,3 @@ hydra:
     level: DISABLE  # Disable job-specific logging
   hydra_logging:
     level: DISABLE  # Disable Hydra-specific logging
-    
