@@ -1,0 +1,85 @@
+[2025-05-15 15:05:40,162][debug_submit][INFO] - 🔁 Submitting job with config:
+[2025-05-15 15:05:40,164][debug_submit][INFO] - 
+name: mnist_classifier
+onnx_file: examples/onnx/mnist_classifier/network.onnx
+input_file: examples/onnx/mnist_classifier/input.json
+split_mode: none
+ops_per_chunk: 1
+
+[2025-05-15 15:05:40,189][debug_submit][INFO] - ✅ Job submitted. Assigned ID: mnist_classifier
+[2025-05-15 15:05:40,190][zk.worker][INFO] - ✅ Connected to dispatcher at 0.0.0.0:50051
+[2025-05-15 15:05:40,192][zk.worker][INFO] - 📦 Got sub-job mnist_classifier_1 for job mnist_classifier
+[2025-05-15 15:05:40,195][zk][INFO] - mnist_classifier_1: gen_settings took 0.000s
+[2025-05-15 15:05:40,220][ezkl.execute][INFO] - num calibration batches: 1
+[2025-05-15 15:05:40,222][tract_linalg.x86_64_fma][INFO] - qmmm_i32: x86_64/avx2 activated
+[2025-05-15 15:05:40,223][tract_linalg.x86_64_fma][INFO] - mmm_f32, mmv_f32, sigmoid_f32, tanh_f32: x86_64/fma activated
+[2025-05-15 15:05:40,912][ezkl.circuit.table][WARNING] - Using 3 columns for non-linearity table.
+[2025-05-15 15:05:40,913][ezkl.circuit.table][WARNING] - Using 3 columns for non-linearity table.
+[2025-05-15 15:05:40,915][ezkl.circuit.table][WARNING] - Using 5 columns for non-linearity table.
+[2025-05-15 15:05:40,920][ezkl.circuit.table][WARNING] - Using 5 columns for non-linearity table.
+[2025-05-15 15:05:40,926][ezkl.circuit.table][WARNING] - Using 5 columns for non-linearity table.
+[2025-05-15 15:05:40,930][ezkl.circuit.table][WARNING] - Using 5 columns for non-linearity table.
+[2025-05-15 15:05:43,002][ezkl.execute][ERROR] - calibration failed max lookup input (-67673185285, 70690877612) is too large
+[2025-05-15 15:05:43,679][ezkl.circuit.table][WARNING] - Using 3 columns for non-linearity table.
+[2025-05-15 15:05:43,680][ezkl.circuit.table][WARNING] - Using 5 columns for non-linearity table.
+[2025-05-15 15:05:43,685][ezkl.circuit.table][WARNING] - Using 5 columns for non-linearity table.
+[2025-05-15 15:05:44,644][ezkl.execute][ERROR] - calibration failed max lookup input (-140812322498201110, 156639222623669413) is too large
+[2025-05-15 15:05:45,369][ezkl.execute][ERROR] - calibration failed max lookup input (-140812322498201110, 156639222623669413) is too large
+[2025-05-15 15:05:45,996][ezkl.circuit.table][WARNING] - Using 9 columns for non-linearity table.
+[2025-05-15 15:05:46,011][ezkl.circuit.table][WARNING] - Using 9 columns for non-linearity table.
+[2025-05-15 15:05:46,026][ezkl.circuit.table][WARNING] - Using 9 columns for non-linearity table.
+[2025-05-15 15:05:46,043][ezkl.execute][ERROR] - calibration failed extended k is too large to accommodate the quotient polynomial with logrows 6
+[2025-05-15 15:05:47,556][ezkl.execute][ERROR] - calibration failed max lookup input (-541264711795, 488071953251) is too large
+[2025-05-15 15:05:48,237][ezkl.circuit.table][WARNING] - Using 9 columns for non-linearity table.
+[2025-05-15 15:05:48,256][ezkl.circuit.table][WARNING] - Using 9 columns for non-linearity table.
+[2025-05-15 15:05:48,277][ezkl.execute][ERROR] - calibration failed extended k is too large to accommodate the quotient polynomial with logrows 6
+[2025-05-15 15:05:48,882][ezkl.execute][ERROR] - calibration failed max lookup input (-2252479112249989571, 2506401377033962803) is too large
+[2025-05-15 15:05:49,434][ezkl.execute][ERROR] - calibration failed max lookup input (-2252479112249989571, 2506401377033962803) is too large
+[2025-05-15 15:05:50,059][ezkl.execute][ERROR] - calibration failed max lookup input (-528594898, 552314153) is too large
+[2025-05-15 15:05:51,790][ezkl.execute][ERROR] - calibration failed max lookup input (-4330045938422, 3904495452021) is too large
+[2025-05-15 15:05:52,433][ezkl.execute][ERROR] - calibration failed max lookup input (-528238172, 552303758) is too large
+[2025-05-15 15:05:53,088][ezkl.execute][ERROR] - calibration failed max lookup input (-36041413721204961212, 40103936182662964774) is too large
+[2025-05-15 15:05:53,655][ezkl.execute][ERROR] - calibration failed max lookup input (-36041413721204961212, 40103936182662964774) is too large
+[2025-05-15 15:05:54,306][ezkl.circuit.table][WARNING] - Using 9 columns for non-linearity table.
+[2025-05-15 15:05:54,325][ezkl.circuit.table][WARNING] - Using 9 columns for non-linearity table.
+[2025-05-15 15:05:54,347][ezkl.execute][ERROR] - calibration failed extended k is too large to accommodate the quotient polynomial with logrows 6
+[2025-05-15 15:05:57,308][ezkl.execute][ERROR] - calibration failed max lookup input (-541262359028, 565606158140) is too large
+[2025-05-15 15:05:58,482][ezkl.circuit.table][WARNING] - Using 9 columns for non-linearity table.
+[2025-05-15 15:05:58,511][ezkl.execute][ERROR] - calibration failed extended k is too large to accommodate the quotient polynomial with logrows 6
+[2025-05-15 15:05:59,501][ezkl.execute][ERROR] - calibration failed max lookup input (-4504987991448987053, 5012745669989689862) is too large
+[2025-05-15 15:06:00,877][ezkl.execute][ERROR] - calibration failed max lookup input (-4504987991448987053, 5012745669989689862) is too large
+[2025-05-15 15:06:02,126][ezkl.execute][ERROR] - calibration failed max lookup input (-528583752, 552311845) is too large
+[2025-05-15 15:06:05,470][ezkl.execute][ERROR] - calibration failed max lookup input (-4330027105715, 3904511492992) is too large
+[2025-05-15 15:06:06,962][ezkl.execute][ERROR] - calibration failed max lookup input (-528235873, 552299887) is too large
+[2025-05-15 15:06:08,115][ezkl.execute][ERROR] - calibration failed max lookup input (-72083302659278072233, 80206960162414856385) is too large
+[2025-05-15 15:06:09,341][ezkl.execute][ERROR] - calibration failed max lookup input (-72083302659278072233, 80206960162414856385) is too large
+[2025-05-15 15:06:10,354][ezkl.execute][ERROR] - calibration failed max lookup input (-528598186, 552308287) is too large
+[2025-05-15 15:06:13,396][ezkl.execute][ERROR] - calibration failed max lookup input (-4330058745701, 4524442935781) is too large
+[2025-05-15 15:06:14,495][ezkl.execute][ERROR] - calibration failed max lookup input (-528239735, 552300163) is too large
+[2025-05-15 15:06:15,401][ezkl.execute][ERROR] - calibration failed max lookup input (-144168218337646439236, 160411981464014950019) is too large
+[2025-05-15 15:06:16,543][ezkl.execute][ERROR] - calibration failed max lookup input (-144168218337646439236, 160411981464014950019) is too large
+[2025-05-15 15:06:16,544][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 12, param_scale: 12, scale_input_multiplier: 1) ------------->
+
++---------------+----------------+-------------+----------------+----------------+------------------+---------------+---------------+--------------------+--------------------+------------------------+
+| mean_error    | median_error   | max_error   | min_error      | mean_abs_error | median_abs_error | max_abs_error | min_abs_error | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++---------------+----------------+-------------+----------------+----------------+------------------+---------------+---------------+--------------------+--------------------+------------------------+
+| 0.00016664862 | 0.000062942505 | 0.001101017 | -0.00034368038 | 0.0003246963   | 0.000062942505   | 0.001101017   | 0.00000333786 | 0.00000019003619   | -0.0001879532      | 0.00043043363          |
++---------------+----------------+-------------+----------------+----------------+------------------+---------------+---------------+--------------------+--------------------+------------------------+
+
+
+[2025-05-15 15:06:16,548][zk][INFO] - mnist_classifier_1: calibrate_settings took 36.353s
+[2025-05-15 15:06:16,549][zk][INFO] - mnist_classifier_1: compile_circuit took 0.000s
+[2025-05-15 15:06:16,551][ezkl.execute][INFO] - SRS already exists at that path
+[2025-05-15 15:06:16,575][ezkl.execute][INFO] - read 33554692 bytes from file (vector of len = 33554692)
+[2025-05-15 15:06:16,611][ezkl.execute][INFO] - file hash: d0148475717a2ba269784a178cb0ab617bc77f16c58d4a3cbdfe785b591c7034
+[2025-05-15 15:06:16,614][zk][INFO] - mnist_classifier_1: get_srs took 0.065s
+[2025-05-15 15:06:17,222][zk][INFO] - mnist_classifier_1: witness_gen took 0.607s
+[2025-05-15 15:06:17,222][zk][INFO] - mnist_classifier_1: setup took 0.000s
+[2025-05-15 15:06:17,233][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_classifier/pk.json"
+[2025-05-15 15:06:18,777][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-05-15 15:06:18,777][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg18.srs"
+[2025-05-15 15:06:18,817][ezkl.execute][INFO] - downsizing params to 18 logrows
+[2025-05-15 15:06:18,817][ezkl.pfsys][INFO] - proof started...
+[2025-05-15 15:06:18,958][ezkl.graph.model][INFO] - model layout...

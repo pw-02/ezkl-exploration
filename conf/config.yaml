@@ -1,18 +1,34 @@
 defaults:
   - _self_
-  - model: mnist_classifier  # mobilenet, mnist_gan, mnist_classifier, little_transformer, nano_gpt
-  # - override hydra/job_logging: disabled
+  - dispatcher: default
+  - worker: default
+  - model: mnist_classifier  # Options: mobilenet, mnist_gan, little_transformer, nano_gpt, etc.
   - override hydra/hydra_logging: disabled
-cache_setup_files: False  # Disable cache setup files
-save_ezkl_settings: True  # Disable saving ezkl settings
 
+# Global control flags
+cache_setup_files: false     # Whether to retain setup files like vk/pk.json after proving
+save_ezkl_settings: true     # Whether to save EZKL settings per model part
+
+# Dispatcher or worker launch mode (set in CLI)
+run_mode: null  # Options: dispatcher, worker, submit
+
+# Hydra output control
 hydra:
   run:
-    dir: .  # Current directory or a specific directory where Ray Tune expects to find it
+    dir: .                    # Keep runtime outputs local
   sweep:
-    dir: .  # Same as above
-  output_subdir: null
+    dir: .
+  output_subdir: null         # Prevent nested output folders
   job_logging:
-    level: DISABLE  # Disable job-specific logging
+    level: DISABLE
   hydra_logging:
-    level: DISABLE  # Disable Hydra-specific logging
+    level: DISABLE
+
+#Launch Dispatcher
+#python grpc_api/dispatcher_server.py --config-name=config run_mode=dispatcher
+
+# Launch Worker:
+#python grpc_api/worker_client.py --config-name=config run_mode=worker
+
+#submit job to dispatcher
+# python grpc_api/submit_job.py --config-name=config run_mode=submit

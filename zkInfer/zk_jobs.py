@@ -15,6 +15,28 @@ from zkInfer.inference_utils import run_model_inference, load_json_input
 from zkInfer.onnx_splitter import split_model, collect_intermediate_inference_outputs
 from zkInfer.metrics import get_fft_summary, get_msm_summary, read_csv_into_dict
 
+
+import time
+from functools import wraps
+
+def timed(fn):
+    @wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        start = time.perf_counter()
+        result = fn(self, *args, **kwargs)
+        return time.perf_counter() - start
+    return wrapper
+
+def timed_with_result(fn):
+    @wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        start = time.perf_counter()
+        result = fn(self, *args, **kwargs)
+        duration = time.perf_counter() - start
+        return result, duration
+    return wrapper
+
+
 class JobStatus(Enum):
     PENDING = "PENDING"
     IN_PROGRESS = "IN_PROGRESS"
@@ -67,40 +89,32 @@ class OnnxModelToProve:
 
         return info
 
-    def _timed(self, fn):
-        import time
-        def wrapper():
-            start = time.perf_counter()
-            result = fn()
-            return time.perf_counter() - start
-        return wrapper
-
-    @_timed
+    @timed
     def _gen_settings(self):
         if not self.overwrite and os.path.exists(self.settings_path):
             return 0.0
         ezkl.gen_settings(self.onnx_model_path, self.settings_path)
 
-    @_timed
+    @timed
     def _calibrate_settings(self):
         ezkl.calibrate_settings(self.input_data_path, self.onnx_model_path, self.settings_path, "resources")
 
-    @_timed
+    @timed
     def _compile_circuit(self):
         if not self.overwrite and os.path.exists(self.compiled_circuit_path):
             return 0.0
         ezkl.compile_circuit(self.onnx_model_path, self.compiled_circuit_path, self.settings_path)
 
-    @_timed
+    @timed
     def _get_srs(self):
         ezkl.get_srs(self.settings_path)
 
-    @_timed
+    @timed
     def _gen_witness(self):
         ezkl.gen_witness(self.input_data_path, self.compiled_circuit_path, self.witness_path)
         assert os.path.exists(self.witness_path)
 
-    @_timed
+    @timed
     def _setup(self):
         if not self.overwrite and os.path.exists(self.pk_path):
             return 0.0
@@ -109,7 +123,7 @@ class OnnxModelToProve:
             if os.path.exists(file):
                 shutil.move(file, file.replace('.', '_setup.'))
 
-    @_timed
+    @timed
     def _prove(self):
         ezkl.prove(self.witness_path, self.compiled_circuit_path, self.pk_path, self.proof_path, "single")
         for file in ['halo2_ffts.csv', 'halo2_msms.csv']:
@@ -117,7 +131,7 @@ class OnnxModelToProve:
                 shutil.move(file, file.replace('.', '_prover.'))
         assert os.path.exists(self.proof_path)
 
-    @_timed
+    @timed
     def _verify(self):
         try:
             ezkl.verify(self.proof_path, self.settings_path, self.vk_path)
@@ -148,12 +162,13 @@ class OnnxModelToProve:
 
 
 class GlobalProvingJob:
-    def __init__(self, job_name, input_data_path, onnx_model_path, num_of_splits, split_group_size, cache_setup_files=True):
+    def __init__(self, job_name, onnx_model_path, input_data_path,
+                 split_mode="auto", ops_per_chunk=1, cache_setup_files=True):
         self.model_name = job_name
         self.input_data_path = input_data_path
         self.onnx_model_path = onnx_model_path
-        self.num_of_splits = num_of_splits
-        self.split_group_size = split_group_size
+        self.split_mode = split_mode
+        self.ops_per_chunk = ops_per_chunk
         self.cache_setup_files = cache_setup_files
 
         self.inference_results = {}
@@ -167,7 +182,6 @@ class GlobalProvingJob:
 
     def prepare_for_processing(self, save_ezkl_settings=True):
         logger = logging.getLogger("zk")
-
         logger.info(f"Preparing job: {self.model_name}")
 
         # Run and save baseline inference
@@ -180,9 +194,9 @@ class GlobalProvingJob:
             logger.error(f"Model inference failed: {e}")
             raise
 
-        # Handle single model proof (no splitting)
-        if not self.num_of_splits or self.num_of_splits < 1:
-            logger.info("No splitting. Proving full model.")
+        # Determine splitting behavior
+        if self.split_mode == "none":
+            logger.info("Split mode is 'none'. Proving full model without splitting.")
 
             os.makedirs(self.cache_directory, exist_ok=True)
             model_path = os.path.join(self.cache_directory, 'model.onnx')
@@ -197,15 +211,23 @@ class GlobalProvingJob:
                 input_data_path=input_path,
                 onnx_model_path=model_path,
             ))
-        else:
-            logger.info("Collecting intermediate outputs for splitting.")
-            intermediate_outputs = collect_intermediate_inference_outputs(self.onnx_model_path, self.input_data_path)
-            logger.info("Splitting model.")
 
+        else:
+            logger.info(f"Collecting intermediate outputs for split_mode='{self.split_mode}'.")
+            intermediate_outputs = collect_intermediate_inference_outputs(self.onnx_model_path, self.input_data_path)
+
+            if self.split_mode == "auto":
+                split_group_size = 1
+            elif self.split_mode == "fixed":
+                split_group_size = self.ops_per_chunk
+            else:
+                raise ValueError(f"Invalid split_mode: {self.split_mode}")
+
+            logger.info(f"Splitting model with group size: {split_group_size}")
             submodels = split_model(
                 self.onnx_model_path,
                 intermediate_outputs=intermediate_outputs,
-                split_group_size=self.split_group_size,
+                split_group_size=split_group_size,
                 cache_dir=self.cache_directory,
             )
 
@@ -219,6 +241,7 @@ class GlobalProvingJob:
                     onnx_model_path=model_path,
                 ))
 
+        # Generate ezkl settings and write metadata
         if save_ezkl_settings:
             report_path = os.path.join(self.report_directory, 'ezkl_settings.csv')
             for model in self.models_to_prove:
@@ -232,6 +255,7 @@ class GlobalProvingJob:
                     writer.writerow(info)
 
         logger.info("Finished preparing job.")
+
 
     def gen_proof_for_sub_models(self):
         logger = logging.getLogger("zk")

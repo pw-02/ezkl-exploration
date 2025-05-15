@@ -1,0 +1,11 @@
+[2025-05-15 15:05:36,667][zk_dispatcher][INFO] - 🚀 Starting ZK Dispatcher Service
+[2025-05-15 15:05:36,677][zk_dispatcher][INFO] - ✅ Dispatcher gRPC server running on port 50051
+[2025-05-15 15:05:40,174][zk_dispatcher][INFO] - 💼 Submitting job 'mnist_classifier' with split_mode='none'
+[2025-05-15 15:05:40,176][zk][INFO] - Preparing job: mnist_classifier
+[2025-05-15 15:05:40,186][zk][INFO] - Split mode is 'none'. Proving full model without splitting.
+[2025-05-15 15:05:40,188][zk][INFO] - Finished preparing job.
+[2025-05-15 15:05:40,189][zk_dispatcher][INFO] - 🆔 Assigned Job ID: mnist_classifier
+[2025-05-15 15:05:40,193][zk.job_manager][INFO] - Heartbeat from 27ff7238-1879-4f20-ba43-c879b2750826 | sub-job=mnist_classifier_1 | status=2 - Started
+[2025-05-15 15:05:40,221][zk.job_manager][INFO] - Heartbeat from 27ff7238-1879-4f20-ba43-c879b2750826 | sub-job=mnist_classifier_1 | status=2 - Proving...
+[2025-05-15 15:05:57,310][zk.job_manager][INFO] - Heartbeat from 27ff7238-1879-4f20-ba43-c879b2750826 | sub-job=mnist_classifier_1 | status=2 - Proving...
+[2025-05-15 15:06:14,496][zk.job_manager][INFO] - Heartbeat from 27ff7238-1879-4f20-ba43-c879b2750826 | sub-job=mnist_classifier_1 | status=2 - Proving...
