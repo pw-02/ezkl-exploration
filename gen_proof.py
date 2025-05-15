@@ -580,7 +580,7 @@ class GlobalProvingJob():
         #generate ezkl settings for each model and then summarize the model info in a report
         
         if save_ezkl_settings:
-            report_file = os.path.join(self.report_directory, 'ezkl_settings_summary.csv')
+            report_file = os.path.join(self.report_directory, 'ezkl_settings.csv')
             for model in self.models_to_prove:
                 #get parent folder of model onnx file
                 model._gen_settings()
@@ -602,94 +602,83 @@ class GlobalProvingJob():
     def gen_proof_for_sub_models(self):
         logger.info(f"Generating ZK proof for sub-models")
 
-        halo_2_circuit_sumamry_file = os.path.join(self.report_directory, 'halo2_circuit_summary.csv')
-        halo_2_porver_sumamry_file = os.path.join(self.report_directory, 'halo2_prover_summary.csv')
-        ezkl_perf_summary_file = os.path.join(self.report_directory, 'ezkl_perf_summary.csv')
-        msms_summary_file = os.path.join(self.report_directory, 'msms_summary.csv')
-        ffts_summary_file = os.path.join(self.report_directory, 'ntts_summary.csv')
+        ezkl_perf_summary_file = os.path.join(self.report_directory, 'ezkl_perf.csv')
+        halo2_perf_summary_file = os.path.join(self.report_directory, 'halo2_perf.csv')
 
-        # overall_perf_summary_file = os.path.join(self.report_directory, 'overall_perf_summary.csv')
-        
         for idx, model in enumerate (self.models_to_prove):
             logger.info(f"Generating ZK proof for model: {model.model_name} ({idx+1}/{len(self.models_to_prove)})")
-            ezkl_pref_metrics = model.generate_zk_proof()
+           
             model_info = {'name': model.model_name, 'num_ops': model.num_model_ops, 'num_params': model.num_model_params, 'onnx_model_path': model.onnx_model_path}
-            #halo2 circuit summary
-            circuit_info = read_csv_into_dict('halo2_circuit.csv')
-            #append circuit with model info
-            circuit_info = {**model_info, **circuit_info}
-            file_exists = os.path.isfile(halo_2_circuit_sumamry_file)
-            with open(halo_2_circuit_sumamry_file, mode='a', newline='') as file:
-                writer = csv.DictWriter(file, fieldnames=circuit_info.keys())
-                if not file_exists:
-                    writer.writeheader()
-                writer.writerow(circuit_info)
-            #halo2 prover summary
-            prover_info = read_csv_into_dict('halo2_prover.csv')
-            #append prover with model info
-            prover_info = {**model_info, **prover_info}
-            file_exists = os.path.isfile(halo_2_porver_sumamry_file)
-            with open(halo_2_porver_sumamry_file, mode='a', newline='') as file:
-                writer = csv.DictWriter(file, fieldnames=prover_info.keys())
-                if not file_exists:
-                    writer.writeheader()
-                writer.writerow(prover_info)
-            #ezkl performance summary
-            ezkl_perf_metrics = {**model_info, **ezkl_pref_metrics}
+            ezkl_pref_metrics = model.generate_zk_proof()
+            ezkl_perf = {**model_info, **ezkl_pref_metrics}
+            
             file_exists = os.path.isfile(ezkl_perf_summary_file)
             with open(ezkl_perf_summary_file, mode='a', newline='') as file:
-                writer = csv.DictWriter(file, fieldnames=ezkl_perf_metrics.keys())
+                writer = csv.DictWriter(file, fieldnames=ezkl_perf.keys())
                 if not file_exists:
                     writer.writeheader()
-                writer.writerow(ezkl_perf_metrics)
-  
+                writer.writerow(ezkl_perf)
+
+            circuit_info = read_csv_into_dict('halo2_circuit.csv')
+            prover_info = read_csv_into_dict('halo2_prover.csv')
+
+            if os.path.isfile('halo2_ffts_setup.csv'):
+                fft_setup_summary = get_fft_summary('halo2_ffts_setup.csv', 'steup')
+            if os.path.isfile('halo2_ffts_prover.csv'):
+                fft_prover_summary = get_fft_summary('halo2_ffts_prover.csv', 'prove')
+            if os.path.isfile('halo2_ffts_verifier.csv'):
+                fft_verifier_summary = get_fft_summary('halo2_ffts_verifier.csv', 'verify')
+
+            if os.path.isfile('halo2_msms_setup.csv'):
+                msm_setup_summary = get_msm_summary('halo2_msms_setup.csv', 'setup')
+            if os.path.isfile('halo2_msms_prover.csv'):
+                msm_prover_summary = get_msm_summary('halo2_msms_prover.csv', 'prover')
+            if os.path.isfile('halo2_msms_verifier.csv'):
+                msm_verifier_summary = get_msm_summary('halo2_msms_verifier.csv', 'verifier')
+
+            #combine all the summaries into one dictionary
+            halo2_perf = {**model_info, **circuit_info, **prover_info}
+            if fft_setup_summary is not None:
+                halo2_perf = {**halo2_perf, **fft_setup_summary}
+            if fft_prover_summary is not None:
+                halo2_perf = {**halo2_perf, **fft_prover_summary}
+            if fft_verifier_summary is not None:
+                halo2_perf = {**halo2_perf, **fft_verifier_summary}
+            if msm_setup_summary is not None:
+                halo2_perf = {**halo2_perf, **msm_setup_summary}
+            if msm_prover_summary is not None:
+                halo2_perf = {**halo2_perf, **msm_prover_summary}
+            if msm_verifier_summary is not None:
+                halo2_perf = {**halo2_perf, **msm_verifier_summary}
+                
+            file_exists = os.path.isfile(halo2_perf_summary_file)
+            with open(halo2_perf_summary_file, mode='a', newline='') as file:
+                writer = csv.DictWriter(file, fieldnames=halo2_perf.keys())
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow(halo2_perf)
+
             model_report_dir = os.path.join(self.report_directory, f'{model.model_name}')
             os.makedirs(model_report_dir, exist_ok=True)
 
-            fft_data = model_info
-            if os.path.isfile('halo2_ffts_setup.csv'):
-                fft_setup_summary = get_fft_summary('halo2_ffts_setup.csv', 'steup')
-                fft_data = {**fft_data, **fft_setup_summary}
-            if os.path.isfile('halo2_ffts_prover.csv'):
-                fft_prover_summary = get_fft_summary('halo2_ffts_prover.csv', 'prove')
-                fft_data = {**fft_data, **fft_prover_summary}
-            if os.path.isfile('halo2_ffts_verifier.csv'):
-                fft_verifier_summary = get_fft_summary('halo2_ffts_verifier.csv', 'verify')
-                fft_data = {**fft_data, **fft_verifier_summary}
-            file_exists = os.path.isfile(ffts_summary_file)
-
-            with open(ffts_summary_file, mode='a', newline='') as file:
-                writer = csv.DictWriter(file, fieldnames=fft_data.keys())
-                if not file_exists:
-                    writer.writeheader()
-                writer.writerow(fft_data)
-
-            msm_data = model_info
-            if os.path.isfile('halo2_msms_setup.csv'):
-                msm_setup_summary = get_msm_summary('halo2_msms_setup.csv', 'setup')
-                msm_data = {**msm_data, **msm_setup_summary}
-            if os.path.isfile('halo2_msms_prover.csv'):
-                msm_prover_summary = get_msm_summary('halo2_msms_prover.csv', 'prover')
-                msm_data = {**msm_data, **msm_prover_summary}
-            if os.path.isfile('halo2_msms_verifier.csv'):
-                msm_verifier_summary = get_msm_summary('halo2_msms_verifier.csv', 'verifier')
-                msm_data = {**msm_data, **msm_verifier_summary}
-            file_exists = os.path.isfile(msms_summary_file)
-            with open(msms_summary_file, mode='a', newline='') as file:
-                writer = csv.DictWriter(file, fieldnames=msm_data.keys())
-                if not file_exists:
-                    writer.writeheader()
-                writer.writerow(msm_data)
 
             #copy the following files to the report directory
-            files_to_copy = ['halo2_circuit.csv', 'halo2_prover.csv','halo2_ffts_setup.csv',
-                             'halo2_msms_setup.csv',
+            files_to_copy = ['halo2_ffts_setup.csv','halo2_msms_setup.csv',
                              'halo2_ffts_prover.csv','halo2_msms_prover.csv',
                              'halo2_ffts_verifier.csv','halo2_msms_verifier.csv']
+            
+            files_to_remove = ['halo2_circuit.csv', 'halo2_prover.csv','halo2_ffts_setup.csv']
+
             for file in files_to_copy:
                 if os.path.isfile(file):
                     os.system(f'mv {file} {model_report_dir}')
             #generate proof for each model
+
+            #remove the files that are not needed
+            for file in files_to_remove:
+                if os.path.isfile(file):
+                    os.remove(file)
+
         logger.info(f"ZK proof generation completed for all sub-models")
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
