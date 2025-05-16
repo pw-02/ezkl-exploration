@@ -174,6 +174,8 @@ class OnnxModelToProve:
                 shutil.move(f, os.path.join(model_dir, f))
             elif f.startswith('halo2_') and f.endswith('.csv'):
                 #delete the file
-                os.remove(f)
+                shutil.move(f, os.path.join(self.report_dir, f))
+
+                # os.remove(f)
 
         
