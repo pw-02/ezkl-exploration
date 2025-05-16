@@ -2,7 +2,7 @@ defaults:
   - _self_
   - dispatcher: default
   - worker: default
-  - model: mnist_classifier  # Options: mobilenet, mnist_gan, little_transformer, nano_gpt, etc.
+  - model: mnist_classifier  # Options: mobilenet, mnist_gan, little_transformer, nano_gpt, mnist_classifier
   - override hydra/hydra_logging: disabled
 
 # Global control flags

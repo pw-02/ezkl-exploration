@@ -6,7 +6,7 @@ import multiprocessing
 import hydra
 from omegaconf import DictConfig
 
-from zkInfer.zk_jobs import GlobalProvingJob
+from zkInfer.zk_job import GlobalProvingJob
 from utils.resource_monitor import log_system_usage
 
 
@@ -24,8 +24,8 @@ def main(cfg: DictConfig):
         job_name=cfg.model.name,
         input_data_path=cfg.model.input_file,
         onnx_model_path=cfg.model.onnx_file,
-        num_of_splits=cfg.model.split_group_size,
-        split_group_size=cfg.model.split_group_size,
+        split_mode=cfg.model.split_mode,
+        ops_per_chunk=cfg.model.ops_per_chunk,
         cache_setup_files=cfg.get("cache_setup_files", True),
     )
 

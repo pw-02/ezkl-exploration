@@ -8,14 +8,14 @@ from omegaconf import DictConfig, OmegaConf
 from grpc_api import zkservice_pb2 as pb
 from grpc_api import zkservice_pb2_grpc as pb_grpc
 
-from zkInfer.job_manager import JobManager
-from zkInfer.zk_jobs import GlobalProvingJob
+from zkInfer.job_manager import JobManager, GlobalProvingJob
 
-logger = logging.getLogger("zk_dispatcher")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
+logger = logging.getLogger("zkInfer")
+
 
 class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
     def __init__(self):
@@ -121,16 +121,15 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
         self.job_manager.submit_sub_job_result(
             job_id=request.job_id,
             sub_job_id=request.sub_job_id,
-            metrics=dict(request.metrics)
         )
         return pb.StatusAck(success=True, message="Result received")
 
     def SendHeartbeat(self, request, context):
         self.job_manager.record_heartbeat(
+            job_id=request.job_id,
             sub_job_id=request.sub_job_id,
             worker_id=request.worker_id,
             status=request.status,
-            progress=request.progress,
             message=request.message
         )
         return pb.HeartbeatAck(success=True)

@@ -9,7 +9,7 @@ from omegaconf import DictConfig, OmegaConf
 from grpc_api import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
 from grpc_api.worker_client import main as run_worker
 
-logger = logging.getLogger("debug_submit")
+logger = logging.getLogger("zkInfer")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 

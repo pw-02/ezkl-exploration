@@ -36,3 +36,6 @@ def run_model_inference(onnx_model_path, input_data_path):
     input_tensor = format_model_input(input_data_path, input_shape, input_type)
     outputs = session.run(None, {input_name: input_tensor})
     return outputs
+
+
+    

@@ -36,13 +36,6 @@ def timed_with_result(fn):
         return result, duration
     return wrapper
 
-
-class JobStatus(Enum):
-    PENDING = "PENDING"
-    IN_PROGRESS = "IN_PROGRESS"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-
 class OnnxModelToProve:
     def __init__(self, job_id, job_name, input_data_path, onnx_model_path, num_model_ops=None, num_model_params=None):
         self.job_id = job_id
@@ -51,7 +44,7 @@ class OnnxModelToProve:
         self.onnx_model_path = onnx_model_path
         self.data_dir = os.path.dirname(onnx_model_path)
 
-        self.status = JobStatus.PENDING
+        # self.status = JobStatus.PENDING
         self.num_model_ops = num_model_ops
         self.num_model_params = num_model_params
         self.overwrite = False
@@ -172,7 +165,6 @@ class GlobalProvingJob:
         self.cache_setup_files = cache_setup_files
 
         self.inference_results = {}
-        self.status = JobStatus.PENDING
         self.models_to_prove: List[OnnxModelToProve] = []
 
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
@@ -271,8 +263,8 @@ class GlobalProvingJob:
                 'num_ops': model.num_model_ops,
                 'num_params': model.num_model_params
             }
-
-            ezkl_perf = {**model_info, **model.generate_zk_proof()}
+            metrics = model.generate_zk_proof()
+            ezkl_perf = {**model_info, **metrics}
             with open(ezkl_file, 'a', newline='') as f:
                 writer = csv.DictWriter(f, fieldnames=ezkl_perf.keys())
                 if f.tell() == 0:

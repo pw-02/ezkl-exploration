@@ -4,11 +4,11 @@ import grpc
 import hydra
 from omegaconf import DictConfig
 from grpc_api import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
-from zkInfer.zk_jobs import OnnxModelToProve
+from zkInfer.zk_job import OnnxModelToProve
 from uuid import uuid4
 import threading
 
-logger = logging.getLogger("zk.worker")
+logger = logging.getLogger()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 class ZKProofWorker:
@@ -22,6 +22,7 @@ class ZKProofWorker:
         self.heartbeat_stop_event = threading.Event()
         self.progress_ref = {"value": 0}
         self.current_sub_job_id = None
+        self.parent_job_id = None
 
     def connect(self):
         if self.channel:
@@ -46,10 +47,11 @@ class ZKProofWorker:
         while not self.heartbeat_stop_event.is_set():
             try:
                 self.stub.SendHeartbeat(pb.HeartbeatRequest(
+
                     worker_id=self.worker_id,
+                    job_id=self.parent_job_id,
                     sub_job_id=self.current_sub_job_id,
                     status="STARTED",
-                    progress=self.progress_ref["value"],
                     message="Proving..."
                 ))
             except grpc.RpcError as e:
@@ -63,23 +65,24 @@ class ZKProofWorker:
                 logger.info("⏳ No jobs available. Sleeping...")
                 time.sleep(5)
                 return
-
+            self.parent_job_id = response.job_id
             self.current_sub_job_id = response.sub_job_id
             logger.info(f"📦 Got sub-job {response.sub_job_id} for job {response.job_id}")
 
             model = OnnxModelToProve(
-                job_id=response.sub_job_id,
+                parent_job_id=response.job_id,
                 job_name=response.sub_job_id,
                 input_data_path=response.input_path,
-                onnx_model_path=response.model_path
+                onnx_model_path=response.model_path,
+                output_dir=response.output_dir
             )
 
             # Send initial heartbeat
             self.stub.SendHeartbeat(pb.HeartbeatRequest(
                 worker_id=self.worker_id,
+                job_id=response.job_id,
                 sub_job_id=response.sub_job_id,
                 status="STARTED",
-                progress=0,
                 message="Started"
             ))
 
@@ -91,8 +94,8 @@ class ZKProofWorker:
             self.stub.SendHeartbeat(pb.HeartbeatRequest(
                 worker_id=self.worker_id,
                 sub_job_id=response.sub_job_id,
+                job_id=response.job_id,
                 status="DONE",
-                progress=0,
                 message="Done"
             ))
             

@@ -53,7 +53,7 @@ def merge_onnx_models(sub_models: OrderedDict):
     return merged_model
 
 
-def collect_intermediate_inference_outputs(onnx_model_path, input_data_path, format_model_input_fn):
+def collect_intermediate_inference_outputs(onnx_model_path, input_data_path, format_model_input_fn = None):
     model = onnx.load(onnx_model_path)
     model.graph.ClearField('output')
     shape_info = onnx.shape_inference.infer_shapes(model)
@@ -77,8 +77,7 @@ def collect_intermediate_inference_outputs(onnx_model_path, input_data_path, for
         result_dict[out.name] = value
     return result_dict
 
-
-def split_model(onnx_model_path, intermediate_outputs, split_group_size, cache_dir):
+def split_onnx_model(onnx_model_path, split_group_size):
     model = onnx.load(onnx_model_path)
     initializers = {init.name for init in model.graph.initializer}
     exclude_operations = {'Identity', 'Constant'}
@@ -91,26 +90,29 @@ def split_model(onnx_model_path, intermediate_outputs, split_group_size, cache_d
         node_inputs = [i for i in node.input if i not in initializers and 'Constant' not in i]
         node_outputs = [o for o in node.output if o not in initializers and 'Constant' not in o]
         sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
+
         all_sub_models[f'split_model_{idx+1}'] = sub_model
 
     if split_group_size > 1:
         grouped = [dict(list(all_sub_models.items())[i:i + split_group_size])
                    for i in range(0, len(all_sub_models), split_group_size)]
-        all_sub_models = [merge_onnx_models(group) for group in grouped]
+        return [(f"split_group_{i+1}", merge_onnx_models(group)) for i, group in enumerate(grouped)]
     else:
-        all_sub_models = list(all_sub_models.values())
+        return list(all_sub_models.items())  # [(name, sub_model), ...]
 
+def save_split_models(submodels, intermediate_outputs, cache_dir):
     models_with_inputs = OrderedDict()
-    for idx, sub_model in enumerate(all_sub_models):
+
+    for name, sub_model in submodels:
         flattened_inputs = []
         for inp in sub_model.graph.input:
-            flattened_inputs.append(intermediate_outputs[inp.name].flatten().tolist())
+            if inp.name in intermediate_outputs:
+                flattened_inputs.append(intermediate_outputs[inp.name].flatten().tolist())
 
         if not flattened_inputs:
             continue
 
-        model_name = f'split_model_{idx+1}'
-        model_dir = os.path.join(cache_dir, model_name)
+        model_dir = os.path.join(cache_dir, name)
         os.makedirs(model_dir, exist_ok=True)
 
         model_path = os.path.join(model_dir, 'model.onnx')
@@ -119,7 +121,70 @@ def split_model(onnx_model_path, intermediate_outputs, split_group_size, cache_d
         onnx.save(sub_model, model_path)
         with open(input_path, 'w') as f:
             json.dump({'input_data': flattened_inputs}, f, indent=4)
+        
+        model_metadata = {
+            'name': name,
+            'num_ops': len(sub_model.graph.node),
+            'num_params': sum(onnx.numpy_helper.to_array(i).size for i in sub_model.graph.initializer),
+            'model_ops': [node.op_type for node in sub_model.graph.node]
+        }
 
-        models_with_inputs[model_name] = (input_path, model_path)
+        models_with_inputs[name] = (input_path, model_path, model_metadata)
 
     return models_with_inputs
+
+
+def get_model_info(onnx_model_path):
+    model = onnx.load(onnx_model_path)
+    model_info = {
+            'num_ops': len(model.graph.node),
+            'num_params': sum(onnx.numpy_helper.to_array(i).size for i in model.graph.initializer),
+            'model_ops': [node.op_type for node in model.graph.node]
+        }
+    return model_info
+
+# def split_model(onnx_model_path, intermediate_outputs, split_group_size, cache_dir):
+#     model = onnx.load(onnx_model_path)
+#     initializers = {init.name for init in model.graph.initializer}
+#     exclude_operations = {'Identity', 'Constant'}
+
+#     all_sub_models = OrderedDict()
+#     for idx, node in enumerate(model.graph.node):
+#         if node.op_type in exclude_operations or node.name in initializers:
+#             continue
+
+#         node_inputs = [i for i in node.input if i not in initializers and 'Constant' not in i]
+#         node_outputs = [o for o in node.output if o not in initializers and 'Constant' not in o]
+#         sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
+#         all_sub_models[f'split_model_{idx+1}'] = sub_model
+
+#     if split_group_size > 1:
+#         grouped = [dict(list(all_sub_models.items())[i:i + split_group_size])
+#                    for i in range(0, len(all_sub_models), split_group_size)]
+#         all_sub_models = [merge_onnx_models(group) for group in grouped]
+#     else:
+#         all_sub_models = list(all_sub_models.values())
+
+#     models_with_inputs = OrderedDict()
+#     for idx, sub_model in enumerate(all_sub_models):
+#         flattened_inputs = []
+#         for inp in sub_model.graph.input:
+#             flattened_inputs.append(intermediate_outputs[inp.name].flatten().tolist())
+
+#         if not flattened_inputs:
+#             continue
+
+#         model_name = f'split_model_{idx+1}'
+#         model_dir = os.path.join(cache_dir, model_name)
+#         os.makedirs(model_dir, exist_ok=True)
+
+#         model_path = os.path.join(model_dir, 'model.onnx')
+#         input_path = os.path.join(model_dir, 'input.json')
+
+#         onnx.save(sub_model, model_path)
+#         with open(input_path, 'w') as f:
+#             json.dump({'input_data': flattened_inputs}, f, indent=4)
+
+#         models_with_inputs[model_name] = (input_path, model_path)
+
+#     return models_with_inputs

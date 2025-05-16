@@ -64,9 +64,9 @@ message SubJobResult {
 
 message HeartbeatRequest {
   string worker_id = 1;
-  string sub_job_id = 2;
-  SubJobStatus status = 3;
-  float progress = 4;
+  string job_id = 2;
+  string sub_job_id = 3;
+  SubJobStatus status = 4;
   string message = 5;
 }
 
