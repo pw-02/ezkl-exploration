@@ -1,6 +1,5 @@
 import shutil
 import uuid
-import logging
 import os
 import csv
 import ezkl
@@ -17,7 +16,8 @@ from zkInfer.onnx_splitter import (
     get_model_info
 )
 
-logger = logging.getLogger("zk.job_manager")
+from grpc_api.log_utils import setup_logger
+logger = setup_logger('dispatcher_server', log_file="dispatcher_server.log")
 
 
 class JobStatus(str, Enum):

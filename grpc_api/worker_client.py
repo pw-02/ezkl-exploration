@@ -1,5 +1,4 @@
 import time
-import logging
 import grpc
 import hydra
 from omegaconf import DictConfig
@@ -12,10 +11,9 @@ import threading
 import psutil
 from datetime import datetime
 import os
-logger = logging.getLogger()
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-
+from grpc_api.log_utils import setup_logger
+logger = setup_logger('worker', log_file="worker.log")
 
 def sample_process_usage_during_job(process, interval, stop_event, stats):
     peak_mem = 0
@@ -31,9 +29,6 @@ def sample_process_usage_during_job(process, interval, stop_event, stats):
         time.sleep(interval)
     stats["peak_mem_rss"] = peak_mem
     stats["avg_cpu_percent"] = sum(cpu_percents) / len(cpu_percents) if cpu_percents else 0.0
-
-
-
 
 
 class ZKProofWorker:

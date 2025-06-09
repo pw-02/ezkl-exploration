@@ -34,3 +34,5 @@ cache/*
 utils/report.csv
 dispatcher_server.log
 submit_job.log
+dispatcher_server.log
+dispatcher_server.log

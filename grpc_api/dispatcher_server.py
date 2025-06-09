@@ -1,7 +1,6 @@
 import grpc
 from concurrent import futures
 import time
-import logging
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
@@ -9,12 +8,9 @@ from grpc_api import zkservice_pb2 as pb
 from grpc_api import zkservice_pb2_grpc as pb_grpc
 
 from zkInfer.job_manager import JobManager, GlobalProvingJob
+from grpc_api.log_utils import setup_logger
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
-logger = logging.getLogger("zkInfer")
+logger = setup_logger(name="dispatcher_server", log_file="dispatcher_server.log")
 
 
 class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):

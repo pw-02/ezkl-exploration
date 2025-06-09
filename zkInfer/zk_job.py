@@ -1,23 +1,13 @@
 import os
-import json
 import csv
 import shutil
-import logging
-from enum import Enum
-from datetime import datetime, timezone
-from dataclasses import dataclass
-from typing import List, Dict
 
-import onnx
 import ezkl
-
-# from zkInfer.inference_utils import run_model_inference, load_json_input
-# from zkInfer.onnx_splitter import split_model, collect_intermediate_inference_outputs
-# from zkInfer.metrics import get_fft_summary, get_msm_summary, read_csv_into_dict
 from zkInfer.job_manager import JobStatus
 from zkInfer.metrics import get_fft_summary, get_msm_summary, read_csv_into_dict
 
-
+from grpc_api.log_utils import setup_logger
+logger = setup_logger('worker', log_file="worker.log")
 
 import time
 from functools import wraps
@@ -111,7 +101,7 @@ class OnnxModelToProve:
             return 0.0
 
     def generate_zk_proof(self):
-        logger = logging.getLogger("zk")
+        # logger = logging.getLogger("worker")
         stages = [
             ('gen_settings', self._gen_settings),
             ('calibrate_settings', self._calibrate_settings),
