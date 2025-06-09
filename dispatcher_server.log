@@ -12,3 +12,86 @@
 2025-06-09 12:18:51,499 [INFO] dispatcher_server: Heartbeat from 53735183-941b-42c1-90da-d5d0a7b99279 | mnist_classifier | 9 - Done
 2025-06-09 12:18:51,502 [INFO] dispatcher_server: ✅ Sub-job mnist_classifier marked COMPLETED
 2025-06-09 12:18:51,503 [INFO] dispatcher_server: 🏁 Job mnist_classifier COMPLETED
+2025-06-09 14:23:57,002 [INFO] dispatcher_server: 🚀 Starting ZK Dispatcher Service
+2025-06-09 14:23:57,029 [INFO] dispatcher_server: ✅ Dispatcher gRPC server running on port 50051
+2025-06-09 14:24:57,675 [INFO] dispatcher_server: 💼 Submitting job 'mnist_gan' with split_mode='fixed', ops_per_chunk=1
+2025-06-09 14:24:58,179 [INFO] dispatcher_server: Prepared 12 sub-jobs for proving global job mnist_gan
+2025-06-09 14:24:58,179 [INFO] dispatcher_server: 🆔 Assigned Job ID: mnist_gan
+2025-06-09 14:24:58,184 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_1 | 2 - Started
+2025-06-09 14:24:58,214 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_1 | 2 - Proving...
+2025-06-09 14:25:17,405 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_1 | 2 - Proving...
+2025-06-09 14:25:41,175 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_1 | 2 - Proving...
+2025-06-09 14:25:56,270 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_1 | 9 - Done
+2025-06-09 14:25:56,274 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_1 marked COMPLETED
+2025-06-09 14:25:56,281 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_2 | 2 - Started
+2025-06-09 14:25:56,286 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_2 | 2 - Proving...
+2025-06-09 14:26:11,348 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_2 | 9 - Done
+2025-06-09 14:26:11,350 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_2 marked COMPLETED
+2025-06-09 14:26:11,355 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_3 | 2 - Started
+2025-06-09 14:26:11,362 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_3 | 2 - Proving...
+2025-06-09 14:26:26,413 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_3 | 9 - Done
+2025-06-09 14:26:26,414 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_3 marked COMPLETED
+2025-06-09 14:26:26,416 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_4 | 2 - Started
+2025-06-09 14:26:26,429 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_4 | 2 - Proving...
+2025-06-09 14:27:02,046 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_4 | 9 - Done
+2025-06-09 14:27:02,048 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_4 marked COMPLETED
+2025-06-09 14:27:02,051 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_5 | 2 - Started
+2025-06-09 14:27:02,056 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_5 | 2 - Proving...
+2025-06-09 14:27:17,864 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_5 | 9 - Done
+2025-06-09 14:27:17,866 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_5 marked COMPLETED
+2025-06-09 14:27:17,868 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_6 | 2 - Started
+2025-06-09 14:27:17,873 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_6 | 2 - Proving...
+2025-06-09 14:27:32,911 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_6 | 9 - Done
+2025-06-09 14:27:32,912 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_6 marked COMPLETED
+2025-06-09 14:27:32,914 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_7 | 2 - Started
+2025-06-09 14:27:32,917 [INFO] dispatcher_server: Heartbeat from abf47442-ae9d-41f8-931f-4c185363a056 | mnist_gan_split_model_7 | 2 - Proving...
+2025-06-09 14:30:43,566 [INFO] dispatcher_server: 🚀 Starting ZK Dispatcher Service
+2025-06-09 14:30:43,586 [INFO] dispatcher_server: ✅ Dispatcher gRPC server running on port 50051
+2025-06-09 14:31:11,047 [INFO] dispatcher_server: 💼 Submitting job 'mnist_gan' with split_mode='fixed', ops_per_chunk=1
+2025-06-09 14:31:11,603 [INFO] dispatcher_server: Prepared 12 sub-jobs for proving global job mnist_gan
+2025-06-09 14:31:11,603 [INFO] dispatcher_server: 🆔 Assigned Job ID: mnist_gan
+2025-06-09 14:31:11,611 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_1 | 2 - Started
+2025-06-09 14:31:11,620 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_1 | 2 - Proving...
+2025-06-09 14:31:41,846 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_1 | 2 - Proving...
+2025-06-09 14:32:23,059 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_1 | 2 - Proving...
+2025-06-09 14:32:38,118 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_1 | 9 - Done
+2025-06-09 14:32:38,119 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_1 marked COMPLETED
+2025-06-09 14:32:38,125 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_2 | 2 - Started
+2025-06-09 14:32:38,130 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_2 | 2 - Proving...
+2025-06-09 14:32:53,158 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_2 | 9 - Done
+2025-06-09 14:32:53,159 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_2 marked COMPLETED
+2025-06-09 14:32:53,163 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_3 | 2 - Started
+2025-06-09 14:32:53,166 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_3 | 2 - Proving...
+2025-06-09 14:33:08,201 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_3 | 9 - Done
+2025-06-09 14:33:08,202 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_3 marked COMPLETED
+2025-06-09 14:33:08,206 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_4 | 2 - Started
+2025-06-09 14:33:08,209 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_4 | 2 - Proving...
+2025-06-09 14:33:44,150 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_4 | 9 - Done
+2025-06-09 14:33:44,152 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_4 marked COMPLETED
+2025-06-09 14:33:44,155 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_5 | 2 - Started
+2025-06-09 14:33:44,159 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_5 | 2 - Proving...
+2025-06-09 14:33:59,189 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_5 | 9 - Done
+2025-06-09 14:33:59,191 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_5 marked COMPLETED
+2025-06-09 14:33:59,195 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_6 | 2 - Started
+2025-06-09 14:33:59,198 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_6 | 2 - Proving...
+2025-06-09 14:34:14,755 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_6 | 9 - Done
+2025-06-09 14:34:14,756 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_6 marked COMPLETED
+2025-06-09 14:34:14,759 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_7 | 2 - Started
+2025-06-09 14:34:14,763 [INFO] dispatcher_server: Heartbeat from c6f8be97-8aec-41e4-96dd-44fbf1442127 | mnist_gan_split_model_7 | 2 - Proving...
+2025-06-09 14:36:52,158 [INFO] dispatcher_server: 🚀 Starting ZK Dispatcher Service
+2025-06-09 14:36:52,172 [INFO] dispatcher_server: ✅ Dispatcher gRPC server running on port 50051
+2025-06-09 14:37:12,884 [INFO] dispatcher_server: 💼 Submitting job 'mnist_gan' with split_mode='fixed', ops_per_chunk=1
+2025-06-09 14:37:13,360 [INFO] dispatcher_server: Prepared 12 sub-jobs for proving global job mnist_gan
+2025-06-09 14:37:13,361 [INFO] dispatcher_server: 🆔 Assigned Job ID: mnist_gan
+2025-06-09 14:37:13,365 [INFO] dispatcher_server: Heartbeat from 74dc3f52-496d-4cd6-9cc4-4b3466e051b8 | mnist_gan_split_model_1 | 2 - Started
+2025-06-09 14:37:13,665 [INFO] dispatcher_server: Heartbeat from 74dc3f52-496d-4cd6-9cc4-4b3466e051b8 | mnist_gan_split_model_1 | 2 - Proving...
+2025-06-09 14:37:47,631 [INFO] dispatcher_server: Heartbeat from 74dc3f52-496d-4cd6-9cc4-4b3466e051b8 | mnist_gan_split_model_1 | 2 - Proving...
+2025-06-09 14:38:37,016 [INFO] dispatcher_server: Heartbeat from 74dc3f52-496d-4cd6-9cc4-4b3466e051b8 | mnist_gan_split_model_1 | 2 - Proving...
+2025-06-09 14:38:52,068 [INFO] dispatcher_server: Heartbeat from 74dc3f52-496d-4cd6-9cc4-4b3466e051b8 | mnist_gan_split_model_1 | 9 - Done
+2025-06-09 14:38:52,070 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_1 marked COMPLETED
+2025-06-09 14:38:52,074 [INFO] dispatcher_server: Heartbeat from 74dc3f52-496d-4cd6-9cc4-4b3466e051b8 | mnist_gan_split_model_2 | 2 - Started
+2025-06-09 14:38:52,077 [INFO] dispatcher_server: Heartbeat from 74dc3f52-496d-4cd6-9cc4-4b3466e051b8 | mnist_gan_split_model_2 | 2 - Proving...
+2025-06-09 14:39:07,119 [INFO] dispatcher_server: Heartbeat from 74dc3f52-496d-4cd6-9cc4-4b3466e051b8 | mnist_gan_split_model_2 | 9 - Done
+2025-06-09 14:39:07,121 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_2 marked COMPLETED
+2025-06-09 14:39:07,125 [INFO] dispatcher_server: Heartbeat from 74dc3f52-496d-4cd6-9cc4-4b3466e051b8 | mnist_gan_split_model_3 | 2 - Started
+2025-06-09 14:39:07,131 [INFO] dispatcher_server: Heartbeat from 74dc3f52-496d-4cd6-9cc4-4b3466e051b8 | mnist_gan_split_model_3 | 2 - Proving...

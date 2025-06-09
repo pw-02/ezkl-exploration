@@ -73,3 +73,475 @@
 [2025-06-09 12:18:36,508][ezkl.pfsys][INFO] - done loading verification key ✅
 [2025-06-09 12:18:36,528][ezkl.execute][INFO] - verify took 0.19
 [2025-06-09 12:18:36,528][ezkl.execute][INFO] - verified: false
+[2025-06-09 14:24:58,349][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:25:17,405][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++--------------------+---------------+---------------+----------------+----------------+------------------+---------------+--------------------+--------------------+--------------------+------------------------+
+| mean_error         | median_error  | max_error     | min_error      | mean_abs_error | median_abs_error | max_abs_error | min_abs_error      | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++--------------------+---------------+---------------+----------------+----------------+------------------+---------------+--------------------+--------------------+--------------------+------------------------+
+| -0.000000021982965 | 0.00003487128 | 0.00007655006 | -0.00008532964 | 0.000018085386 | 0.00003487128    | 0.00008532964 | 0.0000000121071935 | 0.0000000005136721 | 0.0028538427       | 0.014134148            |
++--------------------+---------------+---------------+----------------+----------------+------------------+---------------+--------------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:25:17,419][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:25:17,652][ezkl.execute][INFO] - read 33554692 bytes from file (vector of len = 33554692)
+[2025-06-09 14:25:17,670][ezkl.execute][INFO] - file hash: d0148475717a2ba269784a178cb0ab617bc77f16c58d4a3cbdfe785b591c7034
+[2025-06-09 14:25:17,927][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_1/pk.json"
+[2025-06-09 14:25:19,695][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:25:19,695][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg18.srs"
+[2025-06-09 14:25:19,740][ezkl.execute][INFO] - downsizing params to 18 logrows
+[2025-06-09 14:25:19,741][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:25:20,270][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:25:41,170][ezkl.pfsys][INFO] - proof took 21.427
+[2025-06-09 14:25:41,196][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg18.srs"
+[2025-06-09 14:25:41,241][ezkl.execute][INFO] - downsizing params to 18 logrows
+[2025-06-09 14:25:41,244][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_1/vk.json"
+[2025-06-09 14:25:41,258][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:25:41,282][ezkl.execute][INFO] - verify took 0.24
+[2025-06-09 14:25:41,282][ezkl.execute][INFO] - verified: true
+[2025-06-09 14:25:56,299][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:25:58,609][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++------------------+----------------+--------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+| mean_error       | median_error   | max_error    | min_error      | mean_abs_error | median_abs_error | max_abs_error | min_abs_error     | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++------------------+----------------+--------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+| 0.00000014720779 | 0.000028143404 | 0.0000622347 | -0.00006211549 | 0.000030569678 | 0.000028143404   | 0.0000622347  | 0.000000031635864 | 0.0000000012510268 | 0.0015849626       | 0.012332427            |
++------------------+----------------+--------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:25:58,629][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:25:58,631][ezkl.execute][INFO] - read 1048836 bytes from file (vector of len = 1048836)
+[2025-06-09 14:25:58,632][ezkl.execute][INFO] - file hash: d5d94bb25bdc024f649213593027d861042ee807cafd94b49b54f1663f8f267d
+[2025-06-09 14:25:58,687][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg13.srs"
+[2025-06-09 14:25:58,688][ezkl.execute][INFO] - downsizing params to 13 logrows
+[2025-06-09 14:25:58,691][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:25:58,917][ezkl.pfsys][INFO] - VK took 0.228
+[2025-06-09 14:25:58,920][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:25:59,052][ezkl.pfsys][INFO] - PK took 0.134
+[2025-06-09 14:25:59,053][ezkl.pfsys][INFO] - saving verification key 💾
+[2025-06-09 14:25:59,053][ezkl.pfsys][INFO] - done saving verification key ✅
+[2025-06-09 14:25:59,053][ezkl.pfsys][INFO] - saving proving key 💾
+[2025-06-09 14:25:59,083][ezkl.pfsys][INFO] - done saving proving key ✅
+[2025-06-09 14:25:59,097][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_2/pk.json"
+[2025-06-09 14:25:59,124][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:25:59,124][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg13.srs"
+[2025-06-09 14:25:59,125][ezkl.execute][INFO] - downsizing params to 13 logrows
+[2025-06-09 14:25:59,125][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:25:59,157][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:25:59,748][ezkl.pfsys][INFO] - proof took 0.622
+[2025-06-09 14:25:59,755][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg13.srs"
+[2025-06-09 14:25:59,756][ezkl.execute][INFO] - downsizing params to 13 logrows
+[2025-06-09 14:25:59,759][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_2/vk.json"
+[2025-06-09 14:25:59,760][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:25:59,786][ezkl.execute][INFO] - verify took 0.25
+[2025-06-09 14:25:59,786][ezkl.execute][INFO] - verified: true
+[2025-06-09 14:26:11,375][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:26:16,220][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++-------------------+-----------------+---------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+| mean_error        | median_error    | max_error     | min_error      | mean_abs_error | median_abs_error | max_abs_error | min_abs_error     | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++-------------------+-----------------+---------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+| 0.000000108213094 | -0.000053574797 | 0.00011867704 | -0.00012164004 | 0.000040892668 | 0.000053574797   | 0.00012164004 | 0.000000008381903 | 0.0000000025055673 | 0.001823117        | 0.014755788            |
++-------------------+-----------------+---------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:26:16,265][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:26:16,267][ezkl.execute][INFO] - read 1048836 bytes from file (vector of len = 1048836)
+[2025-06-09 14:26:16,269][ezkl.execute][INFO] - file hash: d5d94bb25bdc024f649213593027d861042ee807cafd94b49b54f1663f8f267d
+[2025-06-09 14:26:16,379][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg13.srs"
+[2025-06-09 14:26:16,381][ezkl.execute][INFO] - downsizing params to 13 logrows
+[2025-06-09 14:26:16,382][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:26:16,917][ezkl.pfsys][INFO] - VK took 0.534
+[2025-06-09 14:26:16,918][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:26:17,274][ezkl.pfsys][INFO] - PK took 0.356
+[2025-06-09 14:26:17,275][ezkl.pfsys][INFO] - saving verification key 💾
+[2025-06-09 14:26:17,278][ezkl.pfsys][INFO] - done saving verification key ✅
+[2025-06-09 14:26:17,279][ezkl.pfsys][INFO] - saving proving key 💾
+[2025-06-09 14:26:17,349][ezkl.pfsys][INFO] - done saving proving key ✅
+[2025-06-09 14:26:17,373][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_3/pk.json"
+[2025-06-09 14:26:17,435][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:26:17,436][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg13.srs"
+[2025-06-09 14:26:17,438][ezkl.execute][INFO] - downsizing params to 13 logrows
+[2025-06-09 14:26:17,438][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:26:17,504][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:26:18,816][ezkl.pfsys][INFO] - proof took 1.377
+[2025-06-09 14:26:18,831][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg13.srs"
+[2025-06-09 14:26:18,833][ezkl.execute][INFO] - downsizing params to 13 logrows
+[2025-06-09 14:26:18,838][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_3/vk.json"
+[2025-06-09 14:26:18,839][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:26:18,880][ezkl.execute][INFO] - verify took 0.40
+[2025-06-09 14:26:18,880][ezkl.execute][INFO] - verified: true
+[2025-06-09 14:26:26,430][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:26:47,010][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++-----------------+-----------------+---------------+----------------+----------------+------------------+---------------+---------------+--------------------+--------------------+------------------------+
+| mean_error      | median_error    | max_error     | min_error      | mean_abs_error | median_abs_error | max_abs_error | min_abs_error | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++-----------------+-----------------+---------------+----------------+----------------+------------------+---------------+---------------+--------------------+--------------------+------------------------+
+| 0.0000029481507 | -0.000053286552 | 0.00010949373 | -0.00011700392 | 0.000033887474 | 0.000053286552   | 0.00011700392 | 0             | 0.0000000016663136 | 0.001076577        | 0.012100396            |
++-----------------+-----------------+---------------+----------------+----------------+------------------+---------------+---------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:26:47,038][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:26:47,046][ezkl.execute][INFO] - read 4194564 bytes from file (vector of len = 4194564)
+[2025-06-09 14:26:47,051][ezkl.execute][INFO] - file hash: 90807800a1c3b248a452e1732c45ee5099f38b737356f5542c0584ec9c3ebb45
+[2025-06-09 14:26:47,289][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg15.srs"
+[2025-06-09 14:26:47,294][ezkl.execute][INFO] - downsizing params to 15 logrows
+[2025-06-09 14:26:47,297][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:26:49,015][ezkl.pfsys][INFO] - VK took 1.720
+[2025-06-09 14:26:49,019][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:26:50,203][ezkl.pfsys][INFO] - PK took 1.186
+[2025-06-09 14:26:50,203][ezkl.pfsys][INFO] - saving verification key 💾
+[2025-06-09 14:26:50,204][ezkl.pfsys][INFO] - done saving verification key ✅
+[2025-06-09 14:26:50,205][ezkl.pfsys][INFO] - saving proving key 💾
+[2025-06-09 14:26:50,479][ezkl.pfsys][INFO] - done saving proving key ✅
+[2025-06-09 14:26:50,502][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_4/pk.json"
+[2025-06-09 14:26:50,726][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:26:50,726][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg15.srs"
+[2025-06-09 14:26:50,733][ezkl.execute][INFO] - downsizing params to 15 logrows
+[2025-06-09 14:26:50,733][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:26:50,785][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:26:56,271][ezkl.pfsys][INFO] - proof took 5.535
+[2025-06-09 14:26:56,302][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg15.srs"
+[2025-06-09 14:26:56,313][ezkl.execute][INFO] - downsizing params to 15 logrows
+[2025-06-09 14:26:56,322][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_4/vk.json"
+[2025-06-09 14:26:56,329][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:26:56,399][ezkl.execute][INFO] - verify took 0.69
+[2025-06-09 14:26:56,400][ezkl.execute][INFO] - verified: true
+[2025-06-09 14:27:02,060][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:27:02,833][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++-----------------+-----------------+----------------+-----------------+----------------+------------------+----------------+---------------+--------------------+--------------------+------------------------+
+| mean_error      | median_error    | max_error      | min_error       | mean_abs_error | median_abs_error | max_abs_error  | min_abs_error | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++-----------------+-----------------+----------------+-----------------+----------------+------------------+----------------+---------------+--------------------+--------------------+------------------------+
+| 0.0000006904717 | -0.000053286552 | 0.000060976483 | -0.000061022118 | 0.000030268075 | 0.000053286552   | 0.000061022118 | 0             | 0.0000000012244938 | 0.0015974555       | 0.011789613            |
++-----------------+-----------------+----------------+-----------------+----------------+------------------+----------------+---------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:27:02,853][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:27:02,855][ezkl.execute][INFO] - read 524548 bytes from file (vector of len = 524548)
+[2025-06-09 14:27:02,856][ezkl.execute][INFO] - file hash: 28b151069f41abc121baa6d2eaa8f9e4c4d8326ddbefee2bd9c0776b80ac6fad
+[2025-06-09 14:27:02,919][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg12.srs"
+[2025-06-09 14:27:02,920][ezkl.execute][INFO] - downsizing params to 12 logrows
+[2025-06-09 14:27:02,920][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:27:03,183][ezkl.pfsys][INFO] - VK took 0.262
+[2025-06-09 14:27:03,184][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:27:03,398][ezkl.pfsys][INFO] - PK took 0.214
+[2025-06-09 14:27:03,398][ezkl.pfsys][INFO] - saving verification key 💾
+[2025-06-09 14:27:03,399][ezkl.pfsys][INFO] - done saving verification key ✅
+[2025-06-09 14:27:03,399][ezkl.pfsys][INFO] - saving proving key 💾
+[2025-06-09 14:27:03,426][ezkl.pfsys][INFO] - done saving proving key ✅
+[2025-06-09 14:27:03,448][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_5/pk.json"
+[2025-06-09 14:27:03,466][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:27:03,466][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg12.srs"
+[2025-06-09 14:27:03,467][ezkl.execute][INFO] - downsizing params to 12 logrows
+[2025-06-09 14:27:03,468][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:27:03,509][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:27:04,359][ezkl.pfsys][INFO] - proof took 0.890
+[2025-06-09 14:27:04,372][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg12.srs"
+[2025-06-09 14:27:04,374][ezkl.execute][INFO] - downsizing params to 12 logrows
+[2025-06-09 14:27:04,379][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_5/vk.json"
+[2025-06-09 14:27:04,380][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:27:04,421][ezkl.execute][INFO] - verify took 0.40
+[2025-06-09 14:27:04,421][ezkl.execute][INFO] - verified: true
+[2025-06-09 14:27:17,878][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:27:18,644][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++-----------------+----------------+----------------+-----------------+----------------+------------------+----------------+---------------+--------------------+--------------------+------------------------+
+| mean_error      | median_error   | max_error      | min_error       | mean_abs_error | median_abs_error | max_abs_error  | min_abs_error | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++-----------------+----------------+----------------+-----------------+----------------+------------------+----------------+---------------+--------------------+--------------------+------------------------+
+| 0.0000006904717 | 0.000047683716 | 0.000060976483 | -0.000061022118 | 0.000030268106 | 0.000047683716   | 0.000061022118 | 0             | 0.0000000012244943 | 0.0015974566       | 0.011789599            |
++-----------------+----------------+----------------+-----------------+----------------+------------------+----------------+---------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:27:18,662][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:27:18,663][ezkl.execute][INFO] - read 524548 bytes from file (vector of len = 524548)
+[2025-06-09 14:27:18,663][ezkl.execute][INFO] - file hash: 28b151069f41abc121baa6d2eaa8f9e4c4d8326ddbefee2bd9c0776b80ac6fad
+[2025-06-09 14:27:18,719][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg12.srs"
+[2025-06-09 14:27:18,720][ezkl.execute][INFO] - downsizing params to 12 logrows
+[2025-06-09 14:27:18,721][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:27:18,929][ezkl.pfsys][INFO] - VK took 0.208
+[2025-06-09 14:27:18,930][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:27:19,117][ezkl.pfsys][INFO] - PK took 0.187
+[2025-06-09 14:27:19,117][ezkl.pfsys][INFO] - saving verification key 💾
+[2025-06-09 14:27:19,119][ezkl.pfsys][INFO] - done saving verification key ✅
+[2025-06-09 14:27:19,119][ezkl.pfsys][INFO] - saving proving key 💾
+[2025-06-09 14:27:19,140][ezkl.pfsys][INFO] - done saving proving key ✅
+[2025-06-09 14:27:19,160][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_6/pk.json"
+[2025-06-09 14:27:19,176][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:27:19,177][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg12.srs"
+[2025-06-09 14:27:19,178][ezkl.execute][INFO] - downsizing params to 12 logrows
+[2025-06-09 14:27:19,178][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:27:19,228][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:27:20,127][ezkl.pfsys][INFO] - proof took 0.948
+[2025-06-09 14:27:20,144][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg12.srs"
+[2025-06-09 14:27:20,145][ezkl.execute][INFO] - downsizing params to 12 logrows
+[2025-06-09 14:27:20,149][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_6/vk.json"
+[2025-06-09 14:27:20,150][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:27:20,190][ezkl.execute][INFO] - verify took 0.39
+[2025-06-09 14:27:20,191][ezkl.execute][INFO] - verified: true
+[2025-06-09 14:27:32,955][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:31:11,831][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:31:41,845][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++--------------------+---------------+---------------+----------------+----------------+------------------+---------------+--------------------+--------------------+--------------------+------------------------+
+| mean_error         | median_error  | max_error     | min_error      | mean_abs_error | median_abs_error | max_abs_error | min_abs_error      | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++--------------------+---------------+---------------+----------------+----------------+------------------+---------------+--------------------+--------------------+--------------------+------------------------+
+| -0.000000021982965 | 0.00003487128 | 0.00007655006 | -0.00008532964 | 0.000018085386 | 0.00003487128    | 0.00008532964 | 0.0000000121071935 | 0.0000000005136721 | 0.0028538427       | 0.014134148            |
++--------------------+---------------+---------------+----------------+----------------+------------------+---------------+--------------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:31:41,857][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:31:41,911][ezkl.execute][INFO] - read 33554692 bytes from file (vector of len = 33554692)
+[2025-06-09 14:31:41,952][ezkl.execute][INFO] - file hash: d0148475717a2ba269784a178cb0ab617bc77f16c58d4a3cbdfe785b591c7034
+[2025-06-09 14:31:42,337][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_1/pk.json"
+[2025-06-09 14:31:43,803][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:31:43,803][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg18.srs"
+[2025-06-09 14:31:43,837][ezkl.execute][INFO] - downsizing params to 18 logrows
+[2025-06-09 14:31:43,837][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:31:44,189][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:32:23,057][ezkl.pfsys][INFO] - proof took 39.216
+[2025-06-09 14:32:23,089][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg18.srs"
+[2025-06-09 14:32:23,150][ezkl.execute][INFO] - downsizing params to 18 logrows
+[2025-06-09 14:32:23,155][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_1/vk.json"
+[2025-06-09 14:32:23,178][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:32:23,218][ezkl.execute][INFO] - verify took 0.40
+[2025-06-09 14:32:23,219][ezkl.execute][INFO] - verified: true
+[2025-06-09 14:32:38,135][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:32:42,097][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++------------------+----------------+--------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+| mean_error       | median_error   | max_error    | min_error      | mean_abs_error | median_abs_error | max_abs_error | min_abs_error     | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++------------------+----------------+--------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+| 0.00000014720779 | 0.000028143404 | 0.0000622347 | -0.00006211549 | 0.000030569678 | 0.000028143404   | 0.0000622347  | 0.000000031635864 | 0.0000000012510268 | 0.0015849626       | 0.012332427            |
++------------------+----------------+--------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:32:42,116][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:32:42,117][ezkl.execute][INFO] - read 1048836 bytes from file (vector of len = 1048836)
+[2025-06-09 14:32:42,119][ezkl.execute][INFO] - file hash: d5d94bb25bdc024f649213593027d861042ee807cafd94b49b54f1663f8f267d
+[2025-06-09 14:32:42,232][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_2/pk.json"
+[2025-06-09 14:32:42,269][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:32:42,269][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg13.srs"
+[2025-06-09 14:32:42,271][ezkl.execute][INFO] - downsizing params to 13 logrows
+[2025-06-09 14:32:42,271][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:32:42,306][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:32:43,328][ezkl.pfsys][INFO] - proof took 1.55
+[2025-06-09 14:32:43,341][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg13.srs"
+[2025-06-09 14:32:43,343][ezkl.execute][INFO] - downsizing params to 13 logrows
+[2025-06-09 14:32:43,348][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_2/vk.json"
+[2025-06-09 14:32:43,350][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:32:43,393][ezkl.execute][INFO] - verify took 0.42
+[2025-06-09 14:32:43,393][ezkl.execute][INFO] - verified: true
+[2025-06-09 14:32:53,171][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:32:56,582][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++-------------------+-----------------+---------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+| mean_error        | median_error    | max_error     | min_error      | mean_abs_error | median_abs_error | max_abs_error | min_abs_error     | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++-------------------+-----------------+---------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+| 0.000000108213094 | -0.000053574797 | 0.00011867704 | -0.00012164004 | 0.000040892668 | 0.000053574797   | 0.00012164004 | 0.000000008381903 | 0.0000000025055673 | 0.001823117        | 0.014755788            |
++-------------------+-----------------+---------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:32:56,607][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:32:56,608][ezkl.execute][INFO] - read 1048836 bytes from file (vector of len = 1048836)
+[2025-06-09 14:32:56,610][ezkl.execute][INFO] - file hash: d5d94bb25bdc024f649213593027d861042ee807cafd94b49b54f1663f8f267d
+[2025-06-09 14:32:56,720][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_3/pk.json"
+[2025-06-09 14:32:56,765][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:32:56,765][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg13.srs"
+[2025-06-09 14:32:56,767][ezkl.execute][INFO] - downsizing params to 13 logrows
+[2025-06-09 14:32:56,767][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:32:56,805][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:32:58,257][ezkl.pfsys][INFO] - proof took 1.489
+[2025-06-09 14:32:58,266][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg13.srs"
+[2025-06-09 14:32:58,267][ezkl.execute][INFO] - downsizing params to 13 logrows
+[2025-06-09 14:32:58,271][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_3/vk.json"
+[2025-06-09 14:32:58,273][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:32:58,323][ezkl.execute][INFO] - verify took 0.49
+[2025-06-09 14:32:58,324][ezkl.execute][INFO] - verified: true
+[2025-06-09 14:33:08,212][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:33:29,116][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++-----------------+-----------------+---------------+----------------+----------------+------------------+---------------+---------------+--------------------+--------------------+------------------------+
+| mean_error      | median_error    | max_error     | min_error      | mean_abs_error | median_abs_error | max_abs_error | min_abs_error | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++-----------------+-----------------+---------------+----------------+----------------+------------------+---------------+---------------+--------------------+--------------------+------------------------+
+| 0.0000029481507 | -0.000053286552 | 0.00010949373 | -0.00011700392 | 0.000033887474 | 0.000053286552   | 0.00011700392 | 0             | 0.0000000016663136 | 0.001076577        | 0.012100396            |
++-----------------+-----------------+---------------+----------------+----------------+------------------+---------------+---------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:33:29,144][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:33:29,149][ezkl.execute][INFO] - read 4194564 bytes from file (vector of len = 4194564)
+[2025-06-09 14:33:29,155][ezkl.execute][INFO] - file hash: 90807800a1c3b248a452e1732c45ee5099f38b737356f5542c0584ec9c3ebb45
+[2025-06-09 14:33:29,479][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_4/pk.json"
+[2025-06-09 14:33:29,723][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:33:29,724][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg15.srs"
+[2025-06-09 14:33:29,730][ezkl.execute][INFO] - downsizing params to 15 logrows
+[2025-06-09 14:33:29,731][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:33:29,789][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:33:34,230][ezkl.pfsys][INFO] - proof took 4.498
+[2025-06-09 14:33:34,248][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg15.srs"
+[2025-06-09 14:33:34,254][ezkl.execute][INFO] - downsizing params to 15 logrows
+[2025-06-09 14:33:34,259][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_4/vk.json"
+[2025-06-09 14:33:34,263][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:33:34,305][ezkl.execute][INFO] - verify took 0.41
+[2025-06-09 14:33:34,305][ezkl.execute][INFO] - verified: true
+[2025-06-09 14:33:44,161][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:33:44,921][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++-----------------+-----------------+----------------+-----------------+----------------+------------------+----------------+---------------+--------------------+--------------------+------------------------+
+| mean_error      | median_error    | max_error      | min_error       | mean_abs_error | median_abs_error | max_abs_error  | min_abs_error | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++-----------------+-----------------+----------------+-----------------+----------------+------------------+----------------+---------------+--------------------+--------------------+------------------------+
+| 0.0000006904717 | -0.000053286552 | 0.000060976483 | -0.000061022118 | 0.000030268075 | 0.000053286552   | 0.000061022118 | 0             | 0.0000000012244938 | 0.0015974555       | 0.011789613            |
++-----------------+-----------------+----------------+-----------------+----------------+------------------+----------------+---------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:33:44,937][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:33:44,938][ezkl.execute][INFO] - read 524548 bytes from file (vector of len = 524548)
+[2025-06-09 14:33:44,939][ezkl.execute][INFO] - file hash: 28b151069f41abc121baa6d2eaa8f9e4c4d8326ddbefee2bd9c0776b80ac6fad
+[2025-06-09 14:33:45,017][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_5/pk.json"
+[2025-06-09 14:33:45,038][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:33:45,038][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg12.srs"
+[2025-06-09 14:33:45,039][ezkl.execute][INFO] - downsizing params to 12 logrows
+[2025-06-09 14:33:45,039][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:33:45,072][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:33:45,844][ezkl.pfsys][INFO] - proof took 0.804
+[2025-06-09 14:33:45,859][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg12.srs"
+[2025-06-09 14:33:45,860][ezkl.execute][INFO] - downsizing params to 12 logrows
+[2025-06-09 14:33:45,865][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_5/vk.json"
+[2025-06-09 14:33:45,866][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:33:45,902][ezkl.execute][INFO] - verify took 0.35
+[2025-06-09 14:33:45,902][ezkl.execute][INFO] - verified: true
+[2025-06-09 14:33:59,199][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:33:59,738][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++-----------------+----------------+----------------+-----------------+----------------+------------------+----------------+---------------+--------------------+--------------------+------------------------+
+| mean_error      | median_error   | max_error      | min_error       | mean_abs_error | median_abs_error | max_abs_error  | min_abs_error | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++-----------------+----------------+----------------+-----------------+----------------+------------------+----------------+---------------+--------------------+--------------------+------------------------+
+| 0.0000006904717 | 0.000047683716 | 0.000060976483 | -0.000061022118 | 0.000030268106 | 0.000047683716   | 0.000061022118 | 0             | 0.0000000012244943 | 0.0015974566       | 0.011789599            |
++-----------------+----------------+----------------+-----------------+----------------+------------------+----------------+---------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:33:59,747][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:33:59,747][ezkl.execute][INFO] - read 524548 bytes from file (vector of len = 524548)
+[2025-06-09 14:33:59,748][ezkl.execute][INFO] - file hash: 28b151069f41abc121baa6d2eaa8f9e4c4d8326ddbefee2bd9c0776b80ac6fad
+[2025-06-09 14:33:59,792][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_6/pk.json"
+[2025-06-09 14:33:59,805][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:33:59,805][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg12.srs"
+[2025-06-09 14:33:59,806][ezkl.execute][INFO] - downsizing params to 12 logrows
+[2025-06-09 14:33:59,806][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:33:59,826][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:34:00,236][ezkl.pfsys][INFO] - proof took 0.429
+[2025-06-09 14:34:00,242][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg12.srs"
+[2025-06-09 14:34:00,243][ezkl.execute][INFO] - downsizing params to 12 logrows
+[2025-06-09 14:34:00,245][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_6/vk.json"
+[2025-06-09 14:34:00,246][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:34:00,265][ezkl.execute][INFO] - verify took 0.19
+[2025-06-09 14:34:00,266][ezkl.execute][INFO] - verified: true
+[2025-06-09 14:34:14,803][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:37:13,542][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:37:47,630][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++--------------------+---------------+---------------+----------------+----------------+------------------+---------------+--------------------+--------------------+--------------------+------------------------+
+| mean_error         | median_error  | max_error     | min_error      | mean_abs_error | median_abs_error | max_abs_error | min_abs_error      | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++--------------------+---------------+---------------+----------------+----------------+------------------+---------------+--------------------+--------------------+--------------------+------------------------+
+| -0.000000021982965 | 0.00003487128 | 0.00007655006 | -0.00008532964 | 0.000018085386 | 0.00003487128    | 0.00008532964 | 0.0000000121071935 | 0.0000000005136721 | 0.0028538427       | 0.014134148            |
++--------------------+---------------+---------------+----------------+----------------+------------------+---------------+--------------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:37:47,645][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:37:47,670][ezkl.execute][INFO] - read 33554692 bytes from file (vector of len = 33554692)
+[2025-06-09 14:37:47,712][ezkl.execute][INFO] - file hash: d0148475717a2ba269784a178cb0ab617bc77f16c58d4a3cbdfe785b591c7034
+[2025-06-09 14:37:48,105][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_1/pk.json"
+[2025-06-09 14:37:49,397][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:37:49,397][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg18.srs"
+[2025-06-09 14:37:49,436][ezkl.execute][INFO] - downsizing params to 18 logrows
+[2025-06-09 14:37:49,437][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:37:49,804][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:38:37,015][ezkl.pfsys][INFO] - proof took 47.575
+[2025-06-09 14:38:37,038][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg18.srs"
+[2025-06-09 14:38:37,094][ezkl.execute][INFO] - downsizing params to 18 logrows
+[2025-06-09 14:38:37,099][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_1/vk.json"
+[2025-06-09 14:38:37,117][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:38:37,151][ezkl.execute][INFO] - verify took 0.32
+[2025-06-09 14:38:37,151][ezkl.execute][INFO] - verified: true
+[2025-06-09 14:38:52,085][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:38:55,964][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++------------------+----------------+--------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+| mean_error       | median_error   | max_error    | min_error      | mean_abs_error | median_abs_error | max_abs_error | min_abs_error     | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++------------------+----------------+--------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+| 0.00000014720779 | 0.000028143404 | 0.0000622347 | -0.00006211549 | 0.000030569678 | 0.000028143404   | 0.0000622347  | 0.000000031635864 | 0.0000000012510268 | 0.0015849626       | 0.012332427            |
++------------------+----------------+--------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:38:55,982][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:38:55,983][ezkl.execute][INFO] - read 1048836 bytes from file (vector of len = 1048836)
+[2025-06-09 14:38:55,985][ezkl.execute][INFO] - file hash: d5d94bb25bdc024f649213593027d861042ee807cafd94b49b54f1663f8f267d
+[2025-06-09 14:38:56,089][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_2/pk.json"
+[2025-06-09 14:38:56,123][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:38:56,123][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg13.srs"
+[2025-06-09 14:38:56,124][ezkl.execute][INFO] - downsizing params to 13 logrows
+[2025-06-09 14:38:56,125][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:38:56,158][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:38:57,187][ezkl.pfsys][INFO] - proof took 1.61
+[2025-06-09 14:38:57,203][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg13.srs"
+[2025-06-09 14:38:57,205][ezkl.execute][INFO] - downsizing params to 13 logrows
+[2025-06-09 14:38:57,211][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_2/vk.json"
+[2025-06-09 14:38:57,212][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:38:57,264][ezkl.execute][INFO] - verify took 0.51
+[2025-06-09 14:38:57,265][ezkl.execute][INFO] - verified: true
+[2025-06-09 14:39:07,143][ezkl.execute][INFO] - num calibration batches: 1
+[2025-06-09 14:39:11,724][ezkl.execute][WARNING] - 
+
+ <------------- Numerical Fidelity Report (input_scale: 13, param_scale: 13, scale_input_multiplier: 10) ------------->
+
++-------------------+-----------------+---------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+| mean_error        | median_error    | max_error     | min_error      | mean_abs_error | median_abs_error | max_abs_error | min_abs_error     | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++-------------------+-----------------+---------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+| 0.000000108213094 | -0.000053574797 | 0.00011867704 | -0.00012164004 | 0.000040892668 | 0.000053574797   | 0.00012164004 | 0.000000008381903 | 0.0000000025055673 | 0.001823117        | 0.014755788            |
++-------------------+-----------------+---------------+----------------+----------------+------------------+---------------+-------------------+--------------------+--------------------+------------------------+
+
+
+[2025-06-09 14:39:11,746][ezkl.execute][INFO] - SRS already exists at that path
+[2025-06-09 14:39:11,746][ezkl.execute][INFO] - read 1048836 bytes from file (vector of len = 1048836)
+[2025-06-09 14:39:11,748][ezkl.execute][INFO] - file hash: d5d94bb25bdc024f649213593027d861042ee807cafd94b49b54f1663f8f267d
+[2025-06-09 14:39:11,846][ezkl.pfsys][INFO] - loading proving key from "cache/mnist_gan/split_model_3/pk.json"
+[2025-06-09 14:39:11,886][ezkl.pfsys][INFO] - done loading proving key ✅
+[2025-06-09 14:39:11,887][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg13.srs"
+[2025-06-09 14:39:11,888][ezkl.execute][INFO] - downsizing params to 13 logrows
+[2025-06-09 14:39:11,888][ezkl.pfsys][INFO] - proof started...
+[2025-06-09 14:39:11,925][ezkl.graph.model][INFO] - model layout...
+[2025-06-09 14:39:13,195][ezkl.pfsys][INFO] - proof took 1.305
+[2025-06-09 14:39:13,212][ezkl.pfsys.srs][INFO] - loading srs from "/home/pw/.ezkl/srs/kzg13.srs"
+[2025-06-09 14:39:13,225][ezkl.execute][INFO] - downsizing params to 13 logrows
+[2025-06-09 14:39:13,231][ezkl.pfsys][INFO] - loading verification key from "cache/mnist_gan/split_model_3/vk.json"
+[2025-06-09 14:39:13,233][ezkl.pfsys][INFO] - done loading verification key ✅
+[2025-06-09 14:39:13,286][ezkl.execute][INFO] - verify took 0.52
+[2025-06-09 14:39:13,286][ezkl.execute][INFO] - verified: true

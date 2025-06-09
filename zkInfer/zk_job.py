@@ -47,6 +47,8 @@ class OnnxModelToProve:
         self.witness_path = os.path.join(self.data_dir, 'witness.json')
         self.proof_path = os.path.join(self.data_dir, 'proof.pf')
         self.model_info= {'name': job_name, 'onnx_model_path': onnx_model_path, 'input_data_path': input_data_path}
+        self.model_dir = os.path.join(self.report_dir, self.model_name)
+        os.makedirs( self.model_dir, exist_ok=True)
 
     @timed
     def _gen_settings(self):
@@ -157,15 +159,14 @@ class OnnxModelToProve:
                 writer.writeheader()
             writer.writerow(full_metrics)
 
-        model_dir = os.path.join(self.report_dir, self.model_name)
-        os.makedirs(model_dir, exist_ok=True)
+
         for f in os.listdir('.'):
             if f.startswith('halo2_fft') and f.endswith('.csv') or f.startswith('halo2_msm') and f.endswith('.csv'):
-                shutil.move(f, os.path.join(model_dir, f))
+                shutil.move(f, os.path.join(self.model_dir, f))
             elif f.startswith('halo2_') and f.endswith('.csv'):
                 #delete the file
-                shutil.move(f, os.path.join(self.report_dir, f))
+                # shutil.move(f, os.path.join(self.report_dir, f))
 
-                # os.remove(f)
+                os.remove(f)
 
         

@@ -106,7 +106,7 @@ class ZKProofWorker:
                 message="Started"
             ))
             # ----------- Start system-wide logger in background -----------#
-            usage_file = os.path.join(response.output_dir, 'system_usage.log')
+            usage_file = os.path.join(model.model_dir, 'system_usage.log')
             syslog_proc = subprocess.Popen([
             sys.executable, "zkInfer/sys_logger.py",
             "--log_file", usage_file,
@@ -116,7 +116,7 @@ class ZKProofWorker:
             worker_pid = os.getpid()
             print("Python worker PID:", os.getpid())
 
-            procwatch_log = os.path.join(response.output_dir, "process_usage.log")
+            procwatch_log = os.path.join(model.model_dir, "process_usage.log")
             watcher_proc = subprocess.Popen([
                 sys.executable, "zkInfer/process_watcher.py",
                 "--pid", str(worker_pid),
