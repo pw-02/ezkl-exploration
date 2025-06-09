@@ -151,8 +151,9 @@ class OnnxModelToProve:
             if os.path.exists(msm_file):
                 msm_data.update(get_msm_summary(msm_file, suffix))
 
-        full_metrics = {**self.model_info, **circuit_info, **prover_info, **fft_data, **msm_data}
-        
+        # full_metrics = {**self.model_info, **circuit_info, **prover_info, **fft_data, **msm_data}
+        full_metrics = {**self.model_info, **circuit_info, **prover_info}
+
         with open(halo2_file, 'a', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=full_metrics.keys())
             if f.tell() == 0:
@@ -165,8 +166,8 @@ class OnnxModelToProve:
                 shutil.move(f, os.path.join(self.model_dir, f))
             elif f.startswith('halo2_') and f.endswith('.csv'):
                 #delete the file
-                # shutil.move(f, os.path.join(self.report_dir, f))
+                shutil.move(f, os.path.join(self.report_dir, f))
 
-                os.remove(f)
+                #os.remove(f)
 
         

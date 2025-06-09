@@ -545,3 +545,4 @@
 [2025-06-09 14:39:13,233][ezkl.pfsys][INFO] - done loading verification key ✅
 [2025-06-09 14:39:13,286][ezkl.execute][INFO] - verify took 0.52
 [2025-06-09 14:39:13,286][ezkl.execute][INFO] - verified: true
+[2025-06-09 15:19:56,392][ezkl.execute][INFO] - num calibration batches: 1

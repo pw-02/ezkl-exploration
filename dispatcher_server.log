@@ -95,3 +95,41 @@
 2025-06-09 14:39:07,121 [INFO] dispatcher_server: ✅ Sub-job mnist_gan_split_model_2 marked COMPLETED
 2025-06-09 14:39:07,125 [INFO] dispatcher_server: Heartbeat from 74dc3f52-496d-4cd6-9cc4-4b3466e051b8 | mnist_gan_split_model_3 | 2 - Started
 2025-06-09 14:39:07,131 [INFO] dispatcher_server: Heartbeat from 74dc3f52-496d-4cd6-9cc4-4b3466e051b8 | mnist_gan_split_model_3 | 2 - Proving...
+2025-06-09 15:18:20,672 [INFO] dispatcher_server: 🚀 Starting ZK Dispatcher Service
+2025-06-09 15:18:20,689 [INFO] dispatcher_server: ✅ Dispatcher gRPC server running on port 50051
+2025-06-09 15:19:44,793 [INFO] dispatcher_server: 💼 Submitting job 'mnist_gan' with split_mode='fixed', ops_per_chunk=1
+2025-06-09 15:19:56,287 [INFO] dispatcher_server: Prepared 12 sub-jobs for proving global job mnist_gan
+2025-06-09 15:19:56,287 [INFO] dispatcher_server: 🆔 Assigned Job ID: mnist_gan
+2025-06-09 15:19:56,292 [INFO] dispatcher_server: Heartbeat from 232ed521-7615-4bfa-bf20-556c6e31e12f | mnist_gan_split_model_1 | 2 - Started
+2025-06-09 15:19:56,393 [INFO] dispatcher_server: Heartbeat from 232ed521-7615-4bfa-bf20-556c6e31e12f | mnist_gan_split_model_1 | 2 - Proving...
+2025-06-09 15:20:05,715 [INFO] dispatcher_server: 🚀 Starting ZK Dispatcher Service
+2025-06-09 15:20:05,725 [INFO] dispatcher_server: ✅ Dispatcher gRPC server running on port 50051
+2025-06-09 15:20:43,831 [INFO] dispatcher_server: 🚀 Starting ZK Dispatcher Service
+2025-06-09 15:20:43,841 [INFO] dispatcher_server: ✅ Dispatcher gRPC server running on port 50051
+2025-06-09 15:21:05,911 [INFO] dispatcher_server: 💼 Submitting job 'mnist_gan' with split_mode='fixed', ops_per_chunk=1
+2025-06-09 15:25:41,433 [INFO] dispatcher_server: 🚀 Starting ZK Dispatcher Service
+2025-06-09 15:25:41,443 [INFO] dispatcher_server: ✅ Dispatcher gRPC server running on port 50051
+2025-06-09 15:25:47,397 [INFO] dispatcher_server: 💼 Submitting job 'mnist_gan' with split_mode='fixed', ops_per_chunk=1
+2025-06-09 15:25:50,931 [ERROR] dispatcher_server: Error during model preparation: 'model_1/dense_2/MatMul_Gemm__21:0'
+[2025-06-09 15:25:50,932][grpc._server][ERROR] - Exception calling application: 'model_1/dense_2/MatMul_Gemm__21:0'
+Traceback (most recent call last):
+  File "/home/pw/miniconda3/envs/dzkml/lib/python3.10/site-packages/grpc/_server.py", line 610, in _call_behavior
+    response_or_iterator = behavior(argument, context)
+  File "/home/pw/ezkl-exploration/grpc_api/dispatcher_server.py", line 30, in SubmitGlobalJob
+    job_id = self.job_manager.submit_global_job(
+  File "/home/pw/ezkl-exploration/zkInfer/job_manager.py", line 139, in submit_global_job
+    job.queue_models_for_proving()
+  File "/home/pw/ezkl-exploration/zkInfer/job_manager.py", line 86, in queue_models_for_proving
+    sub_models = split_onnx_model(self.onnx_model_path, group_size)
+  File "/home/pw/ezkl-exploration/zkInfer/onnx_splitter.py", line 92, in split_onnx_model
+    sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
+  File "/home/pw/ezkl-exploration/zkInfer/onnx_splitter.py", line 21, in extract_model
+    new_model = e.extract_model(node_inputs, node_outputs)
+  File "/home/pw/miniconda3/envs/dzkml/lib/python3.10/site-packages/onnx/utils.py", line 178, in extract_model
+    outputs = self._collect_new_outputs(output_names)
+  File "/home/pw/miniconda3/envs/dzkml/lib/python3.10/site-packages/onnx/utils.py", line 61, in _collect_new_outputs
+    return self._collect_new_io_core(self.graph.output, names)
+  File "/home/pw/miniconda3/envs/dzkml/lib/python3.10/site-packages/onnx/utils.py", line 54, in _collect_new_io_core
+    new_io_tensors.append(self.vimap[io_name_to_extract])
+KeyError: 'model_1/dense_2/MatMul_Gemm__21:0'
+2025-06-09 15:26:23,318 [INFO] dispatcher_server: 💼 Submitting job 'mnist_gan' with split_mode='fixed', ops_per_chunk=1
