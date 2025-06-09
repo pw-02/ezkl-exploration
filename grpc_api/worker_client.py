@@ -5,11 +5,36 @@ import hydra
 from omegaconf import DictConfig
 from grpc_api import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
 from zkInfer.zk_job import OnnxModelToProve
+import sys
+import subprocess
 from uuid import uuid4
 import threading
-
+import psutil
+from datetime import datetime
+import os
 logger = logging.getLogger()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+
+
+def sample_process_usage_during_job(process, interval, stop_event, stats):
+    peak_mem = 0
+    cpu_percents = []
+    while not stop_event.is_set():
+        try:
+            mem = process.memory_info().rss
+            peak_mem = max(peak_mem, mem)
+            cpu = process.cpu_percent(interval=None)
+            cpu_percents.append(cpu)
+        except Exception as e:
+            pass  # process might exit, ignore
+        time.sleep(interval)
+    stats["peak_mem_rss"] = peak_mem
+    stats["avg_cpu_percent"] = sum(cpu_percents) / len(cpu_percents) if cpu_percents else 0.0
+
+
+
+
 
 class ZKProofWorker:
     def __init__(self, cfg: DictConfig):
@@ -85,10 +110,38 @@ class ZKProofWorker:
                 status="STARTED",
                 message="Started"
             ))
+            # ----------- Start system-wide logger in background -----------#
+            usage_file = os.path.join(response.output_dir, 'system_usage.log')
+            syslog_proc = subprocess.Popen([
+            sys.executable, "zkInfer/sys_logger.py",
+            "--log_file", usage_file,
+            "--interval", "3"
+            ])
+
+            worker_pid = os.getpid()
+            print("Python worker PID:", os.getpid())
+
+            procwatch_log = os.path.join(response.output_dir, "process_usage.log")
+            watcher_proc = subprocess.Popen([
+                sys.executable, "zkInfer/process_watcher.py",
+                "--pid", str(worker_pid),
+                "--log_file", procwatch_log,
+                "--interval", "1"
+            ])
+
+
 
             self.start_heartbeat()
             metrics = model.generate_zk_proof()  # optionally update self.progress_ref
             self.stop_heartbeat()
+            # ----------- Stop samplers -----------
+            watcher_proc.terminate()
+            watcher_proc.wait(timeout=2)
+            syslog_proc.terminate()
+            syslog_proc.wait(timeout=3)
+
+            # ----------- Add per-process stats to metrics -----------
+            model.save_reports(metrics)
 
              # Send final heartbeat
             self.stub.SendHeartbeat(pb.HeartbeatRequest(

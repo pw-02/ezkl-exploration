@@ -131,7 +131,7 @@ class OnnxModelToProve:
         logger.info(f"{self.model_name}: All stages completed.. Saving reports")
         if not os.path.exists(self.report_dir):
             os.makedirs(self.report_dir)
-        self.save_reports(timings)
+        # self.save_reports(timings)
         return timings
     
     def save_reports(self, timings):

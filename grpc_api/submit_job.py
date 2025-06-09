@@ -58,7 +58,7 @@ def main(cfg: DictConfig):
             logger.info(f"✅ Job submitted. Assigned ID: {response.job_id}")
 
             # Start live tracking in background
-            tracking_thread = threading.Thread(target=live_status_tracker, args=(stub,), daemon=True)
+            # tracking_thread = threading.Thread(target=live_status_tracker, args=(stub,), daemon=True)
             # tracking_thread.start()
 
             # Launch a local worker for debugging
