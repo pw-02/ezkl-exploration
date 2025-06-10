@@ -8,6 +8,19 @@
     8  conda init --all
     9  clear
    12  cd ezkl-exploration
-   13 
+   13    1  conda create -n dzkml python=3.10
+    2  ls
+    3  cd ezkl-exploration
+    4  ls
+    5  pip install -r requirements.txt
+    6  ls
+    7  python grpc_api/dispatcher_server.py
+    8  import sys
+    9  print(sys.path)
+   10  export PYTHONPATH=.:$PYTHONPATH
+   11  python grpc_api/dispatcher_server.py
+   12  git pull
+   13  python grpc_api/dispatcher_server.py
+   14  history
 
    scp -i us-west-2-kp.pem -r ubuntu@ec2-34-223-107-9.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/ "C:\Users\pw\Desktop\"

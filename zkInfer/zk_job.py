@@ -112,7 +112,7 @@ class OnnxModelToProve:
             ('witness_gen', self._gen_witness),
             ('setup', self._setup),
             ('prove', self._prove),
-            ('verify', self._verify),
+            # ('verify', self._verify),
         ]
         timings = {}
         for name, fn in stages:
