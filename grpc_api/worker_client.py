@@ -11,9 +11,7 @@ import threading
 import psutil
 from datetime import datetime
 import os
-
-from grpc_api.log_utils import setup_logger
-logger = setup_logger('worker', log_file="worker.log")
+import logging
 
 def sample_process_usage_during_job(process, interval, stop_event, stats):
     peak_mem = 0
@@ -32,7 +30,7 @@ def sample_process_usage_during_job(process, interval, stop_event, stats):
 
 
 class ZKProofWorker:
-    def __init__(self, cfg: DictConfig):
+    def __init__(self, cfg: DictConfig, logger= None):
         self.worker_id = str(uuid4())
         self.cfg = cfg
         self.target = f"{cfg.dispatcher.host}:{cfg.dispatcher.port}"
@@ -43,13 +41,14 @@ class ZKProofWorker:
         self.progress_ref = {"value": 0}
         self.current_sub_job_id = None
         self.parent_job_id = None
+        self.logger = logger or setup_logger('worker', log_file="worker.log")
 
     def connect(self):
         if self.channel:
             self.channel.close()
         self.channel = grpc.insecure_channel(self.target)
         self.stub = pb_grpc.ZKJobServiceStub(self.channel)
-        logger.info(f"✅ Connected to dispatcher at {self.target}")
+        self.logger.info(f"✅ Connected to dispatcher at {self.target}")
 
     def start_heartbeat(self):
         self.heartbeat_stop_event.clear()
@@ -75,19 +74,19 @@ class ZKProofWorker:
                     message="Proving..."
                 ))
             except grpc.RpcError as e:
-                logger.warning(f"⚠️ Heartbeat failed: {e.details()}")
+                self.logger.warning(f"⚠️ Heartbeat failed: {e.details()}")
             time.sleep(15)
 
     def fetch_and_run_job(self):
         try:
             response = self.stub.FetchNextSubJob(pb.WorkerIDRequest(worker_id=self.worker_id))
             if not response.available:
-                logger.info("⏳ No jobs available. Sleeping...")
+                self.logger.info("⏳ No jobs available. Sleeping...")
                 time.sleep(5)
                 return
             self.parent_job_id = response.job_id
             self.current_sub_job_id = response.sub_job_id
-            logger.info(f"📦 Got sub-job {response.sub_job_id} for job {response.job_id}")
+            self.logger.info(f"📦 Got sub-job {response.sub_job_id} for job {response.job_id}")
 
             model = OnnxModelToProve(
                 parent_job_id=response.job_id,
@@ -152,15 +151,15 @@ class ZKProofWorker:
                 sub_job_id=response.sub_job_id,
                 metrics=metrics
             ))
-            logger.info(f"✅ Completed sub-job {response.sub_job_id}")
+            self.logger.info(f"✅ Completed sub-job {response.sub_job_id}")
             self.current_sub_job_id = None
 
         except grpc.RpcError as e:
-            logger.error(f"❌ gRPC error: {e.details()} (code={e.code()})")
+            self.logger.error(f"❌ gRPC error: {e.details()} (code={e.code()})")
             self.reconnect_if_needed()
 
     def reconnect_if_needed(self):
-        logger.info("🔁 Attempting to reconnect gRPC channel...")
+        self.logger.info("🔁 Attempting to reconnect gRPC channel...")
         self.connect()
         time.sleep(5)
 
@@ -171,8 +170,21 @@ class ZKProofWorker:
 
 
 @hydra.main(config_path="../conf", config_name="config", version_base=None)
-def main(cfg: DictConfig):
-    worker = ZKProofWorker(cfg)
+def main(cfg: DictConfig, logger=None):
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler("worker.log")
+        ]
+    )
+
+    logger = logging.getLogger("worker")
+    logger.info("🔧 Starting ZKProofWorker...")
+    
+    worker = ZKProofWorker(cfg, logger)
     worker.run()
 
 

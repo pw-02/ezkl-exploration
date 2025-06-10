@@ -9,15 +9,16 @@ from enum import Enum
 from typing import Dict
 import json
 from zkInfer.inference_utils import run_model_inference
+from grpc_api.log_utils import setup_logger
 from zkInfer.onnx_splitter import (
     split_onnx_model,
     collect_intermediate_inference_outputs,
     save_split_models,
     get_model_info
 )
+# import logging
+# logger = logging.getLogger("dispatcher")
 
-from grpc_api.log_utils import setup_logger
-logger = setup_logger('dispatcher_server', log_file="dispatcher_server.log")
 
 
 class JobStatus(str, Enum):
@@ -32,7 +33,8 @@ class JobStatus(str, Enum):
 
 class GlobalProvingJob:
     def __init__(self, job_name, onnx_model_path, input_data_path,
-                 split_mode="auto", ops_per_chunk=1, cache_setup_files=False):
+                 split_mode="auto", ops_per_chunk=1, cache_setup_files=False,
+                 logger=None):
 
         self.model_name = job_name
         self.input_data_path = input_data_path
@@ -47,7 +49,8 @@ class GlobalProvingJob:
         self.cache_directory = os.path.join('cache', self.model_name)
         os.makedirs(self.cache_directory, exist_ok=True)
         os.makedirs(self.report_directory, exist_ok=True)
-
+        self.logger = logger or setup_logger(name="dispatcher", log_file="dispatcher.log")
+  # Fallback to print if no logger is provided
         self.status = JobStatus.PENDING
         self.progress = 0.0
 
@@ -94,10 +97,10 @@ class GlobalProvingJob:
                     header_written = True
 
             self.status = JobStatus.PREPARED
-            logger.info(f"Prepared {len(self.sub_job_queue)} sub-jobs for proving global job {self.model_name}")
+            self.logger.info(f"Prepared {len(self.sub_job_queue)} sub-jobs for proving global job {self.model_name}")
 
         except Exception as e:
-            logger.error(f"Error during model preparation: {e}")
+            self.logger.error(f"Error during model preparation: {e}")
             self.status = JobStatus.FAILED
             raise
 
@@ -129,13 +132,14 @@ class GlobalProvingJob:
 
 
 class JobManager:
-    def __init__(self):
+    def __init__(self, logger=None):
+        self.logger = logger
         self.global_jobs: Dict[str, GlobalProvingJob] = {}
         self.sub_job_assignments: Dict[str, str] = {}
 
     def submit_global_job(self, job_name, onnx_model_path, input_data_path, split_mode, ops_per_chunk, cache_setup_files=False):
         job_id = job_name if job_name else str(uuid.uuid4())
-        job = GlobalProvingJob(job_id, onnx_model_path, input_data_path, split_mode, ops_per_chunk, cache_setup_files)
+        job = GlobalProvingJob( job_id, onnx_model_path, input_data_path, split_mode, ops_per_chunk, cache_setup_files, self.logger)
         job.queue_models_for_proving()
         self.global_jobs[job_id] = job
         return job_id
@@ -169,13 +173,13 @@ class JobManager:
     def record_heartbeat(self, job_id, sub_job_id, worker_id, status, message):
         if job_id in self.global_jobs:
             self.global_jobs[job_id].model_to_prove_status[sub_job_id] = status
-            logger.info(f"Heartbeat from {worker_id} | {sub_job_id} | {status} - {message}")
+            self.logger.info(f"Heartbeat from {worker_id} | {sub_job_id} | {status} - {message}")
 
     def submit_sub_job_result(self, job_id: str, sub_job_id: str):
         job = self.global_jobs.get(job_id)
         if job and sub_job_id in job.model_to_prove_status:
             job.model_to_prove_status[sub_job_id] = JobStatus.COMPLETED
-            logger.info(f"✅ Sub-job {sub_job_id} marked COMPLETED")
+            self.logger.info(f"✅ Sub-job {sub_job_id} marked COMPLETED")
             if job.all_sub_jobs_completed():
                 job.status = JobStatus.COMPLETED
-                logger.info(f"🏁 Job {job_id} COMPLETED")
+                self.logger.info(f"🏁 Job {job_id} COMPLETED")

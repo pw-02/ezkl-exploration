@@ -1,10 +1,13 @@
 import logging
 import sys
+
+
 def setup_logger(name, log_file=None, level=logging.INFO):
     """Set up a logger that logs to both console and file (if given)."""
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    logger.propagate = False  
+    logger.propagate = True
+    # logger.propagate = False  
     # Prevent duplicated logs if called multiple times
     if not logger.hasHandlers():
         formatter = logging.Formatter(

@@ -2,15 +2,13 @@
 
 import grpc
 import hydra
-import logging
-import threading
 import time
 from omegaconf import DictConfig, OmegaConf
 from grpc_api import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
 from grpc_api.worker_client import main as run_worker
+import logging
+import sys
 
-from grpc_api.log_utils import setup_logger
-logger = setup_logger('worker', log_file="worker.log")
 
 
 def live_status_tracker(stub, interval=10):
@@ -38,9 +36,11 @@ def main(cfg: DictConfig):
     host = cfg.dispatcher.host
     port = cfg.dispatcher.port
     target = f"{host}:{port}"
-
-    logger.info("🔁 Submitting job with config:")
-    logger.info("\n" + OmegaConf.to_yaml(job_cfg))
+    
+ 
+    print(f"Connecting to dispatcher at {target}")
+    print("🔁 Submitting job with config:")
+    print("\n" + OmegaConf.to_yaml(job_cfg))
 
     try:
         with grpc.insecure_channel(target) as channel:
@@ -55,7 +55,7 @@ def main(cfg: DictConfig):
                 ops_per_chunk=job_cfg.ops_per_chunk
             ))
 
-            logger.info(f"✅ Job submitted. Assigned ID: {response.job_id}")
+            print(f"✅ Job submitted. Assigned ID: {response.job_id}")
 
             # Start live tracking in background
             # tracking_thread = threading.Thread(target=live_status_tracker, args=(stub,), daemon=True)
@@ -65,7 +65,7 @@ def main(cfg: DictConfig):
             run_worker(cfg)
 
     except grpc.RpcError as e:
-        logger.error(f"❌ gRPC error: {e.details()} (code={e.code()})")
+        print(f"❌ gRPC error: {e.details()} (code={e.code()})")
 
 
 if __name__ == "__main__":

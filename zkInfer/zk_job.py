@@ -3,12 +3,9 @@ import csv
 import shutil
 
 import ezkl
+from grpc_api.log_utils import setup_logger
 from zkInfer.job_manager import JobStatus
 from zkInfer.metrics import get_fft_summary, get_msm_summary, read_csv_into_dict
-
-from grpc_api.log_utils import setup_logger
-logger = setup_logger('worker', log_file="worker.log")
-
 import time
 from functools import wraps
 
@@ -30,7 +27,8 @@ def timed_with_result(fn):
     return wrapper
 
 class OnnxModelToProve:
-    def __init__(self, parent_job_id, job_name, input_data_path, onnx_model_path, output_dir):
+    def __init__(self, parent_job_id, job_name, input_data_path, onnx_model_path, output_dir, logger=None):
+        
         self.parent_job_id = parent_job_id
         self.model_name = job_name
         self.input_data_path = input_data_path
@@ -49,7 +47,10 @@ class OnnxModelToProve:
         self.model_info= {'name': job_name, 'onnx_model_path': onnx_model_path, 'input_data_path': input_data_path}
         self.model_dir = os.path.join(self.report_dir, self.model_name)
         os.makedirs( self.model_dir, exist_ok=True)
+        self.logger = logger or setup_logger('worker', log_file="worker.log")
 
+
+   
     @timed
     def _gen_settings(self):
         if not self.overwrite and os.path.exists(self.settings_path):
@@ -118,9 +119,9 @@ class OnnxModelToProve:
         for name, fn in stages:
             time_taken = fn()
             timings[f"ezkl_{name}(s)"] = f"{time_taken:.3f}"
-            logger.info(f"{self.model_name}: {name} took {time_taken:.3f}s")
-        
-        logger.info(f"{self.model_name}: All stages completed.. Saving reports")
+            self.logger.info(f"{self.model_name}: {name} took {time_taken:.3f}s")
+
+        self.logger.info(f"{self.model_name}: All stages completed.. Saving reports")
         if not os.path.exists(self.report_dir):
             os.makedirs(self.report_dir)
         # self.save_reports(timings)

@@ -2,42 +2,47 @@ import grpc
 from concurrent import futures
 import time
 import hydra
-from omegaconf import DictConfig, OmegaConf
-
+from omegaconf import DictConfig
 from grpc_api import zkservice_pb2 as pb
 from grpc_api import zkservice_pb2_grpc as pb_grpc
-
-from zkInfer.job_manager import JobManager, GlobalProvingJob
 from grpc_api.log_utils import setup_logger
 
-logger = setup_logger(name="dispatcher_server", log_file="dispatcher_server.log")
+from zkInfer.job_manager import JobManager
 
+
+# logger.info("🚀 Starting ZK Dispatcher Service")
 
 class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
-    def __init__(self):
-        self.job_manager = JobManager()
+    def __init__(self, logger=None):
+        self.job_manager = JobManager(logger=logger)
+        self.logger = logger or setup_logger(name="dispatcher", log_file="dispatcher.log")
     
     def SubmitGlobalJob(self, request, context):
-        job_name = request.job_name
-        split_mode = request.split_mode or "auto"
-        ops_per_chunk = request.ops_per_chunk if split_mode == "fixed" else None
+        try:
+            job_name = request.job_name
+            split_mode = request.split_mode or "auto"
+            ops_per_chunk = request.ops_per_chunk if split_mode == "fixed" else None
 
-        logger.info(
-            f"💼 Submitting job '{job_name}' with split_mode='{split_mode}'"
-            f"{f', ops_per_chunk={ops_per_chunk}' if ops_per_chunk else ''}"
-        )
+            self.logger.info(
+                f"💼 Submitting job '{job_name}' with split_mode='{split_mode}'"
+                f"{f', ops_per_chunk={ops_per_chunk}' if ops_per_chunk else ''}"
+            )
 
-        job_id = self.job_manager.submit_global_job(
-            job_name=job_name,
-            onnx_model_path=request.onnx_model_path,
-            input_data_path=request.input_data_path,
-            split_mode=split_mode,
-            ops_per_chunk=ops_per_chunk,
-        )
+            job_id = self.job_manager.submit_global_job(
+                job_name=job_name,
+                onnx_model_path=request.onnx_model_path,
+                input_data_path=request.input_data_path,
+                split_mode=split_mode,
+                ops_per_chunk=ops_per_chunk,
+            )
 
-        logger.info(f"🆔 Assigned Job ID: {job_id}")
-        return pb.JobIDResponse(job_id=job_id)
-    
+            self.logger.info(f"🆔 Assigned Job ID: {job_id}")
+            return pb.JobIDResponse(job_id=job_id)
+        except Exception as e:
+            self.logger.error(f"❌ Error submitting job: {str(e)}")
+            context.set_details(f"Error submitting job: {str(e)}")
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return pb.JobIDResponse(job_id="")    
 
     def GetJobStatus(self, request, context):
         status = self.job_manager.get_job_status(request.job_id)
@@ -144,7 +149,8 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
 
 @hydra.main(config_path="../conf", config_name="config", version_base=None)
 def serve(cfg: DictConfig):
-    
+    logger = setup_logger(name="dispatcher", log_file="dispatcher.log")
+
     logger.info("🚀 Starting ZK Dispatcher Service")
     # logger.info(f"Loaded Config:\n{OmegaConf.to_yaml(cfg, resolve=True)}")
     
@@ -153,7 +159,7 @@ def serve(cfg: DictConfig):
     max_workers = dispatcher_cfg.max_workers
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
-    pb_grpc.add_ZKJobServiceServicer_to_server(ZKJobDispatcher(), server)
+    pb_grpc.add_ZKJobServiceServicer_to_server(ZKJobDispatcher(logger), server)
     server.add_insecure_port(f"[::]:{port}")
     server.start()
     logger.info(f"✅ Dispatcher gRPC server running on port {port}")

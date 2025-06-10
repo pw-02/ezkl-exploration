@@ -2,4 +2,3 @@
 host: "0.0.0.0"
 port: 50051
 max_workers: 1
-  #heartbeat_timeout: 10
