@@ -9,8 +9,6 @@ from grpc_api.worker_client import main as run_worker
 import logging
 import sys
 
-
-
 def live_status_tracker(stub, interval=10):
     """Continuously print job status summary."""
     while True:

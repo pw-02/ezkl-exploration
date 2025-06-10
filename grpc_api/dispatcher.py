@@ -22,11 +22,9 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
             job_name = request.job_name
             split_mode = request.split_mode or "auto"
             ops_per_chunk = request.ops_per_chunk if split_mode == "fixed" else None
-
             self.logger.info(
                 f"💼 Submitting job '{job_name}' with split_mode='{split_mode}'"
-                f"{f', ops_per_chunk={ops_per_chunk}' if ops_per_chunk else ''}"
-            )
+                f"{f', ops_per_chunk={ops_per_chunk}' if ops_per_chunk else ''}")
 
             job_id = self.job_manager.submit_global_job(
                 job_name=job_name,

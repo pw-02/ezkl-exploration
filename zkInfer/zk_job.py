@@ -140,6 +140,7 @@ class OnnxModelToProve:
 
         circuit_info = read_csv_into_dict('halo2_circuit.csv')
         prover_info = read_csv_into_dict('halo2_prover.csv')
+        prover_info_cpu = read_csv_into_dict('halo2_prover_cpu.csv')
 
         fft_data = {}
         msm_data = {}
@@ -153,7 +154,7 @@ class OnnxModelToProve:
                 msm_data.update(get_msm_summary(msm_file, suffix))
 
         # full_metrics = {**self.model_info, **circuit_info, **prover_info, **fft_data, **msm_data}
-        full_metrics = {**self.model_info, **circuit_info, **prover_info}
+        full_metrics = {**self.model_info, **circuit_info, **prover_info, **prover_info_cpu}
 
         with open(halo2_file, 'a', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=full_metrics.keys())
@@ -161,14 +162,13 @@ class OnnxModelToProve:
                 writer.writeheader()
             writer.writerow(full_metrics)
 
-
         for f in os.listdir('.'):
             if f.startswith('halo2_fft') and f.endswith('.csv') or f.startswith('halo2_msm') and f.endswith('.csv'):
                 shutil.move(f, os.path.join(self.model_dir, f))
             elif f.startswith('halo2_') and f.endswith('.csv'):
                 #delete the file
-                shutil.move(f, os.path.join(self.report_dir, f))
-
-                #os.remove(f)
-
+                # shutil.move(f, os.path.join(self.report_dir, f))
+                os.remove(f)
+            elif f.startswith('worker') and f.endswith('.log'):
+                shutil.copy(f, os.path.join(self.model_dir, f))
         

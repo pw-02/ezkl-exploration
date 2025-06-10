@@ -16,15 +16,9 @@ from zkInfer.onnx_splitter import (
     save_split_models,
     get_model_info
 )
-# import logging
-# logger = logging.getLogger("dispatcher")
-
-
 
 class JobStatus(str, Enum):
-    PENDING = "PENDING"
     PREPARING = "PREPARING"
-    PREPARED = "PREPARED"
     QUEUED = "QUEUED"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
@@ -32,8 +26,13 @@ class JobStatus(str, Enum):
 
 
 class GlobalProvingJob:
-    def __init__(self, job_name, onnx_model_path, input_data_path,
-                 split_mode="auto", ops_per_chunk=1, cache_setup_files=False,
+    def __init__(self, 
+                 job_name, 
+                 onnx_model_path, 
+                 input_data_path,
+                 split_mode="auto", 
+                 ops_per_chunk=1, 
+                 cache_setup_files=False,
                  logger=None):
 
         self.model_name = job_name
@@ -50,8 +49,7 @@ class GlobalProvingJob:
         os.makedirs(self.cache_directory, exist_ok=True)
         os.makedirs(self.report_directory, exist_ok=True)
         self.logger = logger or setup_logger(name="dispatcher", log_file="dispatcher.log")
-  # Fallback to print if no logger is provided
-        self.status = JobStatus.PENDING
+        self.status = JobStatus.PREPARING
         self.progress = 0.0
 
     def compute_progress(self):
@@ -60,7 +58,6 @@ class GlobalProvingJob:
         self.progress = (completed / total * 100) if total > 0 else 0.0
 
     def queue_models_for_proving(self):
-        self.status = JobStatus.PREPARING
         try:
             self.inference_results['non_zk'] = run_model_inference(self.onnx_model_path, self.input_data_path)
             settings_file = os.path.join(self.report_directory, "ezkl_settings.csv")
@@ -77,8 +74,6 @@ class GlobalProvingJob:
                 shutil.copyfile(self.input_data_path, input_path)
                 self.onnx_model_path = model_path
                 self.input_data_path = input_path
-
-
                 self.sub_job_queue.append((self.model_name, sub_id, self.onnx_model_path, self.input_data_path, self.report_directory))
                 self.model_to_prove_status[sub_id] = JobStatus.QUEUED
                 self._write_settings(sub_id, self.onnx_model_path, self.input_data_path, get_model_info(self.onnx_model_path), settings_file, header_written)
@@ -96,8 +91,8 @@ class GlobalProvingJob:
                     self._write_settings(sub_id, model_path, input_path, meta, settings_file, header_written)
                     header_written = True
 
-            self.status = JobStatus.PREPARED
-            self.logger.info(f"Prepared {len(self.sub_job_queue)} sub-jobs for proving global job {self.model_name}")
+            self.status = JobStatus.QUEUED
+            self.logger.info(f"Queued {len(self.sub_job_queue)} sub-jobs for proving global job {self.model_name}")
 
         except Exception as e:
             self.logger.error(f"Error during model preparation: {e}")
@@ -173,7 +168,7 @@ class JobManager:
     def record_heartbeat(self, job_id, sub_job_id, worker_id, status, message):
         if job_id in self.global_jobs:
             self.global_jobs[job_id].model_to_prove_status[sub_job_id] = status
-            self.logger.info(f"Heartbeat from {worker_id} | {sub_job_id} | {status} - {message}")
+            self.logger.info(f"Heartbeat from {worker_id} | {sub_job_id} | {message}")
 
     def submit_sub_job_result(self, job_id: str, sub_job_id: str):
         job = self.global_jobs.get(job_id)

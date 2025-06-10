@@ -1,7 +1,7 @@
 import hydra
 from omegaconf import DictConfig
 
-from grpc_api.dispatcher_server import serve as serve_dispatcher
+from grpc_api.dispatcher import serve as serve_dispatcher
 from grpc_api.worker_client import run_worker
 from grpc_api.submit_job import submit_job
 
