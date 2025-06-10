@@ -27,7 +27,6 @@ halo2_ffts.csv
 halo2_msms.csv
 examples/split_models/*
 examples/onnx/nanoGPT/nano_gpt_12_layers_768_embd.onnx
-figures/*
 gen_proof.log
 reports/*
 cache/*
