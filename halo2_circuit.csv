@@ -1,2 +1,0 @@
-circuit_size(n),log_circuit_size (k),extended_k,quotient_poly_degree,max_gate_degree,cs_degree,num_fixed_columns,num_advice_columns,num_instance_columns,num_selectors,num_challenges,minimum_rows,blinding_factors,vk_time,pk_time,read_pk_time,setup_time,proof_time,verify_time
-262144,18,20,4,5,5,16,6,1,20,0,8,5,0,0,5.003894351,0,192.858886327,0.080360702
