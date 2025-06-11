@@ -14,6 +14,8 @@ import csv
 import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
 import onnx
 import pandas as pd
+import multiprocessing
+
 def timed(fn):
     def wrapper(self, *args, **kwargs):
         start = time.perf_counter()
@@ -73,9 +75,44 @@ def get_msm_summary(msm_file, prefix):
         pass
     return msm_metrics
 
+
+def heartbeat_process(stub_args, status_file, stop_event, interval=15):
+    # stub_args = (dispatcher_addr, worker_id, job_id, sub_job_id)
+    import grpc
+    import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
+    # Reconnect stub in this process!
+    target, worker_id, job_id, sub_job_id = stub_args
+    channel = grpc.insecure_channel(target)
+    stub = pb_grpc.ZKJobServiceStub(channel)
+
+    last_stage = None
+    while not stop_event.is_set():
+        try:
+            with open(status_file) as f:
+                stage = f.read().strip()
+        except Exception:
+            stage = None
+        if stage:
+            # Only send update if stage changed, to reduce traffic (optional)
+            if stage != last_stage:
+                stub.SendHeartbeat(pb.HeartbeatRequest(
+                    worker_id=worker_id,
+                    sub_job_id=sub_job_id,
+                    job_id=job_id,
+                    status="STARTED" if stage not in ["DONE", "FAILED"] else stage,
+                    message=stage
+                ))
+                last_stage = stage
+            if stage in ("DONE", "FAILED"):
+                break
+        stop_event.wait(interval)
+    channel.close()
+
+
+
 class EZKLProofStages:
     def __init__(
-        self, job_name, input_data_path, onnx_model_path, output_dir, overwrite=False, logger_name="worker", status_file=None
+        self, job_name, input_data_path, onnx_model_path, output_dir, overwrite=False, logger = None, status_file=None
     ):
         import ezkl  # Only import here for multiprocess safety
         self.ezkl = ezkl
@@ -83,7 +120,7 @@ class EZKLProofStages:
         self.input_data_path = input_data_path
         self.onnx_model_path = onnx_model_path
         self.output_dir = output_dir
-        self.logger = logging.getLogger(logger_name)
+        self.logger = logger or logging.getLogger("worker")
         self.status_file = status_file
         self.overwrite = overwrite
 
@@ -126,9 +163,7 @@ class EZKLProofStages:
                     writer.writeheader()
                 writer.writerow(model_settings)
             #copy the settings file to the output directory
-            
 
-        
     # @timed
     # def calibrate_settings(self):
     #     self._update_status("CALIBRATING")
@@ -189,66 +224,6 @@ class EZKLProofStages:
             return {"timings": timings, "error": f"{type(e).__name__}: {e}\n{tb}"}
 
 
-# Usage in your worker code:
-def run_zk_proof(
-    parent_job_id,
-    job_name,
-    input_data_path,
-    onnx_model_path,
-    output_dir,
-    logger_name="worker",
-    status_file=None,
-    overwrite=False
-):
-    proof = EZKLProofStages(
-        job_name=job_name,
-        input_data_path=input_data_path,
-        onnx_model_path=onnx_model_path,
-        output_dir=output_dir,
-        overwrite=overwrite,
-        logger_name=logger_name,
-        status_file=status_file,
-    )
-    return proof.run_all()
-
-def save_reports(
-    model_dir, report_dir, model_name, onnx_model_path, input_data_path, timings
-):
-    model_info = {"name": model_name, "onnx_model_path": onnx_model_path, "input_data_path": input_data_path}
-    ezkl_file = os.path.join(report_dir, "ezkl_perf.csv")
-    halo2_file = os.path.join(report_dir, "halo2_perf.csv")
-    ezkl_perf = {**model_info, **timings}
-    with open(ezkl_file, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=ezkl_perf.keys())
-        if f.tell() == 0:
-            writer.writeheader()
-        writer.writerow(ezkl_perf)
-    circuit_info = read_csv_into_dict("halo2_circuit.csv")
-    prover_info = read_csv_into_dict("halo2_prover.csv")
-    prover_info_cpu = read_csv_into_dict("halo2_prover_cpu.csv")
-    fft_data = {}
-    msm_data = {}
-    for suffix in ["setup", "prover", "verifier"]:
-        fft_file = f"halo2_ffts_{suffix}.csv"
-        msm_file = f"halo2_msms_{suffix}.csv"
-        if os.path.exists(fft_file):
-            fft_data.update(get_fft_summary(fft_file, suffix))
-        if os.path.exists(msm_file):
-            msm_data.update(get_msm_summary(msm_file, suffix))
-    full_metrics = {**model_info, **circuit_info, **prover_info, **prover_info_cpu}
-    with open(halo2_file, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=full_metrics.keys())
-        if f.tell() == 0:
-            writer.writeheader()
-        writer.writerow(full_metrics)
-    for f in os.listdir("."):
-        if (f.startswith("halo2_fft") and f.endswith(".csv")) or (f.startswith("halo2_msm") and f.endswith(".csv")):
-            shutil.move(f, os.path.join(model_dir, f))
-        elif f.startswith("halo2_") and f.endswith(".csv"):
-            os.remove(f)
-        elif f.startswith("worker") and f.endswith(".log"):
-            shutil.copy(f, os.path.join(model_dir, f))
-
 class ZKProofWorker:
     def __init__(self, cfg: DictConfig, logger=None):
         self.worker_id = str(uuid4())
@@ -279,88 +254,52 @@ class ZKProofWorker:
             self.current_sub_job_id = response.sub_job_id
             self.logger.info(f"📦 Got sub-job {response.sub_job_id} for job {response.job_id}")
 
-            # Start log samplers (optional, unchanged)
             model_dir = os.path.join(response.output_dir, response.sub_job_id)
             os.makedirs(model_dir, exist_ok=True)
-            usage_file = os.path.join(model_dir, 'system_usage.log')
-            syslog_proc = subprocess.Popen([
-                sys.executable, "zkInfer/system_watcher.py",
-                "--log_file", usage_file,
-                "--interval", "3"
-            ])
-            # worker_pid = os.getpid()
-            # procwatch_log = os.path.join(model_dir, "process_usage.log")
-            # watcher_proc = subprocess.Popen([
-            #     sys.executable, "zkInfer/process_watcher.py",
-            #     "--pid", str(worker_pid),
-            #     "--log_file", procwatch_log,
-            #     "--interval", "3"
-            # ])
-
-            # Run proof in a separate process
-            metrics = None
             status_file = os.path.join(model_dir, "status.txt")
 
-            time.sleep(1) 
-            with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(
-                    run_zk_proof,
-                    response.job_id,
-                    response.sub_job_id,
-                    response.input_path,
-                    response.model_path,
-                    response.output_dir,
-                    "worker",
-                    status_file
-                    # status_callback,
-                )
-                while not future.done():
-                    try:
-                        with open(status_file) as f:
-                            stage = f.read().strip()
-                            #send hearbeat here
-                            self.stub.SendHeartbeat(pb.HeartbeatRequest(
-                                worker_id=self.worker_id,
-                                sub_job_id=response.sub_job_id,
-                                job_id=response.job_id,
-                                status="STARTED",
-                                message=stage
-                            ))
-                    except FileNotFoundError:
-                        pass
-                    except grpc.RpcError as e:
-                        self.logger.warning(f"⚠️ Heartbeat failed: {e.details()}")
-                    time.sleep(15)
-                result = future.result()
-            
+            # ---- Start heartbeat process BEFORE running proof ----
+            stop_event = multiprocessing.Event()
+            heartbeat_args = (
+                self.target,
+                self.worker_id,
+                response.job_id,
+                response.sub_job_id,
+            )
+            hb_proc = multiprocessing.Process(
+                target=heartbeat_process,
+                args=(heartbeat_args, status_file, stop_event)
+            )
+            hb_proc.start()
+
+            proof_stages = EZKLProofStages(
+                job_name=response.sub_job_id,
+                input_data_path=response.input_path,
+                onnx_model_path=response.model_path,
+                output_dir=response.output_dir,
+                overwrite=False,
+                logger = self.logger,
+                status_file=status_file
+            )
+            # ---- Run proof (blocking) ----
+            result = proof_stages.run_all()
+            stop_event.set()
+            hb_proc.join(timeout=30)  # Allow heartbeat process to exit
+
+            # Error and reporting logic (unchanged)
             if result.get("error"):
-                self.logger.error(f"❌ Error during proof: {metrics['error']}")
+                self.logger.error(f"❌ Error during proof: {result['error']}")
                 self.stub.SendHeartbeat(pb.HeartbeatRequest(
                     worker_id=self.worker_id,
                     sub_job_id=response.sub_job_id,
                     job_id=response.job_id,
                     status="FAILED",
-                    message=metrics['error']
+                    message=result['error']
                 ))
                 return
             metrics = result.get("timings", {})
 
-
-            # self.stop_heartbeat()
-
-            # watcher_proc.terminate()
-            # try:
-            #     watcher_proc.wait(timeout=2)
-            # except Exception:
-            #     watcher_proc.kill()
-
-            syslog_proc.terminate()
-            try:
-                syslog_proc.wait(timeout=3)
-            except Exception:
-                syslog_proc.kill()
-
-            save_reports(
+            self.save_reports(
                 model_dir,
                 response.output_dir,
                 response.sub_job_id,
@@ -369,7 +308,6 @@ class ZKProofWorker:
                 metrics
             )
 
-            # Send final heartbeat
             self.stub.SendHeartbeat(pb.HeartbeatRequest(
                 worker_id=self.worker_id,
                 sub_job_id=response.sub_job_id,
@@ -377,7 +315,6 @@ class ZKProofWorker:
                 status="DONE",
                 message="COMPLETED"
             ))
-
             self.stub.SubmitSubJobResult(pb.SubJobResult(
                 job_id=response.job_id,
                 sub_job_id=response.sub_job_id,
@@ -390,7 +327,7 @@ class ZKProofWorker:
             self.logger.error(f"❌ gRPC error: {e.details()} (code={e.code()})")
             self.reconnect_if_needed()
         except Exception as e:
-            self.logger.error(f"❌ Error during job: {e}",exc_info=True)
+            self.logger.error(f"❌ Error during job: {e}", exc_info=True)
             if self.current_sub_job_id:
                 self.stub.SendHeartbeat(pb.HeartbeatRequest(
                     worker_id=self.worker_id,
@@ -399,7 +336,42 @@ class ZKProofWorker:
                     status="FAILED",
                     message="FAILED"
                 ))
- 
+
+    def save_reports(self,model_dir, report_dir, model_name, onnx_model_path, input_data_path, timings):
+        model_info = {"name": model_name, "onnx_model_path": onnx_model_path, "input_data_path": input_data_path}
+        ezkl_file = os.path.join(report_dir, "ezkl_perf.csv")
+        halo2_file = os.path.join(report_dir, "halo2_perf.csv")
+        ezkl_perf = {**model_info, **timings}
+        with open(ezkl_file, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=ezkl_perf.keys())
+            if f.tell() == 0:
+                writer.writeheader()
+            writer.writerow(ezkl_perf)
+        circuit_info = read_csv_into_dict("halo2_circuit.csv")
+        prover_info = read_csv_into_dict("halo2_prover.csv")
+        prover_info_cpu = read_csv_into_dict("halo2_prover_cpu.csv")
+        fft_data = {}
+        msm_data = {}
+        for suffix in ["setup", "prover", "verifier"]:
+            fft_file = f"halo2_ffts_{suffix}.csv"
+            msm_file = f"halo2_msms_{suffix}.csv"
+            if os.path.exists(fft_file):
+                fft_data.update(get_fft_summary(fft_file, suffix))
+            if os.path.exists(msm_file):
+                msm_data.update(get_msm_summary(msm_file, suffix))
+        full_metrics = {**model_info, **circuit_info, **prover_info, **prover_info_cpu}
+        with open(halo2_file, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=full_metrics.keys())
+            if f.tell() == 0:
+                writer.writeheader()
+            writer.writerow(full_metrics)
+        for f in os.listdir("."):
+            if (f.startswith("halo2_fft") and f.endswith(".csv")) or (f.startswith("halo2_msm") and f.endswith(".csv")):
+                shutil.move(f, os.path.join(model_dir, f))
+            elif f.startswith("halo2_") and f.endswith(".csv"):
+                os.remove(f)
+            elif f.startswith("worker") and f.endswith(".log"):
+                shutil.copy(f, os.path.join(model_dir, f))
 
     def reconnect_if_needed(self):
         self.logger.info("🔁 Attempting to reconnect gRPC channel...")
