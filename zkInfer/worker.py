@@ -253,18 +253,34 @@ class ZKProofWorker:
             self.parent_job_id = response.job_id
             self.current_sub_job_id = response.sub_job_id
             self.logger.info(f"📦 Got sub-job {response.sub_job_id} for job {response.job_id}")
-            parent_pid = os.getpid()
+            worker_pid = os.getpid()
 
             model_dir = os.path.join(response.output_dir, response.sub_job_id)
             os.makedirs(model_dir, exist_ok=True)
             status_file = os.path.join(model_dir, "status.txt")
+            usage_file = os.path.join(model_dir, 'system_usage.log')
+            procwatch_log = os.path.join(model_dir, "process_usage.log")
+
+            syslog_proc = subprocess.Popen([
+                sys.executable, "zkInfer/system_watcher.py",
+                "--log_file", usage_file,
+                "--interval", "3"
+            ])
+            watcher_proc = subprocess.Popen([
+                sys.executable, "zkInfer/process_watcher.py",
+                "--pid", str(worker_pid),
+                "--log_file", procwatch_log,
+                "--interval", "3"
+            ])
+
 
             # ---- Start heartbeat process BEFORE running proof ----
             heartbeat_proc = subprocess.Popen([
                 sys.executable, "zkInfer/heartbeat.py",
                 self.target, self.worker_id, response.job_id, response.sub_job_id, status_file,
-                str(parent_pid)
+                str(worker_pid)
                 ])
+            
 
             proof_stages = EZKLProofStages(
                 job_name=response.sub_job_id,
@@ -283,7 +299,20 @@ class ZKProofWorker:
                 heartbeat_proc.wait(timeout=3)
             except Exception:
                 heartbeat_proc.kill()
+
+            syslog_proc.terminate()
+            try:
+                syslog_proc.wait(timeout=3)
+            except Exception:
+                syslog_proc.kill()
+            
+            watcher_proc.terminate()
+            try:
+                watcher_proc.wait(timeout=2)
+            except Exception:
+                watcher_proc.kill()
             # Error and reporting logic (unchanged)
+
             if result.get("error"):
                 self.logger.error(f"❌ Error during proof: {result['error']}")
                 self.stub.SendHeartbeat(pb.HeartbeatRequest(
