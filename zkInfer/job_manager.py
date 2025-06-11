@@ -8,13 +8,13 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict
 import json
-from zkInfer.inference_utils import run_model_inference
-from grpc_api.log_utils import setup_logger
+
 from zkInfer.onnx_splitter import (
     split_onnx_model,
     collect_intermediate_inference_outputs,
     save_split_models,
-    get_model_info
+    get_model_info,
+    run_model_inference
 )
 
 class JobStatus(str, Enum):
@@ -48,7 +48,7 @@ class GlobalProvingJob:
         self.cache_directory = os.path.join('cache', self.model_name)
         os.makedirs(self.cache_directory, exist_ok=True)
         os.makedirs(self.report_directory, exist_ok=True)
-        self.logger = logger or setup_logger(name="dispatcher", log_file="dispatcher.log")
+        self.logger = logger
         self.status = JobStatus.PREPARING
         self.progress = 0.0
 
@@ -76,7 +76,7 @@ class GlobalProvingJob:
                 self.input_data_path = input_path
                 self.sub_job_queue.append((self.model_name, sub_id, self.onnx_model_path, self.input_data_path, self.report_directory))
                 self.model_to_prove_status[sub_id] = JobStatus.QUEUED
-                self._write_settings(sub_id, self.onnx_model_path, self.input_data_path, get_model_info(self.onnx_model_path), settings_file, header_written)
+                # self._write_settings(sub_id, self.onnx_model_path, self.input_data_path, get_model_info(self.onnx_model_path), settings_file, header_written)
 
             else:
                 intermediate_outputs = collect_intermediate_inference_outputs(self.onnx_model_path, self.input_data_path)
@@ -88,7 +88,7 @@ class GlobalProvingJob:
                     sub_id = f"{self.model_name}_{sub_name}"
                     self.sub_job_queue.append((self.model_name, sub_id, model_path, input_path, self.report_directory))
                     self.model_to_prove_status[sub_id] = JobStatus.QUEUED
-                    self._write_settings(sub_id, model_path, input_path, meta, settings_file, header_written)
+                    # self._write_settings(sub_id, model_path, input_path, meta, settings_file, header_written)
                     header_written = True
 
             self.status = JobStatus.QUEUED
@@ -110,7 +110,9 @@ class GlobalProvingJob:
         settings_file = os.path.join(os.path.dirname(model_path), 'settings.json')
         #check if the ezkl settings file exists
         if not os.path.exists(settings_file):
-             ezkl.gen_settings(model_path, settings_file)
+            ezkl.gen_settings(model_path, settings_file)
+            ezkl.calibrate_settings(input_path, model_path, settings_file, "resources")
+
         with open(settings_file, 'r') as f:
                 ezkl_settings = json.load(f)
         

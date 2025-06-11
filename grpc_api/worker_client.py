@@ -12,7 +12,7 @@ import shutil
 import logging
 import csv
 from grpc_api import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
-from zkInfer.metrics import get_fft_summary, get_msm_summary, read_csv_into_dict
+from zkInfer.utils import get_fft_summary, get_msm_summary, read_csv_into_dict
 
 def timed(fn):
     def wrapper(self, *args, **kwargs):
