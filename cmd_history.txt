@@ -22,9 +22,10 @@
    12  git pull
    13  python grpc_api/dispatcher_server.py
    14  history
+
 export PYTHONPATH=.:$PYTHONPATH
-nohup python grpc_api/dispatcher_server.py | tee dispatcher.log &
-nohup python grpc_api/submit_job.py | tee submit_job.log &
+nohup python zkInfer/dispatcher.py | tee dispatcher.log &
+nohup python zkInfer/submit_job.py | tee worker.log &
 
 
 

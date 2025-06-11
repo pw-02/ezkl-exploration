@@ -166,21 +166,28 @@ class EZKLProofStages:
 
     def run_all(self):
         timings = {}
-        for name, fn in [
-            # ("gen_settings", self.gen_settings),
-            ("calibrate_settings", self.calibrate_settings),
-            ("compile_circuit", self.compile_circuit),
-            ("get_srs", self.get_srs),
-            ("gen_witness", self.gen_witness),
-            ("setup", self.setup),
-            ("prove", self.prove),
-        ]:
-            t = fn()
-            timings[f"ezkl_{name}(s)"] = f"{t:.3f}"
-            self.logger.info(f"{self.job_name}: {name} took {t:.3f}s")
-        self._update_status("REPORTING")
-        self.logger.info(f"{self.job_name}: All stages completed..")
-        return timings
+        try:
+            for name, fn in [
+                ("calibrate_settings", self.calibrate_settings),
+                ("compile_circuit", self.compile_circuit),
+                ("get_srs", self.get_srs),
+                ("gen_witness", self.gen_witness),
+                ("setup", self.setup),
+                ("prove", self.prove),
+            ]:
+                t = fn()
+                timings[f"ezkl_{name}(s)"] = f"{t:.3f}s"
+                self.logger.info(f"{self.job_name}: {name} took {t:.3f}s")
+            self._update_status("REPORTING")
+            self.logger.info(f"{self.job_name}: All stages completed..")
+            return {"timings": timings, "error": None}
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            self.logger.error(f"{self.job_name}: Exception during proof: {e}\n{tb}")
+            self._update_status("FAILED")
+            return {"timings": timings, "error": f"{type(e).__name__}: {e}\n{tb}"}
+
 
 # Usage in your worker code:
 def run_zk_proof(
@@ -325,7 +332,20 @@ class ZKProofWorker:
                     except grpc.RpcError as e:
                         self.logger.warning(f"⚠️ Heartbeat failed: {e.details()}")
                     time.sleep(15)
-                metrics = future.result()
+                result = future.result()
+            
+            if result.get("error"):
+                self.logger.error(f"❌ Error during proof: {metrics['error']}")
+                self.stub.SendHeartbeat(pb.HeartbeatRequest(
+                    worker_id=self.worker_id,
+                    sub_job_id=response.sub_job_id,
+                    job_id=response.job_id,
+                    status="FAILED",
+                    message=metrics['error']
+                ))
+                return
+            metrics = result.get("timings", {})
+
 
             # self.stop_heartbeat()
 
