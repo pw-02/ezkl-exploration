@@ -1,0 +1,6 @@
+name: nano_gpt_4_layers_64_embd_split_size_1
+onnx_file: examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx
+input_file: examples/onnx/nanoGPT/input.json
+# split_mode: "none"  # options: "none", "auto", or "fixed"
+split_mode: "fixed"       # options: "none", "auto", "fixed"
+ops_per_chunk: 1         # used only if split_mode == "fixed"
