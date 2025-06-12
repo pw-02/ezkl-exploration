@@ -117,6 +117,7 @@ def split_onnx_model(onnx_model_path, split_group_size):
     exclude_operations = {'Identity', 'Constant'}
 
     all_sub_models = OrderedDict()
+    counter = 0
     for idx, node in enumerate(model.graph.node):
         if node.op_type in exclude_operations or node.name in initializers:
             continue
@@ -125,7 +126,8 @@ def split_onnx_model(onnx_model_path, split_group_size):
         node_outputs = [o for o in node.output if o not in initializers and 'Constant' not in o]
         sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
 
-        all_sub_models[f'split_model_{idx+1}'] = sub_model
+        all_sub_models[f'split_model_{counter+1}'] = sub_model
+        counter += 1
 
     if split_group_size > 1:
         grouped = [dict(list(all_sub_models.items())[i:i + split_group_size])
