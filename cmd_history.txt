@@ -27,7 +27,7 @@ export PYTHONPATH=.:$PYTHONPATH
 nohup python zkInfer/dispatcher.py | tee dispatcher.log &
 nohup python zkInfer/submit_job.py | tee worker.log &
 zkInfer/worker.py
-
+python zkInfer/submit_job.py 
 
 
    scp -i us-west-2-kp.pem -r ubuntu@ec2-34-223-107-155.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/ "C:\Users\pw\Desktop\"
