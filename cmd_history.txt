@@ -26,7 +26,7 @@
 export PYTHONPATH=.:$PYTHONPATH
 nohup python zkInfer/dispatcher.py | tee dispatcher.log &
 nohup python zkInfer/submit_job.py | tee worker.log &
-
+zkInfer/worker.py
 
 
 
