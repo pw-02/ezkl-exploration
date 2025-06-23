@@ -17,8 +17,8 @@ matplotlib.rcParams.update({
 
 # Data
 model_names = ['MobileNet', 'GPT(4L)', 'GPT(10L)', 'MnistGAN']
-global_times_raw = [5500, 3930, 'OOM', 596]
-submodel_times = [3000, 939, 1167.681, 246.755]
+global_times_raw = [8257, 3974, 'OOM', 596]
+submodel_times = [3000, 997, 1167.681, 246.755]
 
 # Convert 'OOM' to 0 for plotting and track which ones are OOM
 global_times = []
@@ -75,7 +75,7 @@ ax.legend(loc='upper right')
 
 # Layout and save
 plt.tight_layout()
-save_path  = "figures/monolithic_v_split/proof_time_comparison.pdf"
-plt.savefig(save_path, bbox_inches='tight')  # For LaTeX
+# save_path  = "figures/monolithic_v_split/proof_time_comparison.pdf"
+# plt.savefig(save_path, bbox_inches='tight')  # For LaTeX
 # plt.savefig("proof_time_comparison.png", dpi=300)              # For slides or web
 plt.show()

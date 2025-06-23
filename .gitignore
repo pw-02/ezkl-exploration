@@ -31,3 +31,4 @@ gen_proof.log
 reports/*
 cache/*
 utils/report.csv
+figures/*
