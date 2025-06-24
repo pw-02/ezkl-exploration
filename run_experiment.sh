@@ -1,7 +1,6 @@
 #!/bin/bash
 #1,2,4,6,8,10
-NUM_WORKERS=6  # Change this to however many workers you want
-
+NUM_WORKERS=${1:-1} # sets NUM_WORKERS to the first argument if provided, otherwise defaults to 1.
 SESSION=zkexp
 
 # Create a new tmux session
