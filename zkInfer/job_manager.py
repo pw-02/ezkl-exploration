@@ -33,7 +33,8 @@ class GlobalProvingJob:
                  split_mode="auto", 
                  ops_per_chunk=1, 
                  cache_setup_files=False,
-                 logger=None):
+                 logger=None,
+                 num_prover_workers=1):
 
         self.model_name = job_name
         self.input_data_path = input_data_path
@@ -44,7 +45,7 @@ class GlobalProvingJob:
         self.inference_results = {}
         self.sub_job_queue: deque = deque()
         self.model_to_prove_status: Dict[str, JobStatus] = {}
-        self.report_directory = os.path.join('reports', self.model_name, datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S"))
+        self.report_directory = os.path.join('reports', self.model_name, f"{datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")}-{num_prover_workers}w")
         self.cache_directory = os.path.join('cache', self.model_name)
         os.makedirs(self.cache_directory, exist_ok=True)
         os.makedirs(self.report_directory, exist_ok=True)
@@ -133,14 +134,15 @@ class GlobalProvingJob:
 
 
 class JobManager:
-    def __init__(self, logger=None):
+    def __init__(self, logger=None, num_prover_workers=1):
         self.logger = logger
         self.global_jobs: Dict[str, GlobalProvingJob] = {}
         self.sub_job_assignments: Dict[str, str] = {}
+        self.num_prover_workers = num_prover_workers
 
     def submit_global_job(self, job_name, onnx_model_path, input_data_path, split_mode, ops_per_chunk, cache_setup_files=False):
         job_id = job_name if job_name else str(uuid.uuid4())
-        job = GlobalProvingJob( job_id, onnx_model_path, input_data_path, split_mode, ops_per_chunk, cache_setup_files, self.logger)
+        job = GlobalProvingJob( job_id, onnx_model_path, input_data_path, split_mode, ops_per_chunk, cache_setup_files, self.logger, self.num_prover_workers)
         job.queue_models_for_proving()
         self.global_jobs[job_id] = job
         return job_id

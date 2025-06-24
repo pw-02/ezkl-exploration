@@ -39,9 +39,9 @@ def setup_logger(name, log_file=None, level=logging.INFO):
 # logger.info("🚀 Starting ZK Dispatcher Service")
 
 class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
-    def __init__(self, logger=None):
+    def __init__(self, logger=None, num_prover_workers=1):
         self.logger = logger
-        self.job_manager = JobManager(logger=logger)
+        self.job_manager = JobManager(logger=logger,num_prover_workers=num_prover_workers)
 
     
     def SubmitGlobalJob(self, request, context):
@@ -180,9 +180,10 @@ def serve(cfg: DictConfig):
     dispatcher_cfg = cfg.dispatcher
     port = dispatcher_cfg.port
     max_workers = dispatcher_cfg.max_workers
+    num_prover_workers = dispatcher_cfg.num_prover_workers
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
-    pb_grpc.add_ZKJobServiceServicer_to_server(ZKJobDispatcher(logger), server)
+    pb_grpc.add_ZKJobServiceServicer_to_server(ZKJobDispatcher(logger, num_prover_workers), server)
     server.add_insecure_port(f"[::]:{port}")
     server.start()
     logger.info(f"✅ Dispatcher gRPC server running on port {port}")

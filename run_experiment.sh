@@ -1,6 +1,6 @@
 #!/bin/bash
 #2,4,6,8,10
-NUM_WORKERS=2    # Change this to however many workers you want
+NUM_WORKERS=4    # Change this to however many workers you want
 
 SESSION=zkexp
 
@@ -12,7 +12,7 @@ tmux rename-window -t $SESSION:0 'dispatcher'
 tmux send-keys -t $SESSION:dispatcher 'conda activate dzkml' C-m
 tmux send-keys -t $SESSION:dispatcher 'cd ezkl-exploration' C-m
 tmux send-keys -t $SESSION:dispatcher 'export PYTHONPATH=.:$PYTHONPATH' C-m
-tmux send-keys -t $SESSION:dispatcher 'python zkInfer/dispatcher.py' C-m
+tmux send-keys -t $SESSION:dispatcher "python zkInfer/dispatcher.py num_prover_workers=${NUM_WORKERS}" C-m
 
 # Start workers in their own windows
 for i in $(seq 1 $NUM_WORKERS); do
