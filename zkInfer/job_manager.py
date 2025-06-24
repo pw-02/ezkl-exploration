@@ -51,6 +51,9 @@ class GlobalProvingJob:
         self.logger = logger
         self.status = JobStatus.PREPARING
         self.progress = 0.0
+        self.queued_time = None  # <--- Set job start time
+        self.start_time = None
+        # self.elapsed_time = datetime.now(timezone.utc)  # <--- Set job start time
 
     def compute_progress(self):
         total = len(self.model_to_prove_status)
@@ -92,6 +95,7 @@ class GlobalProvingJob:
                     header_written = True
 
             self.status = JobStatus.QUEUED
+            self.queued_time = datetime.now(timezone.utc)
             self.logger.info(f"Queued {len(self.sub_job_queue)} sub-jobs for proving global job {self.model_name}")
 
         except Exception as e:
@@ -152,12 +156,18 @@ class JobManager:
         return 0.0
 
     def fetch_next_sub_job(self, worker_id: str):
-        for job_id, job in self.global_jobs.items():
-            if not job.sub_job_queue:
+        for job_id, global_job in self.global_jobs.items():
+            if not global_job.sub_job_queue:
                 continue
-            _, sub_id, model_path, input_path, out_dir = job.sub_job_queue.popleft()
+            _, sub_id, model_path, input_path, out_dir = global_job.sub_job_queue.popleft()
             self.sub_job_assignments[sub_id] = worker_id
-            job.model_to_prove_status[sub_id] = JobStatus.IN_PROGRESS
+
+            if global_job.status == JobStatus.QUEUED:
+                # Mark the global job as IN_PROGRESS if it was previously QUEUED
+                global_job.status = JobStatus.IN_PROGRESS
+                global_job.start_time = datetime.now(timezone.utc)
+
+            global_job.model_to_prove_status[sub_id] = JobStatus.IN_PROGRESS # Mark the sub-job as IN_PROGRESS
             return {
                 "job_id": job_id,
                 "sub_job_id": sub_id,
@@ -171,12 +181,23 @@ class JobManager:
         if job_id in self.global_jobs:
             self.global_jobs[job_id].model_to_prove_status[sub_job_id] = status
             self.logger.info(f"Heartbeat from {worker_id} | {sub_job_id} | {message}")
-
+            
     def submit_sub_job_result(self, job_id: str, sub_job_id: str):
         job = self.global_jobs.get(job_id)
         if job and sub_job_id in job.model_to_prove_status:
+            time_now = datetime.now(timezone.utc)
             job.model_to_prove_status[sub_job_id] = JobStatus.COMPLETED
+            elapsed_since_queued = time_now - job.queued_time
+            elapsed_since_started = time_now - job.start_time
             self.logger.info(f"✅ Sub-job {sub_job_id} marked COMPLETED")
+            elapsed_times_file = os.path.join(job.report_directory, "global_job_progress.log")
+            log_line = (
+                f"{time_now.isoformat()} - {sub_job_id} completed. Time since global job queued: {elapsed_since_queued}, Time since global job started: {elapsed_since_started}\n"
+            )
+            # Open in append mode, create file if it does not exist
+            with open(elapsed_times_file, 'a') as f:
+                f.write(log_line)
+
             if job.all_sub_jobs_completed():
                 job.status = JobStatus.COMPLETED
                 self.logger.info(f"🏁 Job {job_id} COMPLETED")
