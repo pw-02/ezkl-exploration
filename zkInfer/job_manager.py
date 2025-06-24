@@ -187,12 +187,15 @@ class JobManager:
         if job and sub_job_id in job.model_to_prove_status:
             time_now = datetime.now(timezone.utc)
             job.model_to_prove_status[sub_job_id] = JobStatus.COMPLETED
-            elapsed_since_queued = time_now - job.queued_time
-            elapsed_since_started = time_now - job.start_time
+            elapsed_since_queued_seconds = (time_now - job.queued_time).total_seconds()
+            elapsed_since_started_seconds = (time_now - job.start_time).total_seconds()
             self.logger.info(f"✅ Sub-job {sub_job_id} marked COMPLETED")
             elapsed_times_file = os.path.join(job.report_directory, "global_job_progress.log")
+          
             log_line = (
-                f"{time_now.isoformat()} - {sub_job_id} completed. Time since global job queued: {elapsed_since_queued}, Time since global job started: {elapsed_since_started}\n"
+                f"{time_now.isoformat()} - {sub_job_id} completed. "
+                f"Time since global job queued: {elapsed_since_queued_seconds:.2f} s, "
+                f"Time since global job started: {elapsed_since_started_seconds:.2f} s\n"
             )
             # Open in append mode, create file if it does not exist
             with open(elapsed_times_file, 'a') as f:
