@@ -35,6 +35,6 @@ def find_max_memory_usage(root_dir):
 
 # Example usage:
 if __name__ == "__main__":
-    folder = r"C:\Users\pw\Desktop\reports\mnist_gan\2025-06-24_01-20-11\mnist_gan"  # Change this to your folder
+    folder = r"C:\Users\pw\Desktop\reports\mnist_gan_split_size_1\2025-06-24_19-35-37-4w"  # Change this to your folder
     max_mem = find_max_memory_usage(folder)
     print(f"Maximum memory usage found: {max_mem:.2f} GB")
