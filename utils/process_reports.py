@@ -63,8 +63,9 @@ def extract_wall_time(log_file):
         return 0,0
 
 def save_dict_to_csv(data, output_file):
+
     with open(output_file, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=data.keys())
+        writer = csv.DictWriter(f, fieldnames=list(data.keys()))
         if f.tell() == 0:
             writer.writeheader()
         writer.writerow(data)
@@ -93,36 +94,36 @@ def process_reports(root_dir):
 
     # Prepare the report summary
     report_summary = {
-        "root_directory": root_dir,
+        "reports_path": report_path,
         "num_prover_workers": num_workers,
         "num_models_to_prove": len(halo2_job_metrics.get('name', 0)),
         "setup_cached?": "Yes" if sum(halo2_job_metrics.get('vk_time', 0)) <= 0 else "No",
-        "agg_circuit_size(n)": sum(halo2_job_metrics.get('circuit_size(n)', 0)),
+        "circuit_size(n)": sum(halo2_job_metrics.get('circuit_size(n)', 0)),
         "wall_time_s": started_seconds,
-        "max_memory_usage_gb": max_memory,
         "create_vk_time_s": sum(halo2_job_metrics.get('vk_time', 0)),
         "create_pk_time_s": sum(halo2_job_metrics.get('pk_time', 0)),
         "read_pk_time_s": sum(halo2_job_metrics.get('read_pk_time', 0)),
         "setup_time_s": sum(halo2_job_metrics.get('vk_time', 0)) + sum(halo2_job_metrics.get('pk_time', 0)) + sum(halo2_job_metrics.get('read_pk_time', 0)),
         "proof_time_s": sum(halo2_job_metrics.get('proof_time', 0)),
         "verify_time_s": sum(halo2_job_metrics.get('verify_time', 0)),
+        "ezkl_overhead_time_s": started_seconds - (sum(halo2_job_metrics.get('proof_time', 0)) + sum(halo2_job_metrics.get('vk_time', 0)) + sum(halo2_job_metrics.get('pk_time', 0)) + sum(halo2_job_metrics.get('read_pk_time', 0)) + sum(halo2_job_metrics.get('verify_time', 0))),
+        "max_memory_usage_gb": max_memory,
+
     }
     save_dict_to_csv(report_summary, "report_summary.csv")
-    # # Write the summary to a tab delimited text file
-    # summary_file = os.path.join(root_dir, "report_summary.txt")
-    # wriet_header = not os.path.exists(summary_file)
-    # with open(summary_file, 'w') as f:
-    #     if wriet_header:
-    #         f.write("Key\tValue\n") 
-    #     for key, value in report_summary.items():
-    #         f.write(f"{key}\t{value}\n")
-   
+
     # print(f"Report summary written to {summary_file}")
     print(f"Maximum memory usage found: {max_memory:.2f} GB")
 
 
 if __name__ == "__main__":
-    folder = r"C:\Users\pw\Desktop\reports\mnist_gan_split_size_1\2025-06-24_19-35-37-4w"  # Change this to your folder
-    process_reports(folder)
+
+    for folder in glob.glob(r"C:\Users\pw\OneDrive - University of Nevada, Reno\Projects\ZeroKnowledge\Experiments\r6a32xlarge-results\mnist_gan_split_size_1\*"):
+        if os.path.isdir(folder):
+            print(f"Processing folder: {folder}")
+            process_reports(folder)
+
+    # folder = r"C:\Users\pw\Desktop\reports\mnist_gan_split_size_1\2025-06-24_19-35-37-4w"  # Change this to your folder
+    # process_reports(folder)
     # max_mem = find_max_memory_usage(folder)
     # print(f"Maximum memory usage found: {max_mem:.2f} GB")
