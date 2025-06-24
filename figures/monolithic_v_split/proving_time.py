@@ -17,7 +17,7 @@ matplotlib.rcParams.update({
 
 # Data
 model_names = ['MobileNet', 'GPT(4L)', 'GPT(10L)', 'MnistGAN']
-global_times_raw = [8518, 3974, 'OOM', 596]
+global_times_raw = [8518, 3974, 'OOM', 700]
 submodel_times = [7122, 997, 1167.681, 246.755]
 
 # Convert 'OOM' to 0 for plotting and track which ones are OOM

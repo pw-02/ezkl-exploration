@@ -8,10 +8,16 @@ import torch.nn.functional as F
 import json
 
 
-model = nn.LSTM(3, 3)  # Input dim is 3, output dim is 3
-x = torch.randn(1, 3)  # make a sequence of length 5
 
-print(x)
+input_size = 512   # e.g., sequence features
+hidden_size = 1024 # larger hidden state
+num_layers = 1     # stacked LSTMs
+seq_len = 10
+
+
+model = nn.LSTM(input_size, hidden_size, num_layers=num_layers, bidirectional=False)
+# x = torch.randn(1, 3)  # make a sequence of length 5
+x = torch.randn(seq_len, 1, input_size)  # (seq_len, batch, input_size)
 
 # Flips the neural net into inference mode
 model.eval()
@@ -22,7 +28,7 @@ torch.onnx.export(model,               # model being run
                   # model input (or a tuple for multiple inputs)
                   x,
                   # where to save the model (can be a file or file-like object)
-                  "network.onnx",
+                  r"examples\onnx\lstm\lstm_network.onnx",
                   export_params=True,        # store the trained parameter weights inside the model file
                   opset_version=10,          # the ONNX version to export the model to
                   do_constant_folding=True,  # whether to execute constant folding for optimization
@@ -38,4 +44,4 @@ data_json = dict(input_data=[data_array])
 print(data_json)
 
 # Serialize data into file:
-json.dump(data_json, open("input.json", 'w'))
+json.dump(data_json, open( r"examples\onnx\lstm\lstm_input.json", 'w'))

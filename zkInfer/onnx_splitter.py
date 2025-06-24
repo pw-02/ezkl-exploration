@@ -126,6 +126,7 @@ def split_onnx_model(onnx_model_path, split_group_size):
 
         node_inputs = [i for i in node.input if i not in initializers and 'Constant' not in i]
         node_outputs = [o for o in node.output if o not in initializers and 'Constant' not in o]
+        
         sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
 
         all_sub_models[f'split_model_{counter+1}'] = sub_model
