@@ -41,3 +41,4 @@ two_inputs_test/
 
 # If you want to exclude all example outputs, consider:
 # examples/**/split_models/
+report_summary.csv
