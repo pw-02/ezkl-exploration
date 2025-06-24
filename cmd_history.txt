@@ -32,45 +32,26 @@ python zkInfer/submit_job.py
 
 scp -i us-west-2-kp.pem -r  ubuntu@ec2-34-223-107-155.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/ "C:\Users\pw\Desktop\"
 
-
 conda activate dzkml
 cd ezkl-exploration
 export PYTHONPATH=.:$PYTHONPATH
 python zkInfer/submit_job.py 
 
-conda activate dzkml
 cd ezkl-exploration
 tmux new -s dispatcher
+conda activate dzkml
 export PYTHONPATH=.:$PYTHONPATH
 python zkInfer/dispatcher.py
 
-conda activate dzkml
 cd ezkl-exploration
-tmux new -s worker5
+tmux new -s worker1
+conda activate dzkml
 export PYTHONPATH=.:$PYTHONPATH
 python zkInfer/worker.py
-
-conda activate dzkml
-cd ezkl-exploration
-tmux new -s worker6
-export PYTHONPATH=.:$PYTHONPATH
-python zkInfer/worker.py
-
-conda activate dzkml
-cd ezkl-exploration
-tmux new -s worker7
-export PYTHONPATH=.:$PYTHONPATH
-conda activate dzkml
-python zkInfer/worker.py
-
-
-conda activate dzkml
-tmux new -s worker8
-cd ezkl-exploration
-export PYTHONPATH=.:$PYTHONPATH
-python zkInfer/worker.py
-
 
 tmux attach -t dispatcher
 tmux attach -t worker1
 tmux attach -t worker2
+
+
+scp -i us-west-2-kp.pem -r   ubuntu@ec2-44-250-206-170.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/ "C:\Users\pw\Desktop\"

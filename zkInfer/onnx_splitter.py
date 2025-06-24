@@ -19,7 +19,8 @@ def format_model_input(input_data_path, expected_shape, input_type, idx=0):
     """Format input tensor from JSON to match ONNX model expectations."""
     expected_shape = [-1 if dim == 'batch_size' else dim for dim in expected_shape]
     input_data = load_json_input(input_data_path)['input_data']
-
+    if 'yolo' in str(input_data_path).lower():
+        expected_shape = [1, 3, 416, 416]  # Example for YOLO models
     if input_type == 'tensor(float)':
         reshaped_input = np.array(input_data, dtype=np.float32).reshape(expected_shape)
     elif input_type == 'tensor(int64)':
@@ -103,6 +104,7 @@ def collect_intermediate_inference_outputs(onnx_model_path, input_data_path, for
     input_name = session.get_inputs()[0].name
     input_shape = session.get_inputs()[0].shape
     input_type = session.get_inputs()[0].type
+    print(f"Input name: {input_name}, shape: {input_shape}, type: {input_type}")
     input_data = format_model_input(input_data_path, input_shape, input_type)
 
     outputs = session.run(None, {input_name: input_data})

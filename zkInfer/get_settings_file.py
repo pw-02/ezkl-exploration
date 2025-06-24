@@ -59,9 +59,12 @@ def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, gr
     clean_directory(tmp_cache_directory)
 
 if __name__ == "__main__":
-    name = "mobilenetv2_050_Opset18"
-    onnx_file = "examples/onnx/mobile_net/mobilenetv2_050_Opset18.onnx"
-    input_file = "examples/onnx/mobile_net/input.json"
-    group_size = 1  # Adjust as needed
+    name = "tiny-yolov3"
+    input_file = r"examples\onnx\squeezenet1_1_cifar10\squeezenet1_1_cifar10_input.json"
+    onnx_file = r"examples\onnx\squeezenet1_1_cifar10\squeezenet1_1_cifar10.onnx"
+
+    # input_file = r"examples\onnx\resnet18\input.json"
+    # onnx_file = r"examples\onnx\resnet18\resnet18_cifar10.onnx"
+    group_size = None  # Adjust as needed
     get_settings_file(name, onnx_file, input_file, group_size)
     print("Settings file generated successfully.")
