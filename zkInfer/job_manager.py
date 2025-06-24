@@ -45,7 +45,10 @@ class GlobalProvingJob:
         self.inference_results = {}
         self.sub_job_queue: deque = deque()
         self.model_to_prove_status: Dict[str, JobStatus] = {}
-        self.report_directory = os.path.join('reports', self.model_name, f"{datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")}-{num_prover_workers}w")
+        self.report_directory = os.path.join(
+            'reports',
+            self.model_name,
+            f"{datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')}-{num_prover_workers}w")
         self.cache_directory = os.path.join('cache', self.model_name)
         os.makedirs(self.cache_directory, exist_ok=True)
         os.makedirs(self.report_directory, exist_ok=True)
