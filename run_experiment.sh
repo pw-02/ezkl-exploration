@@ -1,6 +1,6 @@
 #!/bin/bash
 
-NUM_WORKERS=4    # Change this to however many workers you want
+NUM_WORKERS=2    # Change this to however many workers you want
 
 SESSION=zkexp
 
