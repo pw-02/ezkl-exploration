@@ -53,20 +53,47 @@ def find_max_memory_usage(root_dir):
             overall_max = file_max
     return overall_max
 
+def extract_wall_time(log_file):
+    with open(log_file, "r") as f:
+        lines = f.readlines()
+    last_line = lines[-1].strip()
+    # Regex to extract both numbers
+    match = re.search(  
+    r'Time since global job queued: ([\d.]+) s, Time since global job started: ([\d.]+) s',
+    last_line)
+    if match:
+        queued_seconds = float(match.group(1))
+        started_seconds = float(match.group(2))
+        return queued_seconds, started_seconds
+    else:
+        return 0,0
+
 
 
 def process_reports(root_dir):
     """Process all reports in the given root directory."""
     max_memory = find_max_memory_usage(root_dir)
     halo2_perf_file = glob.glob(os.path.join(root_dir, "halo2_perf.csv"))[0]
+    wall_time_file = glob.glob(os.path.join(root_dir, "global_job_progress.log"))[0]
+
+    queued_seconds, started_seconds = extract_wall_time(wall_time_file)
+
     halo2_job_metrics = convert_csv_to_dict(halo2_perf_file)
 
     # Prepare the report summary
     report_summary = {
+        "agg_circuit_size(n)": sum(halo2_job_metrics.get('agg_circuit_size(n)', 0)),
         "root_directory": root_dir,
+        "wall_time_s": started_seconds,
         "max_memory_usage_gb": max_memory,
-        "agg_create_vk_time_s": sum(halo2_job_metrics.get('create_vk_time_s', 0)),
+        "create_vk_time_s": sum(halo2_job_metrics.get('create_vk_time_s', 0)),
+        "create_pk_time_s": sum(halo2_job_metrics.get('create_pk_time_s', 0)),
+        "read_pk_time_s": sum(halo2_job_metrics.get('read_pk_time_s', 0)),
+        "setup_time_s": sum(halo2_job_metrics.get('create_vk_time_s', 0)) + sum(halo2_job_metrics.get('create_pk_time_s', 0)) + sum(halo2_job_metrics.get('read_pk_time_s', 0)),
+        "proof_time_s": sum(halo2_job_metrics.get('proof_time_s', 0)),
+        "verify_time_s": sum(halo2_job_metrics.get('verify_time_s', 0)),
 
+        
     }
     
     # Write the summary to a JSON file
