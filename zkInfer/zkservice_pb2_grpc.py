@@ -36,28 +36,23 @@ class ZKJobServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.SubmitGlobalJob = channel.unary_unary(
-                '/zkservice.ZKJobService/SubmitGlobalJob',
-                request_serializer=zkservice__pb2.GlobalJobRequest.SerializeToString,
-                response_deserializer=zkservice__pb2.JobIDResponse.FromString,
+        self.SubmitJob = channel.unary_unary(
+                '/zkservice.ZKJobService/SubmitJob',
+                request_serializer=zkservice__pb2.SubmitJobRequest.SerializeToString,
+                response_deserializer=zkservice__pb2.JobSubmissionResponse.FromString,
                 _registered_method=True)
         self.GetJobStatus = channel.unary_unary(
                 '/zkservice.ZKJobService/GetJobStatus',
                 request_serializer=zkservice__pb2.JobIDRequest.SerializeToString,
                 response_deserializer=zkservice__pb2.JobStatusResponse.FromString,
                 _registered_method=True)
-        self.GetJobSummary = channel.unary_unary(
-                '/zkservice.ZKJobService/GetJobSummary',
-                request_serializer=zkservice__pb2.JobIDRequest.SerializeToString,
-                response_deserializer=zkservice__pb2.JobSummaryResponse.FromString,
-                _registered_method=True)
-        self.FetchNextSubJob = channel.unary_unary(
-                '/zkservice.ZKJobService/FetchNextSubJob',
+        self.GetNextSubJob = channel.unary_unary(
+                '/zkservice.ZKJobService/GetNextSubJob',
                 request_serializer=zkservice__pb2.WorkerIDRequest.SerializeToString,
-                response_deserializer=zkservice__pb2.SubJobResponse.FromString,
+                response_deserializer=zkservice__pb2.SubJobAssignment.FromString,
                 _registered_method=True)
-        self.SendSubJobResult = channel.unary_unary(
-                '/zkservice.ZKJobService/SendSubJobResult',
+        self.SubmitSubJobResult = channel.unary_unary(
+                '/zkservice.ZKJobService/SubmitSubJobResult',
                 request_serializer=zkservice__pb2.SubJobResult.SerializeToString,
                 response_deserializer=zkservice__pb2.StatusAck.FromString,
                 _registered_method=True)
@@ -65,11 +60,6 @@ class ZKJobServiceStub(object):
                 '/zkservice.ZKJobService/SendHeartbeat',
                 request_serializer=zkservice__pb2.HeartbeatRequest.SerializeToString,
                 response_deserializer=zkservice__pb2.HeartbeatAck.FromString,
-                _registered_method=True)
-        self.ListActiveSubJobs = channel.unary_unary(
-                '/zkservice.ZKJobService/ListActiveSubJobs',
-                request_serializer=zkservice__pb2.StatusAck.SerializeToString,
-                response_deserializer=zkservice__pb2.SubJobStatusResponse.FromString,
                 _registered_method=True)
         self.SendPerfReport = channel.unary_unary(
                 '/zkservice.ZKJobService/SendPerfReport',
@@ -83,50 +73,44 @@ class ZKJobServiceServicer(object):
 
     """
 
-    def SubmitGlobalJob(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+    def SubmitJob(self, request, context):
+        """User API
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def GetJobStatus(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """rpc GetJobSummary (JobIDRequest) returns (JobSummaryResponse);
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def GetJobSummary(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+    def GetNextSubJob(self, request, context):
+        """Worker API
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def FetchNextSubJob(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def SendSubJobResult(self, request, context):
+    def SubmitSubJobResult(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def SendHeartbeat(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def ListActiveSubJobs(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Heartbeats and Monitoring
+        rpc ListActiveSubJobs (StatusAck) returns (SubJobStatusResponse);
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def SendPerfReport(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Performance reporting
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -134,28 +118,23 @@ class ZKJobServiceServicer(object):
 
 def add_ZKJobServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'SubmitGlobalJob': grpc.unary_unary_rpc_method_handler(
-                    servicer.SubmitGlobalJob,
-                    request_deserializer=zkservice__pb2.GlobalJobRequest.FromString,
-                    response_serializer=zkservice__pb2.JobIDResponse.SerializeToString,
+            'SubmitJob': grpc.unary_unary_rpc_method_handler(
+                    servicer.SubmitJob,
+                    request_deserializer=zkservice__pb2.SubmitJobRequest.FromString,
+                    response_serializer=zkservice__pb2.JobSubmissionResponse.SerializeToString,
             ),
             'GetJobStatus': grpc.unary_unary_rpc_method_handler(
                     servicer.GetJobStatus,
                     request_deserializer=zkservice__pb2.JobIDRequest.FromString,
                     response_serializer=zkservice__pb2.JobStatusResponse.SerializeToString,
             ),
-            'GetJobSummary': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetJobSummary,
-                    request_deserializer=zkservice__pb2.JobIDRequest.FromString,
-                    response_serializer=zkservice__pb2.JobSummaryResponse.SerializeToString,
-            ),
-            'FetchNextSubJob': grpc.unary_unary_rpc_method_handler(
-                    servicer.FetchNextSubJob,
+            'GetNextSubJob': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetNextSubJob,
                     request_deserializer=zkservice__pb2.WorkerIDRequest.FromString,
-                    response_serializer=zkservice__pb2.SubJobResponse.SerializeToString,
+                    response_serializer=zkservice__pb2.SubJobAssignment.SerializeToString,
             ),
-            'SendSubJobResult': grpc.unary_unary_rpc_method_handler(
-                    servicer.SendSubJobResult,
+            'SubmitSubJobResult': grpc.unary_unary_rpc_method_handler(
+                    servicer.SubmitSubJobResult,
                     request_deserializer=zkservice__pb2.SubJobResult.FromString,
                     response_serializer=zkservice__pb2.StatusAck.SerializeToString,
             ),
@@ -163,11 +142,6 @@ def add_ZKJobServiceServicer_to_server(servicer, server):
                     servicer.SendHeartbeat,
                     request_deserializer=zkservice__pb2.HeartbeatRequest.FromString,
                     response_serializer=zkservice__pb2.HeartbeatAck.SerializeToString,
-            ),
-            'ListActiveSubJobs': grpc.unary_unary_rpc_method_handler(
-                    servicer.ListActiveSubJobs,
-                    request_deserializer=zkservice__pb2.StatusAck.FromString,
-                    response_serializer=zkservice__pb2.SubJobStatusResponse.SerializeToString,
             ),
             'SendPerfReport': grpc.unary_unary_rpc_method_handler(
                     servicer.SendPerfReport,
@@ -188,7 +162,7 @@ class ZKJobService(object):
     """
 
     @staticmethod
-    def SubmitGlobalJob(request,
+    def SubmitJob(request,
             target,
             options=(),
             channel_credentials=None,
@@ -201,9 +175,9 @@ class ZKJobService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/zkservice.ZKJobService/SubmitGlobalJob',
-            zkservice__pb2.GlobalJobRequest.SerializeToString,
-            zkservice__pb2.JobIDResponse.FromString,
+            '/zkservice.ZKJobService/SubmitJob',
+            zkservice__pb2.SubmitJobRequest.SerializeToString,
+            zkservice__pb2.JobSubmissionResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -242,7 +216,7 @@ class ZKJobService(object):
             _registered_method=True)
 
     @staticmethod
-    def GetJobSummary(request,
+    def GetNextSubJob(request,
             target,
             options=(),
             channel_credentials=None,
@@ -255,36 +229,9 @@ class ZKJobService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/zkservice.ZKJobService/GetJobSummary',
-            zkservice__pb2.JobIDRequest.SerializeToString,
-            zkservice__pb2.JobSummaryResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def FetchNextSubJob(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/zkservice.ZKJobService/FetchNextSubJob',
+            '/zkservice.ZKJobService/GetNextSubJob',
             zkservice__pb2.WorkerIDRequest.SerializeToString,
-            zkservice__pb2.SubJobResponse.FromString,
+            zkservice__pb2.SubJobAssignment.FromString,
             options,
             channel_credentials,
             insecure,
@@ -296,7 +243,7 @@ class ZKJobService(object):
             _registered_method=True)
 
     @staticmethod
-    def SendSubJobResult(request,
+    def SubmitSubJobResult(request,
             target,
             options=(),
             channel_credentials=None,
@@ -309,7 +256,7 @@ class ZKJobService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/zkservice.ZKJobService/SendSubJobResult',
+            '/zkservice.ZKJobService/SubmitSubJobResult',
             zkservice__pb2.SubJobResult.SerializeToString,
             zkservice__pb2.StatusAck.FromString,
             options,
@@ -339,33 +286,6 @@ class ZKJobService(object):
             '/zkservice.ZKJobService/SendHeartbeat',
             zkservice__pb2.HeartbeatRequest.SerializeToString,
             zkservice__pb2.HeartbeatAck.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def ListActiveSubJobs(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/zkservice.ZKJobService/ListActiveSubJobs',
-            zkservice__pb2.StatusAck.SerializeToString,
-            zkservice__pb2.SubJobStatusResponse.FromString,
             options,
             channel_credentials,
             insecure,

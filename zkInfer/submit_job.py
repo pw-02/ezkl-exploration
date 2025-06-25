@@ -44,7 +44,7 @@ def main(cfg: DictConfig):
             stub = pb_grpc.ZKJobServiceStub(channel)
 
             # Submit the job
-            response = stub.SubmitGlobalJob(pb.GlobalJobRequest(
+            response = stub.SubmitJob(pb.SubmitJobRequest(
                 job_name=job_cfg.name,
                 onnx_model_path=job_cfg.onnx_file,
                 input_data_path=job_cfg.input_file,

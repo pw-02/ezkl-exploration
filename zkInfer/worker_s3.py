@@ -1,8 +1,10 @@
+import base64
 from datetime import datetime, timezone
 import json
 import os
 import sys
 import time
+import uuid
 import grpc
 import hydra
 from omegaconf import DictConfig
@@ -13,11 +15,12 @@ import shutil
 import logging
 import csv
 
-from sympy import re
 import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
 import onnx
 import pandas as pd
-from zkInfer.s3_utils import download_from_s3, upload_to_s3, file_exists_in_s3
+from zkInfer.s3_utils import download_from_s3, upload_to_s3, file_exists_in_s3, upload_if_not_exists, download_if_exists_in_s3
+from zkInfer.utils import parse_resource_usage_file
+import re
 
 def timed(fn):
     def wrapper(self, *args, **kwargs):
@@ -114,8 +117,16 @@ def heartbeat_loop(dispatcher, worker_id, job_id, sub_job_id, status_file, inter
 
 class EZKLProofStages:
     def __init__(
-        self, job_name, input_data_path, onnx_model_path, overwrite=False, logger = None, status_file=None,
-        cache_setup=False 
+        self, 
+        job_name, 
+        input_data_path, 
+        onnx_model_path, 
+        overwrite=False, 
+        logger = None, 
+        status_file=None,
+        s3_bucket=None,
+        cache_dir=None,
+        working_dir=None,
     ):
         import ezkl  # Only import here for multiprocess safety
         self.ezkl = ezkl
@@ -125,16 +136,15 @@ class EZKLProofStages:
         self.logger = logger or logging.getLogger("worker")
         self.status_file = status_file
         self.overwrite = overwrite
-        self.use_cache = cache_setup #this will cache the settings and compiled circuit files in the same directory as the onnx model
-        self.data_dir = os.path.dirname(onnx_model_path)
-        self.settings_path = os.path.join(self.data_dir, "settings.json")
-        self.calibration_path = os.path.join(self.data_dir, "calibration.json")
-
-        self.compiled_circuit_path = os.path.join(self.data_dir, "network.compiled")
-        self.pk_path = os.path.join(self.data_dir, "pk.json")
-        self.vk_path = os.path.join(self.data_dir, "vk.json")
-        self.witness_path = os.path.join(self.data_dir, "witness.json")
-        self.proof_path = os.path.join(self.data_dir, "proof.pf")
+        self.s3_bucket = s3_bucket
+        self.cache_dir = cache_dir
+        self.working_dir = working_dir
+        self.settings_path = os.path.join(self.cache_dir, "settings.json")
+        self.compiled_circuit_path = os.path.join(self.cache_dir, "network.compiled")
+        self.pk_path = os.path.join(self.cache_dir, "pk.json")
+        self.vk_path = os.path.join(self.cache_dir, "vk.json")
+        self.witness_path = os.path.join(self.working_dir, "witness.json")
+        self.proof_path = os.path.join(self.working_dir, "proof.pf")
 
     def _update_status(self, stage):
         if self.status_file:
@@ -144,38 +154,32 @@ class EZKLProofStages:
     @timed
     def calibrate_settings(self):
         self._update_status("CALIBRATING")
-        if self.overwrite or not os.path.exists(self.settings_path):
-            self.ezkl.gen_settings(self.onnx_model_path, self.settings_path)
-            self.ezkl.calibrate_settings(self.input_data_path, self.onnx_model_path, self.settings_path, "resources")
-        
-        model_info = {"name": self.job_name, "onnx_model_path": self.onnx_model_path, "input_data_path": self.input_data_path}
-        model_op_info = get_model_op_info(self.onnx_model_path)   
-        setting_report = os.path.join(self.output_dir, "settings.csv")
+        # If not overwrite, check if settings already exist locally or in S3
+        if not self.overwrite:
+            if os.path.exists(self.settings_path):
+                return
+            if self.s3_bucket and download_if_exists_in_s3(self.s3_bucket, f"{self.cache_dir}/settings.json", self.settings_path):
+                assert os.path.exists(self.settings_path)
+                return
+        # If we are here, either overwrite is True or settings file did not exist
+        self.ezkl.gen_settings(self.onnx_model_path, self.settings_path)
+        self.ezkl.calibrate_settings(self.input_data_path, self.onnx_model_path, self.settings_path, "resources")
+        assert os.path.exists(self.settings_path)
 
-        with open(self.settings_path, 'r') as f:
-                ezkl_settings = json.load(f)
-        model_settings = {**model_info, **model_op_info, **ezkl_settings}
-    
-        header_written = os.path.exists(setting_report)
-        with open(setting_report, 'a', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=model_settings.keys())
-                if not header_written:
-                    writer.writeheader()
-                writer.writerow(model_settings)
-            #copy the settings file to the output directory
-
-    # @timed
-    # def calibrate_settings(self):
-    #     self._update_status("CALIBRATING")
-    #     if self.overwrite or not os.path.exists(self.calibration_path):
-    #         self.ezkl.calibrate_settings(self.input_data_path, self.onnx_model_path, self.settings_path, "resources")
 
     @timed
     def compile_circuit(self):
         self._update_status("COMPILING")
-        if self.overwrite or not os.path.exists(self.compiled_circuit_path):
-            self.ezkl.compile_circuit(self.onnx_model_path, self.compiled_circuit_path, self.settings_path)
-
+         # If not overwrite, check if compiled circuit exists locally or can be downloaded from S3
+        if not self.overwrite:
+            if os.path.exists(self.compiled_circuit_path):
+                return
+            if self.s3_bucket and download_if_exists_in_s3(self.s3_bucket,f"{self.cache_dir}/network.compiled",self.compiled_circuit_path):
+                assert os.path.exists(self.compiled_circuit_path)
+                return
+        # If here, we need to (re)compile
+        self.ezkl.compile_circuit(self.onnx_model_path, self.compiled_circuit_path, self.settings_path)
+        assert os.path.exists(self.compiled_circuit_path)
     @timed
     def get_srs(self):
         self._update_status("GETTING_SRS")
@@ -190,8 +194,20 @@ class EZKLProofStages:
     @timed
     def setup(self):
         self._update_status("SETTING_UP")
-        if self.overwrite or not (os.path.exists(self.pk_path) and os.path.exists(self.vk_path)):
-            self.ezkl.setup(self.compiled_circuit_path, self.vk_path, self.pk_path)
+        if not self.overwrite:
+            if os.path.exists(self.pk_path) and os.path.exists(self.vk_path):
+                return
+        if (
+            self.s3_bucket
+            and file_exists_in_s3(self.s3_bucket, f"{self.cache_dir}/pk.json")
+            and file_exists_in_s3(self.s3_bucket, f"{self.cache_dir}/vk.json")
+        ):
+            download_from_s3(self.s3_bucket, f"{self.cache_dir}/pk.json", self.pk_path)
+            download_from_s3(self.s3_bucket, f"{self.cache_dir}/vk.json", self.vk_path)
+            if os.path.exists(self.pk_path) and os.path.exists(self.vk_path):
+                return
+        # If here, either overwriting or files do not exist
+        self.ezkl.setup(self.compiled_circuit_path, self.vk_path, self.pk_path)
 
     @timed
     def prove(self):
@@ -226,14 +242,12 @@ class EZKLProofStages:
 
 class ZKProofWorker:
     def __init__(self, cfg: DictConfig, logger=None):
-        self.worker_id = str(uuid4())
+        self.worker_id = base64.urlsafe_b64encode(uuid.uuid4().bytes).rstrip(b'=').decode('ascii')
         self.cfg = cfg
         self.target = f"{cfg.dispatcher.host}:{cfg.dispatcher.port}"
         self.channel = None
         self.stub = None
         self.logger = logger
-        self.storage_mode = getattr(cfg, "storage_mode", "local")
-        self.s3_bucket = getattr(cfg, "s3_bucket", None)
 
     def connect(self):
         if self.channel:
@@ -245,95 +259,105 @@ class ZKProofWorker:
     
     def fetch_and_run_job(self):
         try:
-            response = self.stub.FetchNextSubJob(pb.WorkerIDRequest(worker_id=self.worker_id))
-            if not response.available:
+            response = self.stub.GetNextSubJob(pb.WorkerIDRequest(worker_id=self.worker_id))
+            if not response.job_available:
                 self.logger.info("⏳ No jobs available. Sleeping...")
                 time.sleep(5)
                 return
             # self.global_job_id = response.job_id
             # self.current_sub_job_id = response.sub_job_id
+            self.logger.info(f"📦 Got sub-job {response.sub_model_name} for job {response.job_id}")
+            job_id = response.job_id
             sub_job_id = response.sub_job_id
-            global_job_id = response.job_id
+            sub_model_name = response.sub_model_name
             model_path = response.model_path
-            input_path = response.input_path
-            self.logger.info(f"📦 Got sub-job {response.sub_job_id} for job {response.job_id}")
-            worker_pid = os.getpid()
-            
-            local_working_dir = os.path.join(
-            'tmp', sub_job_id, f"{datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')}")
-            local_report_dir = os.path.join(local_working_dir, "reports")
-            os.makedirs(local_working_dir, exist_ok=True)
-            os.makedirs(local_report_dir, exist_ok=True)
+            s3_bucket = response.s3_bucket
+            cache_setup_files = response.keep_setup_files
+            overwrite_existing = response.overwrite_existing
+            input_json = json.loads(response.input_json)
+            cache_prefix = os.path.dirname(model_path)
+            worker_pid = str(os.getpid())
 
-            # --- Handle S3 download for cache (input/model) ---
-            if self.storage_mode == "s3":
-                # Download model and input to /tmp 
-                local_model_path = os.path.join(local_working_dir, os.path.basename(model_path))
-                local_input_path = os.path.join(local_working_dir, os.path.basename(input_path))
-                download_from_s3(self.s3_bucket, input_path, local_model_path)
-                download_from_s3(self.s3_bucket, input_path, local_input_path)
-
+            #check local cache directory to see if the model already exists
+            if not os.path.exists(model_path):
+                #doesn't exist, so we crealte the local cache directory, and download the model
+                os.makedirs(cache_prefix, exist_ok=True)
+                local_model_path = os.path.join(cache_prefix, os.path.basename(model_path))
+                download_from_s3(s3_bucket, model_path, local_model_path)
             else:
+                #model already exists, so we just use the local path
                 local_model_path = model_path
-                local_input_path = input_path
+
+            local_working_dir = os.path.join('tmp', sub_job_id)
+            os.makedirs(local_working_dir, exist_ok=True)
+
+            #save the json input file to the local working directory
+            local_input_path = os.path.join(local_working_dir, "input.json")
+            with open(local_input_path, "w") as f:
+                json.dump(input_json, f)
 
             # Ensure local report directory exists
-            status_file = os.path.join(local_report_dir, "status.txt")
-            system_usage_file = os.path.join(local_report_dir, 'system_usage.log')
-            process_useage_file = os.path.join(local_report_dir, "process_usage.log")
-            sysusage_proc = subprocess.Popen([
-                sys.executable, "zkInfer/system_watcher.py",
-                "--log_file", system_usage_file,
-                "--interval", "3"
+            status_file = os.path.join(local_working_dir, "status.txt")
+            resource_usage_file = os.path.join(local_working_dir, 'resource_usage.log')
+            resource_usage_proc = subprocess.Popen([
+                sys.executable, "zkInfer/resource_logger.py",
+                "--log_file", resource_usage_file,
+                # "--interval", str(3),
+                "--pid", worker_pid
             ])
-            process_usage_proc = subprocess.Popen([
-                sys.executable, "zkInfer/process_watcher.py",
-                "--pid", str(worker_pid),
-                "--log_file", process_useage_file,
-                "--interval", "3"
-            ])
-
+          
             # ---- Start heartbeat process BEFORE running proof ----
             heartbeat_proc = subprocess.Popen([
                 sys.executable, "zkInfer/heartbeat.py",
-                self.target, self.worker_id, global_job_id, sub_job_id, status_file,str(worker_pid)
-                ])
-            
+                self.target, self.worker_id, job_id, sub_model_name, status_file, worker_pid
+                ])  
+        
             proof_stages = EZKLProofStages(
-                job_name= sub_job_id,
+                job_name= sub_model_name,
                 input_data_path=local_input_path,
                 onnx_model_path=local_model_path,
-                overwrite=False,
+                overwrite=overwrite_existing,
                 logger = self.logger,
                 status_file=status_file,
-                use_cache=True
+                s3_bucket=s3_bucket,
+                cache_dir = cache_prefix,
+                working_dir=local_working_dir
             )
             # ---- Run proof (blocking) ----
             result = proof_stages.run_all()
             # ---- Stop heartbeat process after proof is done ----
-            for proc in [heartbeat_proc, sysusage_proc, process_usage_proc]:
+            for proc in [heartbeat_proc, resource_usage_proc]:
                 proc.terminate()
                 try:
                     proc.wait(timeout=3)
                 except Exception:
                     proc.kill()
+            # ---- Upload reports to S3 if needed ----
+            if cache_setup_files and s3_bucket:
+                # Upload settings, compiled circuit, pk, vk, and proof files
+                upload_if_not_exists(proof_stages.settings_path, s3_bucket, f"{cache_prefix}/settings.json")
+                upload_if_not_exists(proof_stages.compiled_circuit_path, s3_bucket, f"{cache_prefix}/network.compiled")
+                upload_if_not_exists(proof_stages.pk_path, s3_bucket, f"{cache_prefix}/pk.json")
+                upload_if_not_exists(proof_stages.vk_path, s3_bucket, f"{cache_prefix}/vk.json")
+                # upload_if_not_exists(proof_stages.proof_path, s3_bucket, f"{cache_prefix}/proof.pf")
 
             if result.get("error"):
                 self.logger.error(f"❌ Error during proof: {result['error']}")
                 self.stub.SendHeartbeat(pb.HeartbeatRequest(
                     worker_id=self.worker_id,
                     sub_job_id=sub_job_id,
-                    job_id=global_job_id,
+                    job_id=job_id,
                     status="FAILED",
                     message=result['error']
                 ))
                 return
+            
             metrics = result.get("timings", {})
             
             #generate and reports share with the job_manager
-            max_memory = self.extract_max_memory(process_useage_file)
+            max_process_mem, max_system_mem = parse_resource_usage_file(resource_usage_file)
 
-            model_info = {"name": sub_job_id, "onnx_model_path": local_model_path, "input_data_path": local_input_path, "max_memory(GB)": max_memory}
+            model_info = {"name": sub_job_id, "onnx_model_path": local_model_path, "input_data_path": local_input_path, "max_process_memory(GB)": max_process_mem, "max_system_memory(GB)": max_system_mem}
             ezkl_perf = {**model_info, **metrics}
             circuit_info = read_csv_into_dict("halo2_circuit.csv")
             prover_info = read_csv_into_dict("halo2_prover.csv")
@@ -341,27 +365,29 @@ class ZKProofWorker:
             halo2_perf = {**model_info, **circuit_info, **prover_info, **prover_info_cpu}
                 
             self.stub.SendPerfReport(pb.PerfReport(
-                job_id =global_job_id,
+                job_id =job_id,
                 sub_job_id=sub_job_id,
-                zkl_json=json.dumps(ezkl_perf),
+                worker_id=self.worker_id,
+                ezkl_json=json.dumps(ezkl_perf),
                 halo2_json=json.dumps(halo2_perf)))  # or whatever your gRPC call is
             
-            #clean up local files
-            self.clean_local_files()
-
-
+            # #clean up local files
+            # self.clean_local_files()
+            self.stub.SubmitSubJobResult(pb.SubJobResult(
+                        job_id=job_id,
+                        sub_job_id= sub_job_id,
+                        proof = open(proof_stages.proof_path, "rb").read(),
+                        success=True
+                    ))
+            
             self.stub.SendHeartbeat(pb.HeartbeatRequest(
                 worker_id=self.worker_id,
                 sub_job_id=sub_job_id,
-                job_id=global_job_id,
+                job_id=job_id,
                 status="DONE",
                 message="COMPLETED"
             ))
-            self.stub.SubmitSubJobResult(pb.SubJobResult(
-                job_id=global_job_id,
-                sub_job_id= sub_job_id,
-                metrics=metrics
-            ))
+      
             self.logger.info(f"✅ Completed sub-job {sub_job_id}")
 
         except grpc.RpcError as e:
@@ -369,29 +395,17 @@ class ZKProofWorker:
             self.reconnect_if_needed()
         except Exception as e:
             self.logger.error(f"❌ Error during job: {e}", exc_info=True)
-            if sub_job_id and global_job_id:
+            if sub_job_id and job_id:
                 self.stub.SendHeartbeat(pb.HeartbeatRequest(
                     worker_id=self.worker_id,
                     sub_job_id=sub_job_id,
-                    job_id=global_job_id,
+                    job_id=job_id,
                     status="FAILED",
                     message="FAILED"
                 ))
                 
 
-    def extract_max_memory(self, log_file):
-        """Extract the maximum memory usage (in GB) from a log file."""
-        max_memory = 0.0
-        pattern = re.compile(r"Memory: ([\d\.]+)GB /")
-        with open(log_file, "r") as f:
-            for line in f:
-                match = pattern.search(line)
-                if match:
-                    mem_gb = float(match.group(1))
-                    if mem_gb > max_memory:
-                        max_memory = mem_gb
-        return max_memory
-    
+
     def clean_local_files(self):
       # Gather additional report files to move or upload
         files_to_move = []

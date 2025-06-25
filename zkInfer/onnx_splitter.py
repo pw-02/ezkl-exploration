@@ -7,7 +7,8 @@ import numpy as np
 import onnx
 import onnxruntime as ort
 from onnx.utils import Extractor
-from s3_utils import upload_modelproto_if_not_exists, upload_json_to_s3, download_json_from_s3
+from zkInfer.s3_utils import upload_modelproto_if_not_exists, upload_json_to_s3, upload_modelproto_to_s3
+from zkInfer.utils import compute_bytes_md5
 
 def load_json_input(file_path):
     """Load input data from a JSON file."""
@@ -129,7 +130,7 @@ def split_onnx_model(onnx_model_path, split_group_size):
         
         sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
 
-        all_sub_models[f'split_model_{counter+1}'] = sub_model
+        all_sub_models[f'sub_model_{counter+1}'] = sub_model
         counter += 1
 
     if split_group_size > 1:
@@ -139,7 +140,82 @@ def split_onnx_model(onnx_model_path, split_group_size):
     else:
         return list(all_sub_models.items())  # [(name, sub_model), ...]
 
-def save_split_models_disk(submodels, intermediate_outputs, cache_dir):
+
+
+def prepare_submodel_record(sub_model, intermediate_outputs):
+    """Returns (flattened_inputs, raw_bytes, md5_hash, model_metadata) or None if no inputs."""
+    flattened_inputs = []
+    for inp in sub_model.graph.input:
+        if inp.name in intermediate_outputs:
+            flattened_inputs.append(intermediate_outputs[inp.name].flatten().tolist())
+    if not flattened_inputs:
+        return None
+
+    import onnx
+    raw_bytes = sub_model.SerializeToString()
+    md5_hash = compute_bytes_md5(raw_bytes)
+    model_metadata = {
+        'name': getattr(sub_model, 'name', 'submodel'),
+        'num_ops': len(sub_model.graph.node),
+        'num_params': sum(onnx.numpy_helper.to_array(i).size for i in sub_model.graph.initializer),
+        'model_ops': [node.op_type for node in sub_model.graph.node]
+    }
+    return (flattened_inputs, raw_bytes, md5_hash, model_metadata)
+
+def save_split_models_disk(submodels, intermediate_outputs, prefix, overwrite=False):
+    from collections import OrderedDict
+    import os
+    import onnx
+
+    models_with_inputs = OrderedDict()
+    for name, sub_model in submodels:
+        record = prepare_submodel_record(sub_model, intermediate_outputs)
+        if record is None:
+            continue
+        flattened_inputs, raw_bytes, md5_hash, model_metadata = record
+
+        model_dir = os.path.join(prefix, md5_hash)
+        os.makedirs(model_dir, exist_ok=True)
+        model_path = os.path.join(model_dir, 'model.onnx')
+        if overwrite or not os.path.exists(model_path):
+            onnx.save(sub_model, model_path)
+        models_with_inputs[name] = (md5_hash, model_path, flattened_inputs, model_metadata)
+    return models_with_inputs
+
+def save_split_models_s3(submodels, intermediate_outputs, s3_bucket, prefix, overwrite=False):
+    from collections import OrderedDict
+
+    models_with_inputs = OrderedDict()
+    for name, sub_model in submodels:
+        record = prepare_submodel_record(sub_model, intermediate_outputs)
+        if record is None:
+            continue
+        flattened_inputs, raw_bytes, md5_hash, model_metadata = record
+
+        s3_model_key = f"{prefix}/{md5_hash}/model.onnx"
+        if overwrite:
+            upload_modelproto_to_s3(raw_bytes, s3_bucket, s3_model_key)
+        else:
+            upload_modelproto_if_not_exists(raw_bytes, s3_bucket, s3_model_key)
+        models_with_inputs[name] = (md5_hash, s3_model_key, flattened_inputs, model_metadata)
+    return models_with_inputs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def save_split_models_disk(submodels, intermediate_outputs, prefix, overwrite=False):
     models_with_inputs = OrderedDict()
 
     for name, sub_model in submodels:
@@ -151,28 +227,27 @@ def save_split_models_disk(submodels, intermediate_outputs, cache_dir):
         if not flattened_inputs:
             continue
 
-        model_dir = os.path.join(cache_dir, name)
+        md5_hash = compute_bytes_md5(sub_model.SerializeToString())
+        model_dir = os.path.join(prefix, md5_hash)
         os.makedirs(model_dir, exist_ok=True)
-
         model_path = os.path.join(model_dir, 'model.onnx')
-        input_path = os.path.join(model_dir, 'input.json')
-
+        # input_path = os.path.join(model_dir, 'input.json')
         onnx.save(sub_model, model_path)
-        with open(input_path, 'w') as f:
-            json.dump({'input_data': flattened_inputs}, f, indent=4)
-        
-        model_metadata = {
-            'name': name,
-            'num_ops': len(sub_model.graph.node),
-            'num_params': sum(onnx.numpy_helper.to_array(i).size for i in sub_model.graph.initializer),
-            'model_ops': [node.op_type for node in sub_model.graph.node]
-        }
+        # with open(input_path, 'w') as f:
+        #     json.dump({'input_data': flattened_inputs}, f, indent=4)
 
-        models_with_inputs[name] = (input_path, model_path, model_metadata)
+        model_metadata = {
+                'name': name,
+                'num_ops': len(sub_model.graph.node),
+                'num_params': sum(onnx.numpy_helper.to_array(i).size for i in sub_model.graph.initializer),
+                'model_ops': [node.op_type for node in sub_model.graph.node]
+            }
+
+        models_with_inputs[name] = (md5_hash, model_path, flattened_inputs, model_metadata)
 
     return models_with_inputs
 
-def save_split_models_s3(submodels, intermediate_outputs, s3_bucket, prefix):
+def save_split_models_s3(submodels, intermediate_outputs, s3_bucket, prefix, overwrite=False):
         models_with_inputs = OrderedDict()
 
         for name, sub_model in submodels:
@@ -184,13 +259,15 @@ def save_split_models_s3(submodels, intermediate_outputs, s3_bucket, prefix):
             if not flattened_inputs:
                 continue
 
-            s3_model_key = f"{prefix}/{name}/model.onnx"
-            s3_input_key = f"{prefix}/{name}/input.json"
-            # Upload ONNX model in memory
-            upload_modelproto_if_not_exists(sub_model, s3_bucket, s3_model_key)
-            # Upload JSON in memory
-            upload_json_to_s3({'input_data': flattened_inputs}, s3_bucket, s3_input_key)
-            
+            raw_bytes = sub_model.SerializeToString()
+            md5_hash = compute_bytes_md5(raw_bytes)
+            s3_model_key = f"{prefix}/{md5_hash}/model.onnx"
+
+            if overwrite:
+                upload_modelproto_to_s3(raw_bytes, s3_bucket, s3_model_key)
+            else:
+                upload_modelproto_if_not_exists(raw_bytes, s3_bucket, s3_model_key)
+
             model_metadata = {
                 'name': name,
                 'num_ops': len(sub_model.graph.node),
@@ -198,7 +275,7 @@ def save_split_models_s3(submodels, intermediate_outputs, s3_bucket, prefix):
                 'model_ops': [node.op_type for node in sub_model.graph.node]
             }
 
-            models_with_inputs[name] = (s3_input_key, s3_model_key, model_metadata)
+            models_with_inputs[name] = (md5_hash, s3_model_key, flattened_inputs, model_metadata)
 
         return models_with_inputs
     

@@ -11,10 +11,10 @@ def monitor_process(pid, log_file, interval):
     num_cpus = psutil.cpu_count(logical=True)
 
     with open(log_file, "a") as f:
-        f.write(f"# Logging system and process usage. Logical CPUs: {num_cpus}\n")
-        f.write("# Each process's CPU % is usage relative to one core.\n")
-        f.write("# E.g. on a 4-core machine, 400% means the process uses all cores.\n")
-        f.flush()
+        # f.write(f"# Logging system and process usage. Logical CPUs: {num_cpus}\n")
+        # f.write("# Each process's CPU % is usage relative to one core.\n")
+        # f.write("# E.g. on a 4-core machine, 400% means the process uses all cores.\n")
+        # f.flush()
 
         while True:
             try:

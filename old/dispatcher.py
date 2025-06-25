@@ -8,8 +8,6 @@ import zkservice_pb2_grpc as pb_grpc
 from job_manager_s3 import JobManager
 import logging
 import sys
-import json
-
 
 def setup_logger(name, log_file=None, level=logging.INFO):
     """Set up a logger that logs to both console and file (if given)."""
@@ -38,6 +36,9 @@ def setup_logger(name, log_file=None, level=logging.INFO):
 
     return logger
 
+
+
+# logger.info("🚀 Starting ZK Dispatcher Service")
 
 class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
     def __init__(self, logger=None, 
@@ -95,32 +96,78 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
         status = self.job_manager.get_job_status(request.job_id)
         return pb.JobStatusResponse(job_id=request.job_id, status=status)
 
-    def GetNextSubJob(self, request, context):
-        subjob = self.job_manager.get_next_sub_job(request.worker_id)
+    def FetchNextSubJob(self, request, context):
+        subjob = self.job_manager.fetch_next_sub_job(request.worker_id)
         if subjob is None:
-            return pb.SubJobAssignment(job_available=False)
+            return pb.SubJobResponse(available=False)
 
-        return pb.SubJobAssignment(
+        return pb.SubJobResponse(
             job_id=subjob["job_id"],
-            sub_model_name=subjob["sub_model_name"],
             sub_job_id=subjob["sub_job_id"],
             model_path=subjob["model_path"],
-            input_json=subjob["input_json"],
-            storage_backend=self.storage_backend,
-            s3_bucket=self.s3_bucket,
-            keep_setup_files=self.keep_setup_files,
-            keep_model_files=self.keep_model_files,
-            overwrite_existing=self.overwrite_existing,
-            job_available=True
+            input_path=subjob["input_path"],
+            output_dir=subjob["output_dir"],
+            available=True
         )
     
+    
+    def GetJobSummary(self, request, context):
+        job_id = request.job_id
+        job = self.job_manager.global_jobs.get(job_id)
 
-    def SubmitSubJobResult(self, request, context):
-        self.job_manager.handle_sub_job_result(
+        if not job:
+            return pb.JobSummaryResponse(
+                job_id=job_id,
+                job_name="UNKNOWN",
+                status="UNKNOWN",
+                total_sub_jobs=0,
+                completed_sub_jobs=0,
+                sub_jobs=[]
+            )
+
+        total = len(job.models_to_prove)
+        completed = sum(1 for sid in self.job_manager.sub_job_results if sid.startswith(job_id))
+        status = "COMPLETED" if completed == total else "IN_PROGRESS"
+
+        sub_job_infos = []
+        for model in job.models_to_prove:
+            sub_id = f"{job_id}_{model.job_id}"
+            live_info = self.job_manager.active_sub_jobs.get(sub_id)
+
+            if live_info:
+                info = pb.SubJobStatusInfo(
+                    sub_job_id=sub_id,
+                    worker_id=live_info["worker"],
+                    status=pb.SubJobStatus.Value(live_info["status"]),
+                    progress=live_info["progress"] / 100.0,
+                    message=live_info["message"],
+                    last_seen=live_info["last_seen"]
+                )
+            else:
+                info = pb.SubJobStatusInfo(
+                    sub_job_id=sub_id,
+                    worker_id="",
+                    status=pb.SubJobStatus.QUEUED,
+                    progress=0.0,
+                    message="Not started",
+                    last_seen=""
+                )
+            sub_job_infos.append(info)
+
+        return pb.JobSummaryResponse(
+            job_id=job_id,
+            job_name=job.model_name,
+            status=status,
+            total_sub_jobs=total,
+            completed_sub_jobs=completed,
+            sub_jobs=sub_job_infos
+        )
+
+
+    def SendSubJobResult(self, request, context):
+        self.job_manager.submit_sub_job_result(
             job_id=request.job_id,
             sub_job_id=request.sub_job_id,
-            proof=request.proof,
-
         )
         return pb.StatusAck(success=True, message="Result received")
 
@@ -134,24 +181,24 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
         )
         return pb.HeartbeatAck(success=True)
 
-    # def ListActiveSubJobs(self, request, context):
-    #     live = self.job_manager.list_active_jobs()
-    #     resp = pb.SubJobStatusResponse()
-    #     for sid, info in live.items():
-    #         resp.statuses[sid].worker_id = info["worker"]
-    #         resp.statuses[sid].status = info["status"]
-    #         resp.statuses[sid].progress = info["progress"] / 100.0
-    #         resp.statuses[sid].message = info["message"]
-    #         resp.statuses[sid].last_seen = info["last_seen"]
-    #     return resp
+    def ListActiveSubJobs(self, request, context):
+        live = self.job_manager.list_active_jobs()
+        resp = pb.SubJobStatusResponse()
+        for sid, info in live.items():
+            resp.statuses[sid].worker_id = info["worker"]
+            resp.statuses[sid].status = info["status"]
+            resp.statuses[sid].progress = info["progress"] / 100.0
+            resp.statuses[sid].message = info["message"]
+            resp.statuses[sid].last_seen = info["last_seen"]
+        return resp
     
     def SendPerfReport(self, request, context):
         self.job_manager.record_performance_report(
             job_id=request.job_id,
             sub_job_id=request.sub_job_id,
             worker_id=request.worker_id,
-            ezkl_perf=json.loads(request.ezkl_json),
-            halo2_perf=json.loads(request.halo2_json)
+            duration=request.duration,
+            memory_usage=request.memory_usage
         )
         return pb.StatusAck(success=True, message="Performance report received")
 

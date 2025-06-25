@@ -3,7 +3,7 @@ syntax = "proto3";
 package zkservice;
 
 /*
-python -m grpc_tools.protoc -Igrpc_api --python_out=zkInfer --grpc_python_out=zkInfer zkInfer/zkservice.proto
+python -m grpc_tools.protoc -IzkInfer --python_out=zkInfer --grpc_python_out=zkInfer zkInfer/zkservice.proto
 */
 
 // ===== ENUMS =====
@@ -62,10 +62,17 @@ message WorkerIDRequest {
 
 // SubJobAssignment: Information needed by the worker to process a subjob.
 message SubJobAssignment {
-  string job_id = 1;           // Consistent: Use "job_id" (not "global_job_id")
-  string sub_job_id = 2;
-  string model_path = 3;
-  string input_json = 4;
+  string job_id = 1;
+  string sub_model_name = 2;           // Consistent: Use "job_id" (not "global_job_id")
+  string sub_job_id = 3;
+  string model_path = 4;
+  string input_json = 5;
+  string storage_backend = 6; // "local" or "s3"
+  string s3_bucket = 7; // Only used if storage_backend == "s3"
+  bool keep_setup_files = 8; // Whether to keep setup artifacts (vk/pk etc.)
+  bool keep_model_files = 9; // Whether to keep model artifacts (model files, etc.)
+  bool overwrite_existing = 10; // Whether to overwrite existing files
+  bool job_available = 11; // Indicates if the job is still available
 }
 
 // The result of a subjob proof computation.
@@ -114,8 +121,9 @@ message StatusAck {
 message PerfReport {
   string job_id = 1;
   string sub_job_id = 2;
-  string ezkl_json = 3;
-  string halo2_json = 4;
+  string worker_id = 3;
+  string ezkl_json = 4;
+  string halo2_json = 5;
 }
 
 // ===== SERVICE =====
@@ -125,7 +133,7 @@ service ZKJobService {
   // User API
   rpc SubmitJob (SubmitJobRequest) returns (JobSubmissionResponse);
   rpc GetJobStatus (JobIDRequest) returns (JobStatusResponse);
-  rpc GetJobSummary (JobIDRequest) returns (JobSummaryResponse);
+  //rpc GetJobSummary (JobIDRequest) returns (JobSummaryResponse);
 
   // Worker API
   rpc GetNextSubJob (WorkerIDRequest) returns (SubJobAssignment);
@@ -133,7 +141,7 @@ service ZKJobService {
 
   // Heartbeats and Monitoring
   rpc SendHeartbeat (HeartbeatRequest) returns (HeartbeatAck);
-  rpc ListActiveSubJobs (StatusAck) returns (SubJobStatusResponse);
+  //rpc ListActiveSubJobs (StatusAck) returns (SubJobStatusResponse);
 
   // Performance reporting
   rpc SendPerfReport (PerfReport) returns (StatusAck);

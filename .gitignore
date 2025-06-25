@@ -2,6 +2,7 @@
 outputs/
 reports/
 figures/
+job_data/
 cache/
 logs/
 lightning_logs/

@@ -22,9 +22,7 @@ def upload_if_not_exists(local_path, bucket, s3_key):
         return True
     return False
 
-def upload_modelproto_to_s3(model_proto, bucket, s3_key):
-    # Serialize ModelProto to bytes
-    raw_bytes = model_proto.SerializeToString()
+def upload_modelproto_to_s3(raw_bytes, bucket, s3_key):
     s3 = boto3.client('s3')
     s3.put_object(Body=raw_bytes, Bucket=bucket, Key=s3_key, ContentType="application/octet-stream")
 
@@ -40,9 +38,9 @@ def download_modelproto_from_s3(bucket, s3_key):
     
     return model_proto
 
-def upload_modelproto_if_not_exists(model_proto, bucket, s3_key):
+def upload_modelproto_if_not_exists(raw_bytes, bucket, s3_key):
     if not file_exists_in_s3(bucket, s3_key):
-        upload_modelproto_to_s3(model_proto, bucket, s3_key)
+        upload_modelproto_to_s3(raw_bytes, bucket, s3_key)
         return True
     return False
 
@@ -55,3 +53,49 @@ def download_json_from_s3(bucket, s3_key):
     response = s3.get_object(Bucket=bucket, Key=s3_key)
     raw_data = response['Body'].read().decode('utf-8')
     return json.loads(raw_data)
+
+
+def delete_s3_prefix(self, s3_bucket:str, prefix: str):
+    """
+    Deletes all objects in S3 bucket with the given prefix ("directory").
+    """
+    s3 = boto3.client('s3')
+    paginator = s3.get_paginator('list_objects_v2')
+    deleted = 0
+    for page in paginator.paginate(Bucket=s3_bucket, Prefix=prefix):
+        objects = page.get('Contents', [])
+        if not objects:
+            continue
+        # Prepare batch delete
+        delete_keys = {'Objects': [{'Key': obj['Key']} for obj in objects]}
+        response = s3.delete_objects(Bucket=s3_bucket, Delete=delete_keys)
+        deleted += len(response.get('Deleted', []))
+
+def delete_s3_file(s3_bucket: str, s3_key: str):
+    """
+    Deletes a single file (object) from S3.
+    """
+    s3 = boto3.client('s3')
+    try:
+        s3.delete_object(Bucket=s3_bucket, Key=s3_key)
+    except Exception as e:
+        pass
+
+def delete_non_onnx_files_from_s3(bucket: str, prefix: str):
+    s3 = boto3.client('s3')
+    paginator = s3.get_paginator('list_objects_v2')
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        objects = page.get('Contents', [])
+        for obj in objects:
+            key = obj['Key']
+            if not key.endswith(".onnx"):
+                s3.delete_object(Bucket=bucket, Key=key)
+                
+def download_if_exists_in_s3(bucket: str, s3_key: str, local_path: str):
+    """
+    Downloads a file from S3 if it exists.
+    """
+    if file_exists_in_s3(bucket, s3_key):
+        download_from_s3(bucket, s3_key, local_path)
+        return True
+    return False
