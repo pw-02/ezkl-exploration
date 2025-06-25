@@ -1,8 +1,9 @@
 syntax = "proto3";
 
 package zkservice;
-//python -m grpc_tools.protoc -Igrpc_api --python_out=grpc_api --grpc_python_out=grpc_api grpc_api/zkservice.proto
-
+/*
+python -m grpc_tools.protoc -Igrpc_api --python_out=zkInfer  --grpc_python_out=zkInfer zkInfer\zkservice.proto
+*/
 // ===== ENUMS =====
 
 enum SubJobStatus {
@@ -19,7 +20,6 @@ enum SubJobStatus {
   FAILED = 10;
 }
 
-// ===== MESSAGES =====
 
 message GlobalJobRequest {
   string job_name = 1;
@@ -58,7 +58,7 @@ message SubJobResponse {
 message SubJobResult {
   string job_id = 1;
   string sub_job_id = 2;
-  map<string, string> metrics = 3;
+  bytes proof = 3; // Serialized proof data
   bool success = 4;
 }
 
@@ -103,6 +103,17 @@ message JobSummaryResponse {
   repeated SubJobStatusInfo sub_jobs = 6;
 }
 
+
+// ===== MESSAGES =====
+message PerfReport {
+    string job_id = 1;
+    string sub_job_id = 2;
+    string ezkl_json = 3;
+    string halo2_json = 4;
+}
+
+
+
 // ===== SERVICE =====
 
 service ZKJobService {
@@ -111,8 +122,10 @@ service ZKJobService {
   rpc GetJobSummary (JobIDRequest) returns (JobSummaryResponse);
 
   rpc FetchNextSubJob (WorkerIDRequest) returns (SubJobResponse);
-  rpc SubmitSubJobResult (SubJobResult) returns (StatusAck);
+  rpc SendSubJobResult (SubJobResult) returns (StatusAck);
 
   rpc SendHeartbeat (HeartbeatRequest) returns (HeartbeatAck);
   rpc ListActiveSubJobs (StatusAck) returns (SubJobStatusResponse);
+  rpc SendPerfReport (PerfReport) returns (StatusAck);
+
 }

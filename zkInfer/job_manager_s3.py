@@ -3,18 +3,19 @@ import uuid
 import os
 import csv
 import ezkl
-from collections import deque
+from collections import OrderedDict, deque
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict
 import json
-from s3_utils import upload_to_s3, download_from_s3, file_exists_in_s3
+from s3_utils import upload_to_s3, download_from_s3, upload_if_not_exists, upload_modelproto_if_not_exists, upload_json_to_s3
 from zkInfer.onnx_splitter import (
     split_onnx_model,
     collect_intermediate_inference_outputs,
-    save_split_models,
+    save_split_models_disk,
     get_model_info,
-    run_model_inference
+    run_model_inference,
+    save_split_models_s3
 )
 
 class JobStatus(str, Enum):
@@ -25,99 +26,110 @@ class JobStatus(str, Enum):
     FAILED = "FAILED"
 
 
+def get_content_hash(file_path):
+    """Compute a simple hash of the file content."""
+    import hashlib
+    hasher = hashlib.sha256()
+    with open(file_path, 'rb') as f:
+        while chunk := f.read(8192):
+            hasher.update(chunk)
+
+
 class GlobalProvingJob:
     def __init__(self, 
-                 job_name, 
+                 model_name, 
                  onnx_model_path, 
                  input_data_path,
-                 split_mode="auto", 
-                 ops_per_chunk=1, 
-                 cache_setup_files=False,
-                 logger=None,
-                 num_prover_workers=1,
-                 storage_mode="local",
-                 s3_bucket=None):
-
-        self.model_name = job_name
+                 split_mode, 
+                 ops_per_chunk, 
+                 cache_setup_files,
+                 logger,
+                 num_prover_workers,
+                 storage_backend,
+                 s3_bucket):
+        
+        self.storage_backend = storage_backend
+        self.s3_bucket = s3_bucket        
+        self.model_name = model_name
         self.input_data_path = input_data_path
         self.onnx_model_path = onnx_model_path
         self.split_mode = split_mode
         self.ops_per_chunk = ops_per_chunk
         self.cache_setup_files = cache_setup_files
+        self.logger = logger
+        self.cache_prefix = "cache"
+
         self.inference_results = {}
         self.sub_job_queue: deque = deque()
-        self.model_to_prove_status: Dict[str, JobStatus] = {}
+        self.sub_job_status_map: Dict[str, JobStatus] = {}
+
         self.report_directory = os.path.join(
             'reports',
             self.model_name,
             f"{datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')}-{num_prover_workers}w")
-        self.cache_directory = os.path.join('cache', self.model_name)
-        self.logger = logger
+        
+        self.cache_directory = os.path.join(self.cache_prefix, self.model_name)
         self.status = JobStatus.PREPARING
         self.progress = 0.0
-        self.queued_time = None  # <--- Set job start time
+        self.queued_time = None  
         self.start_time = None
-        # self.elapsed_time = datetime.now(timezone.utc)  # <--- Set job start time
-        self.storage_mode = storage_mode
-        self.s3_bucket = s3_bucket
 
-        if self.storage_mode == "local":
+        if self.storage_backend == "local":
             os.makedirs(self.cache_directory, exist_ok=True)
             os.makedirs(self.report_directory, exist_ok=True)
-        elif self.storage_mode == "s3":
-            assert self.s3_bucket, "You must provide s3_bucket for storage_mode='s3'"
+        elif self.storage_backend == "s3":
+            assert self.s3_bucket, "You must provide s3_bucket for storage_backend='s3'"
         else:
-            raise ValueError(f"Unknown storage_mode: {self.storage_mode}")
-
-
+            raise ValueError(f"Unknown storage_backend: {self.storage_backend}")
+        self.queue_models_for_proving()
+    
+    
     def compute_progress(self):
         total = len(self.model_to_prove_status)
         completed = sum(1 for s in self.model_to_prove_status.values() if s == JobStatus.COMPLETED)
         self.progress = (completed / total * 100) if total > 0 else 0.0
+    
 
+    
     def queue_models_for_proving(self):
         try:
             self.inference_results['non_zk'] = run_model_inference(self.onnx_model_path, self.input_data_path)
-            settings_file = os.path.join(self.report_directory, "ezkl_settings.csv")
-            header_written = os.path.exists(settings_file)
-
+            
             if self.split_mode == "none":
-                sub_id = f"{self.model_name}"
+                sub_job_id = f"{self.model_name}" #sub_job_id is the same as model_name
                 model_basename = 'model.onnx'
                 input_basename = 'input.json'
-                if self.storage_mode == "local":
+                if self.storage_backend == "local":
                     model_path = os.path.join(self.cache_directory, model_basename)
                     input_path = os.path.join(self.cache_directory, input_basename)
                     shutil.copyfile(self.onnx_model_path, model_path)
                     shutil.copyfile(self.input_data_path, input_path)
                 else:
-                    model_path = f"cache/{self.model_name}/{model_basename}"
-                    input_path = f"cache/{self.model_name}/{input_basename}"
-                    upload_to_s3(self.onnx_model_path, self.s3_bucket, model_path)
-                    upload_to_s3(self.input_data_path, self.s3_bucket, input_path)
+                    model_path = f"{self.cache_prefix}/{self.model_name}/{model_basename}"
+                    input_path = f"{self.cache_prefix}/{self.model_name}/{input_basename}"
+                    upload_if_not_exists(self.onnx_model_path, self.s3_bucket, model_path)
+                    upload_if_not_exists(self.input_data_path, self.s3_bucket, input_path)
                 
                 self.onnx_model_path = model_path
                 self.input_data_path = input_path
-                self.sub_job_queue.append((self.model_name, sub_id, self.onnx_model_path, self.input_data_path, self.report_directory))
-                self.model_to_prove_status[sub_id] = JobStatus.QUEUED
+                self.sub_job_queue.append((self.model_name, sub_job_id, model_path, input_path, self.report_directory))
+                self.sub_job_status_map[sub_job_id] = JobStatus.QUEUED
             else:
                 intermediate_outputs = collect_intermediate_inference_outputs(self.onnx_model_path, self.input_data_path)
                 group_size = 1 if self.split_mode == "auto" else self.ops_per_chunk
+            
                 sub_models = split_onnx_model(self.onnx_model_path, group_size)
-                submodel_io = save_split_models(sub_models, intermediate_outputs, self.cache_directory)
-                for sub_name, (input_path, model_path, meta) in submodel_io.items():
-                    sub_id = f"{self.model_name}_{sub_name}"
-                    if self.storage_mode == "s3":
-                          # Upload files to S3
-                        s3_model_path = f"cache/{self.model_name}/{os.path.basename(model_path)}"
-                        s3_input_path = f"cache/{self.model_name}/{os.path.basename(input_path)}"
-                        upload_to_s3(model_path, self.s3_bucket, s3_model_path)
-                        upload_to_s3(input_path, self.s3_bucket, s3_input_path)
-                        model_path = s3_model_path
-                        input_path = s3_input_path
-                    self.sub_job_queue.append((self.model_name, sub_id, model_path, input_path, self.report_directory))
-                    self.model_to_prove_status[sub_id] = JobStatus.QUEUED
-                    header_written = True
+
+                if self.storage_backend == "s3":
+                    # Save split models to S3
+                    submodel_io = save_split_models_s3(sub_models, intermediate_outputs, self.cache_prefix, self.s3_bucket)
+                else:
+                    submodel_io = save_split_models_disk(sub_models, intermediate_outputs, self.cache_directory)
+                
+                for sub_model_name, (sub_model_input_path, sub_model_path, meta) in submodel_io.items():
+                    sub_job_id = f"{self.model_name}_{sub_model_name}"
+                    self.sub_job_queue.append((self.model_name, sub_job_id, sub_model_path, sub_model_input_path, self.report_directory))
+                    self.sub_job_status_map[sub_job_id] = JobStatus.QUEUED
                 
             self.status = JobStatus.QUEUED
             self.queued_time = datetime.now(timezone.utc)
@@ -127,58 +139,43 @@ class GlobalProvingJob:
             self.status = JobStatus.FAILED
             raise
 
-    # def _write_settings(self, name, model_path, input_path, meta, path, header_written):
-    #     info = {
-    #         'name': name,
-    #         'onnx_model_path': model_path,
-    #         'input_data_path': input_path,
-    #     }
-    #     info.update(meta)
-    #     # settings_file = os.path.join(self.report_directory, f"{name}_ezkl_settings.json")
-    #     settings_file = os.path.join(os.path.dirname(model_path), 'settings.json')
-    #     #check if the ezkl settings file exists
-    #     if not os.path.exists(settings_file):
-    #         ezkl.gen_settings(model_path, settings_file)
-    #         ezkl.calibrate_settings(input_path, model_path, settings_file, "resources")
-
-    #     with open(settings_file, 'r') as f:
-    #             ezkl_settings = json.load(f)
-        
-    #     info.update(ezkl_settings)
-        
-    #     with open(path, 'a', newline='') as f:
-    #         writer = csv.DictWriter(f, fieldnames=info.keys())
-    #         if not header_written:
-    #             writer.writeheader()
-    #         writer.writerow(info)
-
     def all_sub_jobs_completed(self):
         return all(status == JobStatus.COMPLETED for status in self.model_to_prove_status.values())
     
     # In other methods, download from S3 to local tmp before local processing, if needed.
     # For example, before running ONNX inference, download the model if in s3 mode:
     def ensure_local_file(self, path):
-        if self.storage_mode == "s3" and not os.path.exists(path):
+        if self.storage_backend == "s3" and not os.path.exists(path):
             # e.g. path is "/tmp/xxx.onnx", s3 key is cache/xxx/xxx.onnx
             s3_key = "/".join(path.split(os.sep)[-3:])
             download_from_s3(self.s3_bucket, s3_key, path)
         return path
 
 class JobManager:
-    def __init__(self, logger=None, num_prover_workers=1, storage_mode="local", s3_bucket=None):
+    def __init__(self, logger, num_prover_workers, storage_backend, s3_bucket, cache_setup_files):
         self.logger = logger
         self.global_jobs: Dict[str, GlobalProvingJob] = {}
         self.sub_job_assignments: Dict[str, str] = {}
         self.num_prover_workers = num_prover_workers
-        self.storage_mode = storage_mode
+        self.storage_backend = storage_backend
         self.s3_bucket = s3_bucket
+        self.cache_setup_files = cache_setup_files
 
-    def submit_global_job(self, job_name, onnx_model_path, input_data_path, split_mode, ops_per_chunk, cache_setup_files=False):
+    def submit_global_job(self, job_name, onnx_model_path, input_data_path, split_mode, ops_per_chunk):
         job_id = job_name if job_name else str(uuid.uuid4())
+        
         job = GlobalProvingJob(
-            job_id, onnx_model_path, input_data_path, split_mode, ops_per_chunk, 
-            cache_setup_files, self.logger, self.num_prover_workers, self.storage_mode, self.s3_bucket)
-        job.queue_models_for_proving()
+            model_name=job_id,
+            onnx_model_path=onnx_model_path,
+            input_data_path=input_data_path,
+            split_mode=split_mode,
+            ops_per_chunk=ops_per_chunk,
+            cache_setup_files=self.cache_setup_files,
+            logger=self.logger,
+            num_prover_workers=self.num_prover_workers,
+            storage_backend=self.storage_backend,
+            s3_bucket=self.s3_bucket
+        )
         self.global_jobs[job_id] = job
         return job_id
 
@@ -196,21 +193,21 @@ class JobManager:
         for job_id, global_job in self.global_jobs.items():
             if not global_job.sub_job_queue:
                 continue
-            _, sub_id, model_path, input_path, out_dir = global_job.sub_job_queue.popleft()
-            self.sub_job_assignments[sub_id] = worker_id
+            _, sub_job_id, model_path, input_path, report_dir = global_job.sub_job_queue.popleft()
+            self.sub_job_assignments[sub_job_id] = worker_id
 
             if global_job.status == JobStatus.QUEUED:
                 # Mark the global job as IN_PROGRESS if it was previously QUEUED
                 global_job.status = JobStatus.IN_PROGRESS
                 global_job.start_time = datetime.now(timezone.utc)
 
-            global_job.model_to_prove_status[sub_id] = JobStatus.IN_PROGRESS # Mark the sub-job as IN_PROGRESS
+            global_job.sub_job_status_map[sub_job_id] = JobStatus.IN_PROGRESS # Mark the sub-job as IN_PROGRESS
             return {
                 "job_id": job_id,
-                "sub_job_id": sub_id,
+                "sub_job_id": sub_job_id,
                 "model_path": model_path,
                 "input_path": input_path,
-                "output_dir": out_dir
+                "output_dir": report_dir
             }
         return None
 
@@ -223,7 +220,7 @@ class JobManager:
         job = self.global_jobs.get(job_id)
         if job and sub_job_id in job.model_to_prove_status:
             time_now = datetime.now(timezone.utc)
-            job.model_to_prove_status[sub_job_id] = JobStatus.COMPLETED
+            job.sub_job_status_map[sub_job_id] = JobStatus.COMPLETED
             elapsed_since_queued_seconds = (time_now - job.queued_time).total_seconds()
             elapsed_since_started_seconds = (time_now - job.start_time).total_seconds()
             self.logger.info(f"✅ Sub-job {sub_job_id} marked COMPLETED")
@@ -241,3 +238,21 @@ class JobManager:
             if job.all_sub_jobs_completed():
                 job.status = JobStatus.COMPLETED
                 self.logger.info(f"🏁 Job {job_id} COMPLETED")
+    
+
+    def write_dict_to_csv(self, data: Dict, file_path: str):
+        """Write a dictionary to a CSV file."""
+        with open(file_path, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=data.keys())
+            if f.tell() == 0:
+                writer.writeheader()
+            writer.writerow(data)
+
+    def record_performance_report(self, job_id: str, sub_job_id: str, ezkl_perf: Dict, halo2_perf_data: Dict):
+        job = self.global_jobs.get(job_id)
+        report_dir = job.report_directory if job else None
+        ezkl_file = os.path.join(report_dir, "ezkl_perf.csv")
+        halo2_file = os.path.join(report_dir, "halo2_perf.csv")
+        self.write_dict_to_csv(ezkl_perf, ezkl_file)
+        self.write_dict_to_csv(halo2_perf_data, halo2_file)
+        

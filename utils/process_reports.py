@@ -118,7 +118,7 @@ def process_reports(root_dir):
 
 if __name__ == "__main__":
 
-    for folder in glob.glob(r"C:\Users\pw\OneDrive - University of Nevada, Reno\Projects\ZeroKnowledge\Experiments\r6a32xlarge-results\mnist_gan_split_size_1\*"):
+    for folder in glob.glob(r"C:\Users\pw\Desktop\reports\nano_gpt_4_layers_64_embd_split_size_1\*"):
         if os.path.isdir(folder):
             print(f"Processing folder: {folder}")
             process_reports(folder)

@@ -7,7 +7,7 @@ import numpy as np
 import onnx
 import onnxruntime as ort
 from onnx.utils import Extractor
-
+from s3_utils import upload_modelproto_if_not_exists, upload_json_to_s3, download_json_from_s3
 
 def load_json_input(file_path):
     """Load input data from a JSON file."""
@@ -139,7 +139,7 @@ def split_onnx_model(onnx_model_path, split_group_size):
     else:
         return list(all_sub_models.items())  # [(name, sub_model), ...]
 
-def save_split_models(submodels, intermediate_outputs, cache_dir):
+def save_split_models_disk(submodels, intermediate_outputs, cache_dir):
     models_with_inputs = OrderedDict()
 
     for name, sub_model in submodels:
@@ -171,6 +171,38 @@ def save_split_models(submodels, intermediate_outputs, cache_dir):
         models_with_inputs[name] = (input_path, model_path, model_metadata)
 
     return models_with_inputs
+
+def save_split_models_s3(submodels, intermediate_outputs, s3_bucket, prefix):
+        models_with_inputs = OrderedDict()
+
+        for name, sub_model in submodels:
+            flattened_inputs = []
+            for inp in sub_model.graph.input:
+                if inp.name in intermediate_outputs:
+                    flattened_inputs.append(intermediate_outputs[inp.name].flatten().tolist())
+
+            if not flattened_inputs:
+                continue
+
+            s3_model_key = f"{prefix}/{name}/model.onnx"
+            s3_input_key = f"{prefix}/{name}/input.json"
+            # Upload ONNX model in memory
+            upload_modelproto_if_not_exists(sub_model, s3_bucket, s3_model_key)
+            # Upload JSON in memory
+            upload_json_to_s3({'input_data': flattened_inputs}, s3_bucket, s3_input_key)
+            
+            model_metadata = {
+                'name': name,
+                'num_ops': len(sub_model.graph.node),
+                'num_params': sum(onnx.numpy_helper.to_array(i).size for i in sub_model.graph.initializer),
+                'model_ops': [node.op_type for node in sub_model.graph.node]
+            }
+
+            models_with_inputs[name] = (s3_input_key, s3_model_key, model_metadata)
+
+        return models_with_inputs
+    
+
 
 
 def get_model_info(onnx_model_path):

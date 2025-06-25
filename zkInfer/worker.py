@@ -243,6 +243,7 @@ class ZKProofWorker:
         self.logger.info(f"✅ Connected to dispatcher at {self.target}")
 
 
+
     def fetch_and_run_job(self):
         try:
             response = self.stub.FetchNextSubJob(pb.WorkerIDRequest(worker_id=self.worker_id))
@@ -250,6 +251,8 @@ class ZKProofWorker:
                 self.logger.info("⏳ No jobs available. Sleeping...")
                 time.sleep(5)
                 return
+            
+            
             self.parent_job_id = response.job_id
             self.current_sub_job_id = response.sub_job_id
             self.logger.info(f"📦 Got sub-job {response.sub_job_id} for job {response.job_id}")
@@ -272,7 +275,6 @@ class ZKProofWorker:
                 "--log_file", procwatch_log,
                 "--interval", "3"
             ])
-
 
             # ---- Start heartbeat process BEFORE running proof ----
             heartbeat_proc = subprocess.Popen([
@@ -362,6 +364,128 @@ class ZKProofWorker:
                     status="FAILED",
                     message="FAILED"
                 ))
+
+
+
+
+    # def fetch_and_run_job(self):
+    #     try:
+    #         response = self.stub.FetchNextSubJob(pb.WorkerIDRequest(worker_id=self.worker_id))
+    #         if not response.available:
+    #             self.logger.info("⏳ No jobs available. Sleeping...")
+    #             time.sleep(5)
+    #             return
+    #         self.parent_job_id = response.job_id
+    #         self.current_sub_job_id = response.sub_job_id
+    #         self.logger.info(f"📦 Got sub-job {response.sub_job_id} for job {response.job_id}")
+    #         worker_pid = os.getpid()
+
+    #         model_dir = os.path.join(response.output_dir, response.sub_job_id)
+    #         os.makedirs(model_dir, exist_ok=True)
+    #         status_file = os.path.join(model_dir, "status.txt")
+    #         usage_file = os.path.join(model_dir, 'system_usage.log')
+    #         procwatch_log = os.path.join(model_dir, "process_usage.log")
+
+    #         syslog_proc = subprocess.Popen([
+    #             sys.executable, "zkInfer/system_watcher.py",
+    #             "--log_file", usage_file,
+    #             "--interval", "3"
+    #         ])
+    #         watcher_proc = subprocess.Popen([
+    #             sys.executable, "zkInfer/process_watcher.py",
+    #             "--pid", str(worker_pid),
+    #             "--log_file", procwatch_log,
+    #             "--interval", "3"
+    #         ])
+
+    #         # ---- Start heartbeat process BEFORE running proof ----
+    #         heartbeat_proc = subprocess.Popen([
+    #             sys.executable, "zkInfer/heartbeat.py",
+    #             self.target, self.worker_id, response.job_id, response.sub_job_id, status_file,
+    #             str(worker_pid)
+    #             ])
+            
+
+    #         proof_stages = EZKLProofStages(
+    #             job_name=response.sub_job_id,
+    #             input_data_path=response.input_path,
+    #             onnx_model_path=response.model_path,
+    #             output_dir=response.output_dir,
+    #             overwrite=False,
+    #             logger = self.logger,
+    #             status_file=status_file
+    #         )
+    #         # ---- Run proof (blocking) ----
+    #         result = proof_stages.run_all()
+    #         # ---- Stop heartbeat process after proof is done ----
+    #         heartbeat_proc.terminate()
+    #         try:
+    #             heartbeat_proc.wait(timeout=3)
+    #         except Exception:
+    #             heartbeat_proc.kill()
+
+    #         syslog_proc.terminate()
+    #         try:
+    #             syslog_proc.wait(timeout=3)
+    #         except Exception:
+    #             syslog_proc.kill()
+            
+    #         watcher_proc.terminate()
+    #         try:
+    #             watcher_proc.wait(timeout=2)
+    #         except Exception:
+    #             watcher_proc.kill()
+    #         # Error and reporting logic (unchanged)
+
+    #         if result.get("error"):
+    #             self.logger.error(f"❌ Error during proof: {result['error']}")
+    #             self.stub.SendHeartbeat(pb.HeartbeatRequest(
+    #                 worker_id=self.worker_id,
+    #                 sub_job_id=response.sub_job_id,
+    #                 job_id=response.job_id,
+    #                 status="FAILED",
+    #                 message=result['error']
+    #             ))
+    #             return
+    #         metrics = result.get("timings", {})
+
+    #         self.save_reports(
+    #             model_dir,
+    #             response.output_dir,
+    #             response.sub_job_id,
+    #             response.model_path,
+    #             response.input_path,
+    #             metrics
+    #         )
+
+    #         self.stub.SendHeartbeat(pb.HeartbeatRequest(
+    #             worker_id=self.worker_id,
+    #             sub_job_id=response.sub_job_id,
+    #             job_id=response.job_id,
+    #             status="DONE",
+    #             message="COMPLETED"
+    #         ))
+    #         self.stub.SubmitSubJobResult(pb.SubJobResult(
+    #             job_id=response.job_id,
+    #             sub_job_id=response.sub_job_id,
+    #             metrics=metrics
+    #         ))
+    #         self.logger.info(f"✅ Completed sub-job {response.sub_job_id}")
+    #         self.current_sub_job_id = None
+
+    #     except grpc.RpcError as e:
+    #         self.logger.error(f"❌ gRPC error: {e.details()} (code={e.code()})")
+    #         self.reconnect_if_needed()
+    #     except Exception as e:
+    #         self.logger.error(f"❌ Error during job: {e}", exc_info=True)
+    #         if self.current_sub_job_id:
+    #             self.stub.SendHeartbeat(pb.HeartbeatRequest(
+    #                 worker_id=self.worker_id,
+    #                 sub_job_id=self.current_sub_job_id,
+    #                 job_id=self.parent_job_id,
+    #                 status="FAILED",
+    #                 message="FAILED"
+    #             ))
 
     def save_reports(self,model_dir, report_dir, model_name, onnx_model_path, input_data_path, timings):
         model_info = {"name": model_name, "onnx_model_path": onnx_model_path, "input_data_path": input_data_path}

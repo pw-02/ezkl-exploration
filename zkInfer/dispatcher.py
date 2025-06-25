@@ -4,8 +4,8 @@ import time
 import hydra
 from omegaconf import DictConfig
 import zkservice_pb2 as pb
-from grpc_api import zkservice_pb2_grpc as pb_grpc
-from job_manager import JobManager
+import zkservice_pb2_grpc as pb_grpc
+from job_manager_s3 import JobManager
 import logging
 import sys
 
@@ -24,6 +24,8 @@ def setup_logger(name, log_file=None, level=logging.INFO):
         # Console handler
         ch = logging.StreamHandler(sys.stdout)
         ch.setFormatter(formatter)
+        ch.stream.reconfigure(encoding='utf-8')  # Python 3.7+
+
         logger.addHandler(ch)
 
         # File handler
@@ -39,9 +41,16 @@ def setup_logger(name, log_file=None, level=logging.INFO):
 # logger.info("🚀 Starting ZK Dispatcher Service")
 
 class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
-    def __init__(self, logger=None, num_prover_workers=1):
+    def __init__(self, logger=None, num_prover_workers=1, storage_backend="local", s3_bucket=None, cache_setup_files=False):
         self.logger = logger
-        self.job_manager = JobManager(logger=logger,num_prover_workers=num_prover_workers)
+        self.storage_backend = storage_backend
+        self.s3_bucket = s3_bucket
+        self.job_manager = JobManager(
+            logger=logger,
+            num_prover_workers=num_prover_workers,
+            storage_backend=storage_backend,
+            s3_bucket=s3_bucket,
+            cache_setup_files=cache_setup_files)
 
     
     def SubmitGlobalJob(self, request, context):
@@ -141,7 +150,7 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
         )
 
 
-    def SubmitSubJobResult(self, request, context):
+    def SendSubJobResult(self, request, context):
         self.job_manager.submit_sub_job_result(
             job_id=request.job_id,
             sub_job_id=request.sub_job_id,
@@ -168,22 +177,35 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
             resp.statuses[sid].message = info["message"]
             resp.statuses[sid].last_seen = info["last_seen"]
         return resp
+    
+    def SendPerfReport(self, request, context):
+        self.job_manager.record_performance_report(
+            job_id=request.job_id,
+            sub_job_id=request.sub_job_id,
+            worker_id=request.worker_id,
+            duration=request.duration,
+            memory_usage=request.memory_usage
+        )
+        return pb.StatusAck(success=True, message="Performance report received")
 
 
 @hydra.main(config_path="../conf", config_name="config", version_base=None)
 def serve(cfg: DictConfig):
     logger = setup_logger(name="dispatcher", log_file="dispatcher.log")
 
-    logger.info("🚀 Starting ZK Dispatcher Service")
+    logger.info("🚀= Starting ZK Dispatcher Service")
     # logger.info(f"Loaded Config:\n{OmegaConf.to_yaml(cfg, resolve=True)}")
     
     dispatcher_cfg = cfg.dispatcher
     port = dispatcher_cfg.port
     max_workers = dispatcher_cfg.max_workers
     num_prover_workers = dispatcher_cfg.num_prover_workers
+    storage_backend = cfg.storage_backend
+    s3_bucket = cfg.s3_bucket
+    cache_setup_files = cfg.cache_setup_files
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
-    pb_grpc.add_ZKJobServiceServicer_to_server(ZKJobDispatcher(logger, num_prover_workers), server)
+    pb_grpc.add_ZKJobServiceServicer_to_server(ZKJobDispatcher(logger, num_prover_workers, storage_backend, s3_bucket,cache_setup_files), server)
     server.add_insecure_port(f"[::]:{port}")
     server.start()
     logger.info(f"✅ Dispatcher gRPC server running on port {port}")

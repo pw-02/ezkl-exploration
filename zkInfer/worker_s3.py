@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import json
 import os
 import sys
@@ -11,6 +12,8 @@ import subprocess
 import shutil
 import logging
 import csv
+
+from sympy import re
 import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
 import onnx
 import pandas as pd
@@ -109,23 +112,20 @@ def heartbeat_loop(dispatcher, worker_id, job_id, sub_job_id, status_file, inter
         channel.close()
 
 
-
 class EZKLProofStages:
     def __init__(
-        self, job_name, input_data_path, onnx_model_path, output_dir, overwrite=False, logger = None, status_file=None
+        self, job_name, input_data_path, onnx_model_path, overwrite=False, logger = None, status_file=None,
+        cache_setup=False 
     ):
         import ezkl  # Only import here for multiprocess safety
         self.ezkl = ezkl
         self.job_name = job_name
         self.input_data_path = input_data_path
         self.onnx_model_path = onnx_model_path
-        self.output_dir = output_dir
         self.logger = logger or logging.getLogger("worker")
         self.status_file = status_file
         self.overwrite = overwrite
-
-        self.model_dir = os.path.join(output_dir, job_name)
-        os.makedirs(self.model_dir, exist_ok=True)
+        self.use_cache = cache_setup #this will cache the settings and compiled circuit files in the same directory as the onnx model
         self.data_dir = os.path.dirname(onnx_model_path)
         self.settings_path = os.path.join(self.data_dir, "settings.json")
         self.calibration_path = os.path.join(self.data_dir, "calibration.json")
@@ -231,8 +231,6 @@ class ZKProofWorker:
         self.target = f"{cfg.dispatcher.host}:{cfg.dispatcher.port}"
         self.channel = None
         self.stub = None
-        self.current_sub_job_id = None
-        self.parent_job_id = None
         self.logger = logger
         self.storage_mode = getattr(cfg, "storage_mode", "local")
         self.s3_bucket = getattr(cfg, "s3_bucket", None)
@@ -243,8 +241,8 @@ class ZKProofWorker:
         self.channel = grpc.insecure_channel(self.target)
         self.stub = pb_grpc.ZKJobServiceStub(self.channel)
         self.logger.info(f"✅ Connected to dispatcher at {self.target}")
-
-
+    
+    
     def fetch_and_run_job(self):
         try:
             response = self.stub.FetchNextSubJob(pb.WorkerIDRequest(worker_id=self.worker_id))
@@ -252,183 +250,219 @@ class ZKProofWorker:
                 self.logger.info("⏳ No jobs available. Sleeping...")
                 time.sleep(5)
                 return
-            self.parent_job_id = response.job_id
-            self.current_sub_job_id = response.sub_job_id
+            # self.global_job_id = response.job_id
+            # self.current_sub_job_id = response.sub_job_id
+            sub_job_id = response.sub_job_id
+            global_job_id = response.job_id
+            model_path = response.model_path
+            input_path = response.input_path
             self.logger.info(f"📦 Got sub-job {response.sub_job_id} for job {response.job_id}")
             worker_pid = os.getpid()
-
-            # Where to work locally
-            model_dir = os.path.join(response.output_dir, response.sub_job_id)
-            os.makedirs(model_dir, exist_ok=True)
-            status_file = os.path.join(model_dir, "status.txt")
-            usage_file = os.path.join(model_dir, 'system_usage.log')
-            procwatch_log = os.path.join(model_dir, "process_usage.log")
+            
+            local_working_dir = os.path.join(
+            'tmp', sub_job_id, f"{datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')}")
+            local_report_dir = os.path.join(local_working_dir, "reports")
+            os.makedirs(local_working_dir, exist_ok=True)
+            os.makedirs(local_report_dir, exist_ok=True)
 
             # --- Handle S3 download for cache (input/model) ---
             if self.storage_mode == "s3":
-                # Download model and input to /tmp
-                local_model_path = os.path.join("/tmp", os.path.basename(response.model_path))
-                local_input_path = os.path.join("/tmp", os.path.basename(response.input_path))
-                download_from_s3(self.s3_bucket, response.model_path, local_model_path)
-                download_from_s3(self.s3_bucket, response.input_path, local_input_path)
-            else:
-                local_model_path = response.model_path
-                local_input_path = response.input_path
+                # Download model and input to /tmp 
+                local_model_path = os.path.join(local_working_dir, os.path.basename(model_path))
+                local_input_path = os.path.join(local_working_dir, os.path.basename(input_path))
+                download_from_s3(self.s3_bucket, input_path, local_model_path)
+                download_from_s3(self.s3_bucket, input_path, local_input_path)
 
-            syslog_proc = subprocess.Popen([
+            else:
+                local_model_path = model_path
+                local_input_path = input_path
+
+            # Ensure local report directory exists
+            status_file = os.path.join(local_report_dir, "status.txt")
+            system_usage_file = os.path.join(local_report_dir, 'system_usage.log')
+            process_useage_file = os.path.join(local_report_dir, "process_usage.log")
+            sysusage_proc = subprocess.Popen([
                 sys.executable, "zkInfer/system_watcher.py",
-                "--log_file", usage_file,
+                "--log_file", system_usage_file,
                 "--interval", "3"
             ])
-            watcher_proc = subprocess.Popen([
+            process_usage_proc = subprocess.Popen([
                 sys.executable, "zkInfer/process_watcher.py",
                 "--pid", str(worker_pid),
-                "--log_file", procwatch_log,
+                "--log_file", process_useage_file,
                 "--interval", "3"
             ])
-
 
             # ---- Start heartbeat process BEFORE running proof ----
             heartbeat_proc = subprocess.Popen([
                 sys.executable, "zkInfer/heartbeat.py",
-                self.target, self.worker_id, response.job_id, response.sub_job_id, status_file,
-                str(worker_pid)
+                self.target, self.worker_id, global_job_id, sub_job_id, status_file,str(worker_pid)
                 ])
             
-
             proof_stages = EZKLProofStages(
-                job_name=response.sub_job_id,
+                job_name= sub_job_id,
                 input_data_path=local_input_path,
                 onnx_model_path=local_model_path,
-                output_dir=model_dir,
                 overwrite=False,
                 logger = self.logger,
-                status_file=status_file
+                status_file=status_file,
+                use_cache=True
             )
             # ---- Run proof (blocking) ----
             result = proof_stages.run_all()
             # ---- Stop heartbeat process after proof is done ----
-            for proc in [heartbeat_proc, syslog_proc, watcher_proc]:
+            for proc in [heartbeat_proc, sysusage_proc, process_usage_proc]:
                 proc.terminate()
                 try:
                     proc.wait(timeout=3)
                 except Exception:
                     proc.kill()
 
-
             if result.get("error"):
                 self.logger.error(f"❌ Error during proof: {result['error']}")
                 self.stub.SendHeartbeat(pb.HeartbeatRequest(
                     worker_id=self.worker_id,
-                    sub_job_id=response.sub_job_id,
-                    job_id=response.job_id,
+                    sub_job_id=sub_job_id,
+                    job_id=global_job_id,
                     status="FAILED",
                     message=result['error']
                 ))
                 return
             metrics = result.get("timings", {})
+            
+            #generate and reports share with the job_manager
+            max_memory = self.extract_max_memory(process_useage_file)
 
-            self.save_reports(
-                model_dir,
-                response.output_dir,
-                response.sub_job_id,
-                local_model_path,
-                local_input_path,
-                metrics
-            )
+            model_info = {"name": sub_job_id, "onnx_model_path": local_model_path, "input_data_path": local_input_path, "max_memory(GB)": max_memory}
+            ezkl_perf = {**model_info, **metrics}
+            circuit_info = read_csv_into_dict("halo2_circuit.csv")
+            prover_info = read_csv_into_dict("halo2_prover.csv")
+            prover_info_cpu = read_csv_into_dict("halo2_prover_cpu.csv")
+            halo2_perf = {**model_info, **circuit_info, **prover_info, **prover_info_cpu}
+                
+            self.stub.SendPerfReport(pb.PerfReport(
+                job_id =global_job_id,
+                sub_job_id=sub_job_id,
+                zkl_json=json.dumps(ezkl_perf),
+                halo2_json=json.dumps(halo2_perf)))  # or whatever your gRPC call is
+            
+            #clean up local files
+            self.clean_local_files()
+
 
             self.stub.SendHeartbeat(pb.HeartbeatRequest(
                 worker_id=self.worker_id,
-                sub_job_id=response.sub_job_id,
-                job_id=response.job_id,
+                sub_job_id=sub_job_id,
+                job_id=global_job_id,
                 status="DONE",
                 message="COMPLETED"
             ))
             self.stub.SubmitSubJobResult(pb.SubJobResult(
-                job_id=response.job_id,
-                sub_job_id=response.sub_job_id,
+                job_id=global_job_id,
+                sub_job_id= sub_job_id,
                 metrics=metrics
             ))
-            self.logger.info(f"✅ Completed sub-job {response.sub_job_id}")
-            self.current_sub_job_id = None
+            self.logger.info(f"✅ Completed sub-job {sub_job_id}")
 
         except grpc.RpcError as e:
             self.logger.error(f"❌ gRPC error: {e.details()} (code={e.code()})")
             self.reconnect_if_needed()
         except Exception as e:
             self.logger.error(f"❌ Error during job: {e}", exc_info=True)
-            if self.current_sub_job_id:
+            if sub_job_id and global_job_id:
                 self.stub.SendHeartbeat(pb.HeartbeatRequest(
                     worker_id=self.worker_id,
-                    sub_job_id=self.current_sub_job_id,
-                    job_id=self.parent_job_id,
+                    sub_job_id=sub_job_id,
+                    job_id=global_job_id,
                     status="FAILED",
                     message="FAILED"
                 ))
-    def save_reports(self, model_dir, report_dir, model_name, onnx_model_path, input_data_path, timings):
-        model_info = {"name": model_name, "onnx_model_path": onnx_model_path, "input_data_path": input_data_path}
-        ezkl_file = os.path.join(report_dir, "ezkl_perf.csv")
-        halo2_file = os.path.join(report_dir, "halo2_perf.csv")
-        ezkl_perf = {**model_info, **timings}
-        with open(ezkl_file, "a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=ezkl_perf.keys())
-            if f.tell() == 0:
-                writer.writeheader()
-            writer.writerow(ezkl_perf)
+                
 
-        circuit_info = read_csv_into_dict("halo2_circuit.csv")
-        prover_info = read_csv_into_dict("halo2_prover.csv")
-        prover_info_cpu = read_csv_into_dict("halo2_prover_cpu.csv")
-        fft_data = {}
-        msm_data = {}
-        for suffix in ["setup", "prover", "verifier"]:
-            fft_file = f"halo2_ffts_{suffix}.csv"
-            msm_file = f"halo2_msms_{suffix}.csv"
-            if os.path.exists(fft_file):
-                fft_data.update(get_fft_summary(fft_file, suffix))
-            if os.path.exists(msm_file):
-                msm_data.update(get_msm_summary(msm_file, suffix))
-        full_metrics = {**model_info, **circuit_info, **prover_info, **prover_info_cpu}
-        with open(halo2_file, "a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=full_metrics.keys())
-            if f.tell() == 0:
-                writer.writeheader()
-            writer.writerow(full_metrics)
-
-        # Gather additional report files to move or upload
+    def extract_max_memory(self, log_file):
+        """Extract the maximum memory usage (in GB) from a log file."""
+        max_memory = 0.0
+        pattern = re.compile(r"Memory: ([\d\.]+)GB /")
+        with open(log_file, "r") as f:
+            for line in f:
+                match = pattern.search(line)
+                if match:
+                    mem_gb = float(match.group(1))
+                    if mem_gb > max_memory:
+                        max_memory = mem_gb
+        return max_memory
+    
+    def clean_local_files(self):
+      # Gather additional report files to move or upload
         files_to_move = []
         files_to_remove = []
         files_to_copy = []
         for f in os.listdir("."):
             if (f.startswith("halo2_fft") and f.endswith(".csv")) or (f.startswith("halo2_msm") and f.endswith(".csv")):
-                files_to_move.append(f)
+                files_to_remove.append(f)
             elif f.startswith("halo2_") and f.endswith(".csv"):
                 files_to_remove.append(f)
-            elif f.startswith("worker") and f.endswith(".log"):
-                files_to_copy.append(f)
+            # elif f.startswith("worker") and f.endswith(".log"):
+            #     files_to_copy.append(f)
 
-        for f in files_to_move:
-            shutil.move(f, os.path.join(model_dir, f))
+        # for f in files_to_move:
+        #     shutil.move(f, os.path.join(model_dir, f))
         for f in files_to_remove:
             os.remove(f)
-        for f in files_to_copy:
-            shutil.copy(f, os.path.join(model_dir, f))
+        # for f in files_to_copy:
+        #     shutil.copy(f, os.path.join(model_dir, f))
 
-        # --- S3 upload (if enabled) ---
-        if getattr(self, "storage_mode", "local") == "s3":
-            s3_bucket = getattr(self, "s3_bucket", None)
-            assert s3_bucket, "s3_bucket must be set for S3 mode"
-            s3_prefix = f"reports/{model_name}/"
 
-            # Upload main report files
-            for file in [ezkl_file, halo2_file]:
-                if os.path.exists(file):
-                    upload_to_s3(file, s3_bucket, s3_prefix + os.path.basename(file))
-            # Upload extra files in model_dir
-            for f in os.listdir(model_dir):
-                local_path = os.path.join(model_dir, f)
-                s3_key = s3_prefix + f
-                upload_to_s3(local_path, s3_bucket, s3_key)
+    # def save_reports(self, local_working_dir, local_report_dir, sub_job_id, local_model_path, local_input_path, timings):
+    #     model_info = {"name": sub_job_id, "onnx_model_path": local_model_path, "input_data_path": local_input_path}
+    #     ezkl_file = os.path.join(local_report_dir, "ezkl_perf.csv")
+    #     halo2_file = os.path.join(local_report_dir, "halo2_perf.csv")
+    #     ezkl_perf = {**model_info, **timings}
+    #     with open(ezkl_file, "a", newline="") as f:
+    #         writer = csv.DictWriter(f, fieldnames=ezkl_perf.keys())
+    #         if f.tell() == 0:
+    #             writer.writeheader()
+    #         writer.writerow(ezkl_perf)
+
+    #     circuit_info = read_csv_into_dict("halo2_circuit.csv")
+    #     prover_info = read_csv_into_dict("halo2_prover.csv")
+    #     prover_info_cpu = read_csv_into_dict("halo2_prover_cpu.csv")
+
+    #     fft_data = {}
+    #     msm_data = {}
+    #     for suffix in ["setup", "prover", "verifier"]:
+    #         fft_file = f"halo2_ffts_{suffix}.csv"
+    #         msm_file = f"halo2_msms_{suffix}.csv"
+    #         if os.path.exists(fft_file):
+    #             fft_data.update(get_fft_summary(fft_file, suffix))
+    #         if os.path.exists(msm_file):
+    #             msm_data.update(get_msm_summary(msm_file, suffix))
+    #     full_metrics = {**model_info, **circuit_info, **prover_info, **prover_info_cpu}
+    #     with open(halo2_file, "a", newline="") as f:
+    #         writer = csv.DictWriter(f, fieldnames=full_metrics.keys())
+    #         if f.tell() == 0:
+    #             writer.writeheader()
+    #         writer.writerow(full_metrics)
+
+    #     # Gather additional report files to move or upload
+    #     files_to_move = []
+    #     files_to_remove = []
+    #     files_to_copy = []
+    #     for f in os.listdir("."):
+    #         if (f.startswith("halo2_fft") and f.endswith(".csv")) or (f.startswith("halo2_msm") and f.endswith(".csv")):
+    #             files_to_move.append(f)
+    #         elif f.startswith("halo2_") and f.endswith(".csv"):
+    #             files_to_remove.append(f)
+    #         elif f.startswith("worker") and f.endswith(".log"):
+    #             files_to_copy.append(f)
+
+    #     for f in files_to_move:
+    #         shutil.move(f, os.path.join(model_dir, f))
+    #     for f in files_to_remove:
+    #         os.remove(f)
+    #     for f in files_to_copy:
+    #         shutil.copy(f, os.path.join(model_dir, f))
+
 
 
     def reconnect_if_needed(self):
