@@ -5,7 +5,7 @@ import hydra
 import time
 from omegaconf import DictConfig, OmegaConf
 import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
-from worker import main as run_worker
+from worker_s3 import main as run_worker
 
 
 def live_status_tracker(stub, interval=10):
@@ -59,7 +59,7 @@ def main(cfg: DictConfig):
             # tracking_thread.start()
 
             # Launch a local worker for debugging
-            # run_worker(cfg)
+            run_worker(cfg)
 
     except grpc.RpcError as e:
         print(f"❌ gRPC error: {e.details()} (code={e.code()})")

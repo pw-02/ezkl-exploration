@@ -11,3 +11,7 @@ grpcio
 grpcio-tools
 pandas
 psutils
+boto3
+
+# pip install --upgrade grpcio grpcio-tools
+#pip install --upgrade protobuf

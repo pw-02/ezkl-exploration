@@ -17,6 +17,7 @@ from zkInfer.onnx_splitter import (
     run_model_inference,
     save_split_models_s3
 )
+from zkInfer.utils import compute_content_md5, load_json
 
 class JobStatus(str, Enum):
     PREPARING = "PREPARING"
@@ -68,14 +69,15 @@ class GlobalProvingJob:
             self.model_name,
             f"{datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')}-{num_prover_workers}w")
         
-        self.cache_directory = os.path.join(self.cache_prefix, self.model_name)
+        # self.cache_directory = os.path.join(self.cache_prefix, self.model_name)
         self.status = JobStatus.PREPARING
         self.progress = 0.0
         self.queued_time = None  
         self.start_time = None
+        self.md5_hash = compute_content_md5(self.onnx_model_path)
 
         if self.storage_backend == "local":
-            os.makedirs(self.cache_directory, exist_ok=True)
+            # os.makedirs(self.cache_directory, exist_ok=True)
             os.makedirs(self.report_directory, exist_ok=True)
         elif self.storage_backend == "s3":
             assert self.s3_bucket, "You must provide s3_bucket for storage_backend='s3'"
@@ -85,7 +87,7 @@ class GlobalProvingJob:
     
     
     def compute_progress(self):
-        total = len(self.model_to_prove_status)
+        total = len(self.sub_job_status_map)
         completed = sum(1 for s in self.model_to_prove_status.values() if s == JobStatus.COMPLETED)
         self.progress = (completed / total * 100) if total > 0 else 0.0
     
@@ -94,25 +96,18 @@ class GlobalProvingJob:
     def queue_models_for_proving(self):
         try:
             self.inference_results['non_zk'] = run_model_inference(self.onnx_model_path, self.input_data_path)
-            
             if self.split_mode == "none":
                 sub_job_id = f"{self.model_name}" #sub_job_id is the same as model_name
                 model_basename = 'model.onnx'
-                input_basename = 'input.json'
                 if self.storage_backend == "local":
-                    model_path = os.path.join(self.cache_directory, model_basename)
-                    input_path = os.path.join(self.cache_directory, input_basename)
+                    model_path = os.path.join(self.cache_prefix, self.md5_hash, model_basename)
                     shutil.copyfile(self.onnx_model_path, model_path)
-                    shutil.copyfile(self.input_data_path, input_path)
                 else:
-                    model_path = f"{self.cache_prefix}/{self.model_name}/{model_basename}"
-                    input_path = f"{self.cache_prefix}/{self.model_name}/{input_basename}"
+                    model_path = f"{self.cache_prefix}/{self.md5_hash}/{model_basename}"
                     upload_if_not_exists(self.onnx_model_path, self.s3_bucket, model_path)
-                    upload_if_not_exists(self.input_data_path, self.s3_bucket, input_path)
-                
+                inference_json_input = load_json(self.input_data_path)    
                 self.onnx_model_path = model_path
-                self.input_data_path = input_path
-                self.sub_job_queue.append((self.model_name, sub_job_id, model_path, input_path, self.report_directory))
+                self.sub_job_queue.append((self.model_name, sub_job_id, model_path, inference_json_input))
                 self.sub_job_status_map[sub_job_id] = JobStatus.QUEUED
             else:
                 intermediate_outputs = collect_intermediate_inference_outputs(self.onnx_model_path, self.input_data_path)
@@ -193,7 +188,7 @@ class JobManager:
         for job_id, global_job in self.global_jobs.items():
             if not global_job.sub_job_queue:
                 continue
-            _, sub_job_id, model_path, input_path, report_dir = global_job.sub_job_queue.popleft()
+            global_job_id, sub_job_id, model_path, input_json = global_job.sub_job_queue.popleft()
             self.sub_job_assignments[sub_job_id] = worker_id
 
             if global_job.status == JobStatus.QUEUED:
