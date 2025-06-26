@@ -258,7 +258,8 @@ class JobManager:
                 job.status = JobStatus.COMPLETED
 
                 self.logger.info(f"All sub-jobs for {job_id} completed. Finalizing job.")
-                
+                self.logger.info(f"🏁 Job {job_id} COMPLETED. Reports saved to {job.report_directory}")
+
                 if not self.cache_setup: 
                     job.delete_job_data() #remove all job setup files from local and s3 storage
 
@@ -280,5 +281,4 @@ class JobManager:
 
         write_dict_to_csv({**report_line, **ezkl_perf}, ezkl_file)
         write_dict_to_csv({**report_line, **halo2_perf}, halo2_file)
-        self.logger.info(f"🏁 Job {job_id} COMPLETED. Reports saved to {job.report_directory}")
 
