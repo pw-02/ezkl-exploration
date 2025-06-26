@@ -117,14 +117,20 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
         return pb.StatusAck(success=True, message="Result received")
 
     def SendHeartbeat(self, request, context):
-        self.job_manager.record_heartbeat(
-            job_id=request.job_id,
-            sub_job_id=request.sub_job_id,
-            worker_id=request.worker_id,
-            status=request.status,
-            message=request.message
-        )
-        return pb.HeartbeatAck(success=True)
+        try:
+            self.job_manager.record_heartbeat(
+                job_id=request.job_id,
+                sub_job_id=request.sub_job_id,
+                worker_id=request.worker_id,
+                status=request.status,
+                message=request.message
+            )
+            return pb.HeartbeatAck(success=True)
+        except Exception as e:
+            self.logger.error(f"❌ Error in heartbeat: {str(e)}")
+            context.set_details(f"Error in heartbeat: {str(e)}")
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return pb.HeartbeatAck(success=False)
 
     # def ListActiveSubJobs(self, request, context):
     #     live = self.job_manager.list_active_jobs()
@@ -138,15 +144,20 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
     #     return resp
     
     def SendPerfReport(self, request, context):
-        self.job_manager.record_performance_report(
-            job_id=request.job_id,
-            sub_job_id=request.sub_job_id,
-            worker_id=request.worker_id,
-            ezkl_perf=json.loads(request.ezkl_json),
-            halo2_perf=json.loads(request.halo2_json)
-        )
-        return pb.StatusAck(success=True, message="Performance report received")
-
+        try:
+            self.job_manager.record_performance_report(
+                job_id=request.job_id,
+                sub_job_id=request.sub_job_id,
+                worker_id=request.worker_id,
+                ezkl_perf=json.loads(request.ezkl_json),
+                halo2_perf=json.loads(request.halo2_json)
+            )
+            return pb.StatusAck(success=True, message="Performance report received")
+        except Exception as e:
+            self.logger.error(f"❌ Error in performance report: {str(e)}")
+            context.set_details(f"Error in performance report: {str(e)}")
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return pb.StatusAck(success=False, message=str(e))
 
 @hydra.main(config_path="../conf", config_name="config", version_base=None)
 def serve(cfg: DictConfig):

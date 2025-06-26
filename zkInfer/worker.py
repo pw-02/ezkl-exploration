@@ -66,6 +66,14 @@ def get_fft_summary(fft_file, prefix):
         pass
     return fft_metrics
 
+def total_fft_duration(fft_file):
+    """Calculate total duration from FFT CSV report."""
+    try:
+        df = pd.read_csv(fft_file)
+        return float(df['duration(s)'].sum())
+    except Exception:
+        return 0.0
+
 
 def get_msm_summary(msm_file, prefix):
     """Extract summary stats from MSM CSV report."""
@@ -80,6 +88,14 @@ def get_msm_summary(msm_file, prefix):
     except Exception:
         pass
     return msm_metrics
+
+def get_total_msm_duration(msm_file):
+    """Calculate total duration from MSM CSV report."""
+    try:
+        df = pd.read_csv(msm_file)
+        return float(df['duration(s)'].sum())
+    except Exception:
+        return 0.0
 
 
 from concurrent.futures import ProcessPoolExecutor, TimeoutError
@@ -357,15 +373,27 @@ class ZKProofWorker:
             #generate and reports share with the job_manager
             max_process_mem, max_system_mem = parse_resource_usage_file(resource_usage_file)
 
-            model_info = {"name": sub_job_id, "onnx_model_path": local_model_path, "input_data_path": local_input_path, "max_process_memory(GB)": max_process_mem, "max_system_memory(GB)": max_system_mem}
+            model_info = {"job_id": job_id, "sub_job_id": sub_job_id, "onnx_model_path": local_model_path, "input_data_path": local_input_path, "max_process_memory(GB)": max_process_mem, "max_system_memory(GB)": max_system_mem}
             ezkl_perf = {**model_info, **metrics}
             circuit_info = read_csv_into_dict("halo2_circuit.csv")
             prover_info = read_csv_into_dict("halo2_prover.csv")
             prover_info_cpu = read_csv_into_dict("halo2_prover_cpu.csv")
-            halo2_perf = {**model_info, **circuit_info, **prover_info, **prover_info_cpu}
+
+            fft_data = {}
+            msm_data = {}
+            for suffix in ["setup", "prover", "verifier"]:
+                fft_file = f"halo2_ffts.csv"
+                msm_file = f"halo2_msms.csv"
+                if os.path.exists(fft_file):
+                    fft_data[f"fft_total_time(s)"] = total_fft_duration(fft_file)
+                if os.path.exists(msm_file):
+                    msm_data[f"msm_total_time(s)"] = get_total_msm_duration(msm_file)
+
+
+            halo2_perf = {**model_info, **circuit_info, **prover_info, **prover_info_cpu, **fft_data, **msm_data}
                 
             self.stub.SendPerfReport(pb.PerfReport(
-                job_id =job_id,
+                job_id=job_id,
                 sub_job_id=sub_job_id,
                 worker_id=self.worker_id,
                 ezkl_json=json.dumps(ezkl_perf),
@@ -382,7 +410,7 @@ class ZKProofWorker:
             self.clean_local_files()
             #delet e the local working directory
             shutil.rmtree(local_working_dir, ignore_errors=True)
-            
+
             self.stub.SendHeartbeat(pb.HeartbeatRequest(
                 worker_id=self.worker_id,
                 sub_job_id=sub_job_id,

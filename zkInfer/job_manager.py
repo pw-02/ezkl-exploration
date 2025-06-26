@@ -60,9 +60,7 @@ class ProofJob:
             self.name,
             f"{datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')}-{num_prover_workers}w"
         )
-        os.makedirs(self.report_directory, exist_ok=True)
         self.cache_prefix = os.path.join("cache", self.md5_hash)
-        # os.makedirs(self.cache_prefix, exist_ok=True)
         self.status = JobStatus.PREPARING
         self.progress = 0.0
         self.queued_time: Optional[datetime] = None
@@ -95,7 +93,6 @@ class ProofJob:
                     "sub_job_id": sub_job_id,              # For non-split, just use job_id (or generate a new UUID if you prefer)
                     "model_path": model_path,               # Where the model is (local or S3 path)
                     "input_json": inference_json_str,       # JSON string to send over RPC
-                    # "report_dir": self.report_directory     # Where to store results/logs
                 })
                 self.sub_job_status_map[sub_job_id] = JobStatus.QUEUED
 
@@ -235,6 +232,7 @@ class JobManager:
             elapsed_since_queued_seconds = (time_now - job.queued_time).total_seconds()
             elapsed_since_started_seconds = (time_now - job.start_time).total_seconds()
             self.logger.info(f"✅ Sub-job {sub_job_id} marked COMPLETED")
+            os.makedirs(job.report_directory, exist_ok=True)
             elapsed_times_file = os.path.join(job.report_directory, "global_job_progress.log")
             log_line = (
                 f"{time_now.isoformat()} - {sub_job_id} completed. "
@@ -262,6 +260,7 @@ class JobManager:
 
     def record_performance_report(self, job_id: str, sub_job_id: str, worker_id, ezkl_perf: Dict, halo2_perf: Dict):
         job = self.proof_jobs.get(job_id)
+        os.makedirs(job.report_directory, exist_ok=True)
         report_dir = job.report_directory if job else None
 
         report_line = {
