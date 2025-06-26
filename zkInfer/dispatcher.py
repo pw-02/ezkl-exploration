@@ -159,7 +159,7 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
             context.set_code(grpc.StatusCode.INTERNAL)
             return pb.StatusAck(success=False, message=str(e))
 
-@hydra.main(config_path="../conf", config_name="config", version_base=None)
+@hydra.main(config_path="../conf", config_name="config")
 def serve(cfg: DictConfig):
     logger = setup_logger(name="dispatcher", log_file="dispatcher.log")
 

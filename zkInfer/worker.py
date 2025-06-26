@@ -316,8 +316,15 @@ class ZKProofWorker:
             timing_metrics.update({"s3_upload_time(s)": f"{time_to_upload:.3f}"})
             
             #generate and reports share with the job_manager
-            max_process_mem, max_system_mem = parse_resource_usage_file(resource_usage_file)
-            model_info = {"job_id": job_id, "sub_job_id": sub_job_id, "onnx_model_path": local_model_path, "input_data_path": local_input_path, "max_process_memory(GB)": max_process_mem, "max_system_memory(GB)": max_system_mem}
+            max_process_mem, max_system_mem, avg_process_cpu, avg_system_cpu = parse_resource_usage_file(resource_usage_file)
+            model_info = {"job_id": job_id, "sub_job_id": sub_job_id, 
+                          "onnx_model_path": local_model_path, 
+                          "input_data_path": local_input_path, 
+                          "max_process_memory(GB)": max_process_mem, 
+                          "max_system_memory(GB)": max_system_mem,
+                          "avg_process_cpu(%)": avg_process_cpu,
+                          "avg_system_cpu(%)": avg_system_cpu}
+            
             circuit_info = read_csv_into_dict(os.path.join(local_working_dir, "halo2_circuit.csv"))
             prover_info_cpu = read_csv_into_dict(os.path.join(local_working_dir, "halo2_prover_cpu.csv"))
             fft_summary = get_fft_summary( os.path.join(local_working_dir, f"halo2_ffts.csv"))
@@ -325,7 +332,7 @@ class ZKProofWorker:
 
             halo2_perf = {**model_info, **circuit_info, **prover_info_cpu, **fft_summary, **msm_summary}
             ezkl_perf = {**model_info, **timing_metrics, **provenance_metrics}
-            
+
             self.stub.SendPerfReport(pb.PerfReport(
                 job_id=job_id,
                 sub_job_id=sub_job_id,

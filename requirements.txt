@@ -12,6 +12,6 @@ grpcio-tools
 pandas
 psutils
 boto3
-
+pyparsing
 # pip install --upgrade grpcio grpcio-tools
 #pip install --upgrade protobuf

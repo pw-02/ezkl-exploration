@@ -36,27 +36,53 @@ def write_dict_to_csv(data: Dict, file_path: str):
                 writer.writeheader()
             writer.writerow(data)
 
+
+
 def parse_resource_usage_file(log_path):
     max_system_mem = 0.0
     max_process_mem = 0.0
 
-    system_pattern = re.compile(r"TYPE:system.*MEM: ([\d\.]+)GB")
-    process_pattern = re.compile(r"TYPE:process.*MEM: ([\d\.]+)GB")
+    system_cpu_sum = 0.0
+    system_cpu_count = 0
+    process_cpu_sum = 0.0
+    process_cpu_count = 0
+
+    system_mem_pattern = re.compile(r"TYPE:system.*MEM: ([\d\.]+)GB")
+    process_mem_pattern = re.compile(r"TYPE:process.*MEM: ([\d\.]+)GB")
+    system_cpu_pattern = re.compile(r"TYPE:system.*CPU: ([\d\.]+)%")
+    process_cpu_pattern = re.compile(r"TYPE:process.*CPU: ([\d\.]+)%")
 
     with open(log_path, "r") as f:
         for line in f:
-            sys_match = system_pattern.search(line)
-            proc_match = process_pattern.search(line)
-            if sys_match:
-                mem_gb = float(sys_match.group(1))
+            # System memory
+            sys_mem_match = system_mem_pattern.search(line)
+            if sys_mem_match:
+                mem_gb = float(sys_mem_match.group(1))
                 if mem_gb > max_system_mem:
                     max_system_mem = mem_gb
-            elif proc_match:
-                mem_gb = float(proc_match.group(1))
+            # Process memory
+            proc_mem_match = process_mem_pattern.search(line)
+            if proc_mem_match:
+                mem_gb = float(proc_mem_match.group(1))
                 if mem_gb > max_process_mem:
                     max_process_mem = mem_gb
+            # System CPU
+            sys_cpu_match = system_cpu_pattern.search(line)
+            if sys_cpu_match:
+                cpu = float(sys_cpu_match.group(1))
+                system_cpu_sum += cpu
+                system_cpu_count += 1
+            # Process CPU
+            proc_cpu_match = process_cpu_pattern.search(line)
+            if proc_cpu_match:
+                cpu = float(proc_cpu_match.group(1))
+                process_cpu_sum += cpu
+                process_cpu_count += 1
 
-    return max_process_mem, max_system_mem
+    avg_system_cpu = system_cpu_sum / system_cpu_count if system_cpu_count else 0.0
+    avg_process_cpu = process_cpu_sum / process_cpu_count if process_cpu_count else 0.0
+
+    return max_process_mem, max_system_mem, avg_process_cpu, avg_system_cpu
 
 
 
