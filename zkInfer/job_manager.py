@@ -17,7 +17,7 @@ from zkInfer.onnx_splitter import (
     run_model_inference,
     save_split_models_s3
 )
-from zkInfer.utils import compute_content_md5, load_json, write_dict_to_csv
+from zkInfer.utils import compute_content_md5_hex, load_json, write_dict_to_csv
 import logging
 
 class JobStatus(str, Enum):
@@ -53,7 +53,7 @@ class ProofJob:
         self.logger:logging.Logger = logger
         self.num_prover_workers = num_prover_workers
         self.s3_bucket = s3_bucket
-        self.md5_hash = compute_content_md5(self.onnx_model_path)
+        self.md5_hash = compute_content_md5_hex(self.onnx_model_path)
         self.report_dir_prefix = "reports"
         self.sub_job_queue: Deque = deque()
         self.sub_job_status_map: Dict[str, JobStatus] = {}
