@@ -5,7 +5,7 @@ import hydra
 from omegaconf import DictConfig
 import zkservice_pb2 as pb
 import zkservice_pb2_grpc as pb_grpc
-from job_manager_s3 import JobManager
+from zkInfer.job_manager import JobManager
 import logging
 import sys
 import json
@@ -42,27 +42,21 @@ def setup_logger(name, log_file=None, level=logging.INFO):
 class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
     def __init__(self, logger=None, 
                  num_prover_workers=1, 
-                 storage_backend="local", 
                  s3_bucket=None, 
-                 keep_setup_files=False,
-                 keep_model_files=False,
-                 overwrite_existing=False):
+                 cache_setup=False,
+                 overwrite_setup=False):
         
         self.logger = logger
-        self.storage_backend = storage_backend
         self.s3_bucket = s3_bucket
-        self.keep_setup_files = keep_setup_files
-        self.keep_model_files = keep_model_files
-        self.overwrite_existing = overwrite_existing
+        self.cache_setup = cache_setup
+        self.overwrite_setup = overwrite_setup
         
         self.job_manager = JobManager(
             logger=logger,
             num_prover_workers=num_prover_workers,
-            storage_backend=storage_backend,
             s3_bucket=s3_bucket,
-            keep_setup_files=keep_setup_files,
-            keep_model_files=keep_model_files,
-            overwrite_existing=overwrite_existing
+            cache_setup=cache_setup,
+            overwrite_setup=overwrite_setup
         )
 
     
@@ -106,11 +100,9 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
             sub_job_id=subjob["sub_job_id"],
             model_path=subjob["model_path"],
             input_json=subjob["input_json"],
-            storage_backend=self.storage_backend,
             s3_bucket=self.s3_bucket,
-            keep_setup_files=self.keep_setup_files,
-            keep_model_files=self.keep_model_files,
-            overwrite_existing=self.overwrite_existing,
+            cache_setup=self.cache_setup,
+            overwrite_setup=self.overwrite_setup,
             job_available=True
         )
     
@@ -167,14 +159,12 @@ def serve(cfg: DictConfig):
     port = dispatcher_cfg.port
     max_workers = dispatcher_cfg.max_workers
     num_prover_workers = dispatcher_cfg.num_prover_workers
-    storage_backend = cfg.storage_backend
     s3_bucket = cfg.s3_bucket
-    keep_setup_files = cfg.keep_setup_files
-    keep_model_files = cfg.keep_model_files
-    overwrite_existing = cfg.overwrite_existing
+    cache_setup = cfg.cache_setup
+    overwrite_setup = cfg.overwrite_setup
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
-    pb_grpc.add_ZKJobServiceServicer_to_server(ZKJobDispatcher(logger, num_prover_workers, storage_backend, s3_bucket, keep_setup_files, keep_model_files, overwrite_existing), server)
+    pb_grpc.add_ZKJobServiceServicer_to_server(ZKJobDispatcher(logger, num_prover_workers, s3_bucket, cache_setup, overwrite_setup), server)
     server.add_insecure_port(f"[::]:{port}")
     server.start()
     logger.info(f"✅ Dispatcher gRPC server running on port {port}")

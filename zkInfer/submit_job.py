@@ -5,7 +5,7 @@ import hydra
 import time
 from omegaconf import DictConfig, OmegaConf
 import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
-from worker_s3 import main as run_worker
+from zkInfer.worker import main as run_worker
 
 
 def live_status_tracker(stub, interval=10):

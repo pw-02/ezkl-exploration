@@ -6,11 +6,9 @@ defaults:
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
 # Global control flags
-storage_backend: s3  # Options: local, s3
-s3_bucket: dzkml  # S3 bucket name if storage_mode is s3
-keep_setup_files: true     # Whether to keep setup artifacts (vk/pk etc.)
-keep_model_files: true     # Whether to keep model artifacts (model files, etc.)
-overwrite_existing: false  # Whether to overwrite existing files in the storage backend
+s3_bucket: dzkml  # S3 bucket name - only needed when workers are distributed across multiple machines
+cache_setup: true     # Whether to keep setup artifacts (vk/pk etc.)
+overwrite_setup: false  # Whether to overwrite existing files in the storage backend
 
 
 

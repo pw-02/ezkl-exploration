@@ -67,12 +67,10 @@ message SubJobAssignment {
   string sub_job_id = 3;
   string model_path = 4;
   string input_json = 5;
-  string storage_backend = 6; // "local" or "s3"
-  string s3_bucket = 7; // Only used if storage_backend == "s3"
-  bool keep_setup_files = 8; // Whether to keep setup artifacts (vk/pk etc.)
-  bool keep_model_files = 9; // Whether to keep model artifacts (model files, etc.)
-  bool overwrite_existing = 10; // Whether to overwrite existing files
-  bool job_available = 11; // Indicates if the job is still available
+  string s3_bucket = 6; // Only used if storage_backend == "s3"
+  bool cache_setup = 7; // Whether to keep model artifacts (model files, etc.)
+  bool overwrite_setup = 8; // Whether to overwrite existing files
+  bool job_available = 9; // Indicates if the job is still available
 }
 
 // The result of a subjob proof computation.
