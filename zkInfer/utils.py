@@ -12,13 +12,21 @@ def load_json(path):
         data = json.load(f)
     return data
 
-def compute_content_md5(path):
+def compute_content_md5_hex(path):
     md5 = hashlib.md5()
     with open(path, 'rb') as f:
         for chunk in iter(lambda: f.read(8192), b''):
             md5.update(chunk)
-    # S3 expects base64 encoding of the raw digest
-    return base64.b64encode(md5.digest()).decode('utf-8')
+    # Hex digest is always safe for folder/file names
+    return md5.hexdigest()
+
+# def compute_content_md5(path):
+#     md5 = hashlib.md5()
+#     with open(path, 'rb') as f:
+#         for chunk in iter(lambda: f.read(8192), b''):
+#             md5.update(chunk)
+#     # S3 expects base64 encoding of the raw digest
+#     return base64.b64encode(md5.digest()).decode('utf-8')
 
 def compute_bytes_md5(raw_bytes: bytes) -> str:
     """
