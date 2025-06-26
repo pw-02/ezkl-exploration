@@ -144,7 +144,7 @@ class ProofJob:
                 f"Queued {len(self.sub_job_queue)} sub-jobs for proving global job {self.name} (job_id={self.job_id}"
             )
         except Exception as e:
-            self.logger.error(f"Error during model preparation: {e}")
+            self.logger.error(f"Error during model preparation: {e}", exc_info=True)
             self.status = JobStatus.FAILED
             raise
 
