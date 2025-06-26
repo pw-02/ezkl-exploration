@@ -29,6 +29,7 @@ from zkInfer.worker import main as run_worker
 
 @hydra.main(config_path="../conf", config_name="config")
 def main(cfg: DictConfig):
+    time.sleep(2)  # Allow time for Hydra to initialize
     job_cfg = cfg.model
     host = cfg.dispatcher.host
     port = cfg.dispatcher.port
