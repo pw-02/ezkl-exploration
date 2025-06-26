@@ -42,8 +42,10 @@ class ProofJob:
         overwrite_setup: bool,
 
     ):  
+        date_time_now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
+        
         self.name = name
-        self.job_id = f"{self.name}_{base64.urlsafe_b64encode(uuid.uuid4().bytes).rstrip(b'=').decode('ascii')}"
+        self.job_id = f"{self.name}_{date_time_now_str}"
         self.onnx_model_path = onnx_model_path
         self.input_data_path = input_data_path
         self.split_mode = split_mode
@@ -58,7 +60,7 @@ class ProofJob:
         self.report_directory = os.path.join(
             self.report_dir_prefix,
             self.name,
-            f"{datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')}-{num_prover_workers}w"
+            f"{date_time_now_str}-{num_prover_workers}w"
         )
         self.cache_prefix = os.path.join("cache", self.md5_hash)
         self.status = JobStatus.PREPARING
@@ -67,6 +69,8 @@ class ProofJob:
         self.start_time: Optional[datetime] = None
         self.overwrite_setup = overwrite_setup
         self.sub_job_proofs: Dict[str, bytes] = {}  # Store proofs for each sub-job
+        self.time_since_start: Optional[float] = None  # Total wall time for the job
+        self.time_since_queued: Optional[float] = None  # Total wall time for the job
 
     def queue_models_for_proving(self):
         try:
@@ -120,7 +124,7 @@ class ProofJob:
                     )
                 
                 for sub_model_name, (md5_hash, model_path, flattened_inputs, model_metadata) in submodel_info_map.items():
-                    sub_job_id = f"{self.job_id}_{sub_model_name}"  # use self.job_id for global uniqueness
+                    sub_job_id = f"{sub_model_name}_{self.job_id}"  # use self.job_id for global uniqueness
                     input_json = json.dumps(flattened_inputs)
                     self.sub_job_queue.append(
                         {
@@ -242,7 +246,8 @@ class JobManager:
             # Open in append mode, create file if it does not exist
             with open(elapsed_times_file, 'a') as f:
                 f.write(log_line)
-
+            job.time_since_queued = elapsed_since_queued_seconds
+            job.time_since_start = elapsed_since_started_seconds
             job.sub_job_proofs[sub_job_id] = proof  # Store the proof for this sub-job
             #save the proof to a file
             proof_file = os.path.join(job.report_directory, f"{sub_job_id}_proof.pf")
@@ -256,7 +261,6 @@ class JobManager:
                 
                 if not self.cache_setup: 
                     job.delete_job_data() #remove all job setup files from local and s3 storage
-                self.logger.info(f"🏁 Job {job_id} COMPLETED")    
 
     def record_performance_report(self, job_id: str, sub_job_id: str, worker_id, ezkl_perf: Dict, halo2_perf: Dict):
         job = self.proof_jobs.get(job_id)
@@ -266,10 +270,15 @@ class JobManager:
         report_line = {
             "config_name": job.name,
             "cache_setup": self.cache_setup,
-            "overwrite_setup": self.overwrite_setup
+            "overwrite_setup": self.overwrite_setup,
+            "global_prover_workers": job.num_prover_workers,
+            "global_job_time_since_start(s)": job.time_since_start,
+            "global_job_time_since_queued(s)": job.time_since_queued
         }
         ezkl_file = os.path.join(report_dir, "ezkl_perf.csv")
         halo2_file = os.path.join(report_dir, "halo2_perf.csv")
 
         write_dict_to_csv({**report_line, **ezkl_perf}, ezkl_file)
         write_dict_to_csv({**report_line, **halo2_perf}, halo2_file)
+        self.logger.info(f"🏁 Job {job_id} COMPLETED. Reports saved to {job.report_directory}")
+

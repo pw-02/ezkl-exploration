@@ -14,7 +14,7 @@ import logging
 import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
 import pandas as pd
 from zkInfer.s3_utils import download_from_s3, upload_to_s3, file_exists_in_s3, upload_if_not_exists, download_if_exists_in_s3
-from zkInfer.utils import parse_resource_usage_file, read_csv_into_dict, get_total_fft_duration, get_total_msm_duration
+from zkInfer.utils import get_fft_device, get_fft_summary, get_msm_device, get_msm_summary, parse_resource_usage_file, read_csv_into_dict, get_total_fft_duration, get_total_msm_duration
 
 # def timed(fn):
 #     def wrapper(self, *args, **kwargs):
@@ -227,7 +227,22 @@ class ZKProofWorker:
             #save the json input file to the local working directory
             local_input_path = os.path.join(local_working_dir, "input.json")
             with open(local_input_path, "w") as f:
-                json.dump(input_json, f)
+                json.dump(input_json, f, indent=4)
+            #save info about the job to a dict and write it to a file
+            job_info = {
+                "job_id": job_id,
+                "sub_job_id": sub_job_id,
+                "sub_model_name": sub_model_name,
+                "model_path": local_model_path,
+                "s3_bucket": s3_bucket,
+                "cache_setup": cache_setup,
+                "overwrite_setup": overwrite_setup,
+                "worker_pid": worker_pid
+            }
+            job_info_file = os.path.join(local_working_dir, "job_info.json")
+            with open(job_info_file, "w") as f:
+                json.dump(job_info, f, indent=4)
+
 
             # Ensure local report directory exists
             status_file = os.path.join(local_working_dir, "status.txt")
@@ -244,7 +259,8 @@ class ZKProofWorker:
                 sys.executable, "zkInfer/heartbeat.py",
                 self.target, self.worker_id, job_id, sub_job_id, status_file, worker_pid
                 ])  
-        
+            
+            os.environ["EZKL_LOG_DIR"] = local_working_dir  # This only affects this process and its children
             proof_stages = EZKLProofStages(
                 job_name= sub_model_name,
                 input_data_path=local_input_path,
@@ -288,50 +304,37 @@ class ZKProofWorker:
                 ))
                 return
             
+
+            self.stub.SubmitSubJobResult(pb.SubJobResult(
+                job_id=job_id,
+                sub_job_id=sub_job_id,
+                proof=open(proof_stages.proof_path, "rb").read(),
+                success=True))
+            
             timing_metrics = result.get("timings", {})
             provenance_metrics = result.get("provenances", {})
             timing_metrics.update({"s3_upload_time(s)": f"{time_to_upload:.3f}"})
             
             #generate and reports share with the job_manager
             max_process_mem, max_system_mem = parse_resource_usage_file(resource_usage_file)
-
             model_info = {"job_id": job_id, "sub_job_id": sub_job_id, "onnx_model_path": local_model_path, "input_data_path": local_input_path, "max_process_memory(GB)": max_process_mem, "max_system_memory(GB)": max_system_mem}
+            circuit_info = read_csv_into_dict(os.path.join(local_working_dir, "halo2_circuit.csv"))
+            prover_info_cpu = read_csv_into_dict(os.path.join(local_working_dir, "halo2_prover_cpu.csv"))
+            fft_summary = get_fft_summary( os.path.join(local_working_dir, f"halo2_ffts.csv"))
+            msm_summary = get_msm_summary(os.path.join(local_working_dir, f"halo2_msms.csv"))
+
+            halo2_perf = {**model_info, **circuit_info, **prover_info_cpu, **fft_summary, **msm_summary}
             ezkl_perf = {**model_info, **timing_metrics, **provenance_metrics}
-            circuit_info = read_csv_into_dict("halo2_circuit.csv")
-            prover_info = read_csv_into_dict("halo2_prover.csv")
-            prover_info_cpu = read_csv_into_dict("halo2_prover_cpu.csv")
-
-            fft_data = {}
-            msm_data = {}
-            for suffix in ["setup", "prover", "verifier"]:
-                fft_file = f"halo2_ffts.csv"
-                msm_file = f"halo2_msms.csv"
-                if os.path.exists(fft_file):
-                    fft_data[f"fft_total_time(s)"] = get_total_fft_duration(fft_file)
-                if os.path.exists(msm_file):
-                    msm_data[f"msm_total_time(s)"] = get_total_msm_duration(msm_file)
-
-
-            halo2_perf = {**model_info, **circuit_info, **prover_info, **prover_info_cpu, **fft_data, **msm_data}
-                
+            
             self.stub.SendPerfReport(pb.PerfReport(
                 job_id=job_id,
                 sub_job_id=sub_job_id,
                 worker_id=self.worker_id,
                 ezkl_json=json.dumps(ezkl_perf),
                 halo2_json=json.dumps(halo2_perf)))  # or whatever your gRPC call is
-            
 
-            self.stub.SubmitSubJobResult(pb.SubJobResult(
-                        job_id=job_id,
-                        sub_job_id= sub_job_id,
-                        proof = open(proof_stages.proof_path, "rb").read(),
-                        success=True
-                    ))
-                        # #clean up local files
-            self.clean_local_files()
-            #delet e the local working directory
-            shutil.rmtree(local_working_dir, ignore_errors=True)
+            #delete the local working directory
+            # shutil.rmtree(local_working_dir, ignore_errors=True)
 
             self.stub.SendHeartbeat(pb.HeartbeatRequest(
                 worker_id=self.worker_id,
@@ -359,25 +362,25 @@ class ZKProofWorker:
                 
 
 
-    def clean_local_files(self):
-      # Gather additional report files to move or upload
-        files_to_move = []
-        files_to_remove = []
-        files_to_copy = []
-        for f in os.listdir("."):
-            if (f.startswith("halo2_fft") and f.endswith(".csv")) or (f.startswith("halo2_msm") and f.endswith(".csv")):
-                files_to_remove.append(f)
-            elif f.startswith("halo2_") and f.endswith(".csv"):
-                files_to_remove.append(f)
-            # elif f.startswith("worker") and f.endswith(".log"):
-            #     files_to_copy.append(f)
+    # def clean_local_files(self):
+    #   # Gather additional report files to move or upload
+    #     files_to_move = []
+    #     files_to_remove = []
+    #     files_to_copy = []
+    #     for f in os.listdir("."):
+    #         if (f.startswith("halo2_fft") and f.endswith(".csv")) or (f.startswith("halo2_msm") and f.endswith(".csv")):
+    #             files_to_remove.append(f)
+    #         elif f.startswith("halo2_") and f.endswith(".csv"):
+    #             files_to_remove.append(f)
+    #         # elif f.startswith("worker") and f.endswith(".log"):
+    #         #     files_to_copy.append(f)
 
-        # for f in files_to_move:
-        #     shutil.move(f, os.path.join(model_dir, f))
-        for f in files_to_remove:
-            os.remove(f)
-        # for f in files_to_copy:
-        #     shutil.copy(f, os.path.join(model_dir, f))
+    #     # for f in files_to_move:
+    #     #     shutil.move(f, os.path.join(model_dir, f))
+    #     for f in files_to_remove:
+    #         os.remove(f)
+    #     # for f in files_to_copy:
+    #     #     shutil.copy(f, os.path.join(model_dir, f))
 
 
     # def save_reports(self, local_working_dir, local_report_dir, sub_job_id, local_model_path, local_input_path, timings):

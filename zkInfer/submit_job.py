@@ -8,23 +8,23 @@ import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
 from zkInfer.worker import main as run_worker
 
 
-def live_status_tracker(stub, interval=10):
-    """Continuously print job status summary."""
-    while True:
-        try:
-            resp = stub.ListActiveSubJobs(pb.StatusAck(success=True))
-            if resp.statuses:
-                print("\n🖥️ Live Sub-Job Statuses:")
-                for sid, info in resp.statuses.items():
-                    print(f"🔹 {sid} | Worker={info.worker_id} | "
-                          f"Status={pb.SubJobStatus.Name(info.status)} | "
-                          f"Progress={info.progress*100:.1f}% | "
-                          f"Message={info.message} | Last seen: {info.last_seen}")
-            else:
-                print("🟡 No active sub-jobs right now.")
-        except grpc.RpcError as e:
-            logger.warning(f"⚠️ Failed to fetch live status: {e.details()}")
-        time.sleep(interval)
+# def live_status_tracker(stub, interval=10):
+#     """Continuously print job status summary."""
+#     while True:
+#         try:
+#             resp = stub.ListActiveSubJobs(pb.StatusAck(success=True))
+#             if resp.statuses:
+#                 print("\n🖥️ Live Sub-Job Statuses:")
+#                 for sid, info in resp.statuses.items():
+#                     print(f"🔹 {sid} | Worker={info.worker_id} | "
+#                           f"Status={pb.SubJobStatus.Name(info.status)} | "
+#                           f"Progress={info.progress*100:.1f}% | "
+#                           f"Message={info.message} | Last seen: {info.last_seen}")
+#             else:
+#                 print("🟡 No active sub-jobs right now.")
+#         except grpc.RpcError as e:
+#             logger.warning(f"⚠️ Failed to fetch live status: {e.details()}")
+#         time.sleep(interval)
 
 
 @hydra.main(config_path="../conf", config_name="config", version_base=None)

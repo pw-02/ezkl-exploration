@@ -149,9 +149,13 @@ def prepare_submodel_record(sub_model, intermediate_outputs):
         if inp.name in intermediate_outputs:
             flattened_inputs.append(intermediate_outputs[inp.name].flatten().tolist())
     if not flattened_inputs:
-        return None
+        return
+    
+    json_input ={'input_data': flattened_inputs}
+    # with open(f"input_data_{sub_model.name}.json", "w") as f:
+    #     json.dump(input_dict, f, indent=4)
 
-    import onnx
+    
     raw_bytes = sub_model.SerializeToString()
     md5_hash = compute_bytes_md5(raw_bytes)
     model_metadata = {
@@ -160,44 +164,40 @@ def prepare_submodel_record(sub_model, intermediate_outputs):
         'num_params': sum(onnx.numpy_helper.to_array(i).size for i in sub_model.graph.initializer),
         'model_ops': [node.op_type for node in sub_model.graph.node]
     }
-    return (flattened_inputs, raw_bytes, md5_hash, model_metadata)
+    return (json_input, raw_bytes, md5_hash, model_metadata)
 
 def save_split_models_disk(submodels, intermediate_outputs, prefix, overwrite=False):
-    from collections import OrderedDict
-    import os
-    import onnx
-
+    
     models_with_inputs = OrderedDict()
     for name, sub_model in submodels:
         record = prepare_submodel_record(sub_model, intermediate_outputs)
         if record is None:
             continue
-        flattened_inputs, raw_bytes, md5_hash, model_metadata = record
+        json_input, raw_bytes, md5_hash, model_metadata = record
 
         model_dir = os.path.join(prefix, md5_hash)
         os.makedirs(model_dir, exist_ok=True)
         model_path = os.path.join(model_dir, 'model.onnx')
         if overwrite or not os.path.exists(model_path):
             onnx.save(sub_model, model_path)
-        models_with_inputs[name] = (md5_hash, model_path, flattened_inputs, model_metadata)
+        models_with_inputs[name] = (md5_hash, model_path, json_input, model_metadata)
     return models_with_inputs
 
 def save_split_models_s3(submodels, intermediate_outputs, s3_bucket, prefix, overwrite=False):
-    from collections import OrderedDict
 
     models_with_inputs = OrderedDict()
     for name, sub_model in submodels:
         record = prepare_submodel_record(sub_model, intermediate_outputs)
         if record is None:
             continue
-        flattened_inputs, raw_bytes, md5_hash, model_metadata = record
+        json_input, raw_bytes, md5_hash, model_metadata = record
         model_dir = os.path.join(prefix, md5_hash)
         s3_model_key = os.path.join(model_dir, 'model.onnx')
         if overwrite:
             upload_modelproto_to_s3(raw_bytes, s3_bucket, s3_model_key)
         else:
             upload_modelproto_if_not_exists(raw_bytes, s3_bucket, s3_model_key)
-        models_with_inputs[name] = (md5_hash, s3_model_key, flattened_inputs, model_metadata)
+        models_with_inputs[name] = (md5_hash, s3_model_key, json_input, model_metadata)
     return models_with_inputs
 
 

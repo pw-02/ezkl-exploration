@@ -84,19 +84,34 @@ def read_csv_into_dict(file_path):
 #             }
 #         return model_op_info
 
-def get_fft_summary(fft_file, prefix):
+def get_fft_summary(fft_file):
     """Extract summary stats from FFT CSV report."""
     fft_metrics = {}
     try:
         df = pd.read_csv(fft_file)
-        fft_metrics[f'{prefix}_fft_count'] = int(len(df))
-        fft_metrics[f'{prefix}_fft_largest'] = int(df['size'].max())
-        fft_metrics[f'{prefix}_fft_total_time(s)'] = float(df['duration(s)'].sum())
-        fft_metrics[f'{prefix}_fft_avg_time(s)'] = float(df['duration(s)'].mean())
-        fft_metrics[f'{prefix}_fft_device'] = str(df['device'].iloc[0])
+        fft_metrics[f'fft_count'] = int(len(df))
+        fft_metrics[f'fft_largest'] = int(df['size'].max())
+        fft_metrics[f'fft_total_time(s)'] = float(df['duration(s)'].sum())
+        fft_metrics[f'fft_avg_time(s)'] = float(df['duration(s)'].mean())
+        fft_metrics[f'fft_device'] = str(df['device'].iloc[0])
     except Exception:
         pass
     return fft_metrics
+
+def get_fft_device(fft_file):
+    """Extract device info from FFT CSV report."""
+    try:
+        df = pd.read_csv(fft_file)
+        return str(df['device'].iloc[0])
+    except Exception:
+        return "unknown"
+def get_msm_device(msm_file):
+    """Extract device info from MSM CSV report."""
+    try:
+        df = pd.read_csv(msm_file)
+        return str(df['device'].iloc[0])
+    except Exception:
+        return "unknown"
 
 def get_total_fft_duration(fft_file):
     """Calculate total duration from FFT CSV report."""
@@ -107,16 +122,16 @@ def get_total_fft_duration(fft_file):
         return 0.0
 
 
-def get_msm_summary(msm_file, prefix):
+def get_msm_summary(msm_file):
     """Extract summary stats from MSM CSV report."""
     msm_metrics = {}
     try:
         df = pd.read_csv(msm_file)
-        msm_metrics[f'{prefix}_msm_count'] = int(len(df))
-        msm_metrics[f'{prefix}_msm_largest'] = int(df['num_coeffs'].max())
-        msm_metrics[f'{prefix}_msm_total_time(s)'] = float(df['duration(s)'].sum())
-        msm_metrics[f'{prefix}_msm_avg_time(s)'] = float(df['duration(s)'].mean())
-        msm_metrics[f'{prefix}_msm_device'] = str(df['device'].iloc[0])
+        msm_metrics[f'msm_count'] = int(len(df))
+        msm_metrics[f'msm_largest'] = int(df['num_coeffs'].max())
+        msm_metrics[f'msm_total_time(s)'] = float(df['duration(s)'].sum())
+        msm_metrics[f'msm_avg_time(s)'] = float(df['duration(s)'].mean())
+        msm_metrics[f'msm_device'] = str(df['device'].iloc[0])
     except Exception:
         pass
     return msm_metrics

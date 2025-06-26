@@ -2,11 +2,11 @@ defaults:
   - _self_
   - dispatcher: default
   - worker: default
-  - model: mnist_classifier  # Options: mobilenetv2_050_Opset18, mnist_gan, little_transformer, nano_gpt, mnist_classifier,nano_gpt_4_layers_64_embd
+  - model: mnist_gan_split_size_1  # Options: mobilenetv2_050_Opset18, mnist_gan, little_transformer, nano_gpt, mnist_classifier,nano_gpt_4_layers_64_embd
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
 # Global control flags
-s3_bucket: dzkml  # S3 bucket name - only needed when workers are distributed across multiple machines
+s3_bucket: null #dzkml  # S3 bucket name - only needed when workers are distributed across multiple machines
 cache_setup: true     # Whether to keep setup artifacts (vk/pk etc.)
 overwrite_setup: false  # Whether to overwrite existing files in the storage backend
 
