@@ -1,5 +1,5 @@
 # Dispatcher service config
-host: "0.0.0.0"
+host: "localhost"
 port: 50051
 max_workers: 1
 num_prover_workers: 1 # Number of workers for the prover - used for logging only
