@@ -1,5 +1,4 @@
 import base64
-from datetime import datetime, timezone
 import json
 import os
 import sys
@@ -9,126 +8,32 @@ import grpc
 import hydra
 from omegaconf import DictConfig
 from uuid import uuid4
-import concurrent.futures
 import subprocess
 import shutil
 import logging
-import csv
-
 import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
-import onnx
 import pandas as pd
 from zkInfer.s3_utils import download_from_s3, upload_to_s3, file_exists_in_s3, upload_if_not_exists, download_if_exists_in_s3
-from zkInfer.utils import parse_resource_usage_file
-import re
+from zkInfer.utils import parse_resource_usage_file, read_csv_into_dict, get_total_fft_duration, get_total_msm_duration
+
+# def timed(fn):
+#     def wrapper(self, *args, **kwargs):
+#         start = time.perf_counter()
+#         result = fn(self, *args, **kwargs)
+#         return time.perf_counter() - start
+#     return wrapper
 
 def timed(fn):
-    def wrapper(self, *args, **kwargs):
-        start = time.perf_counter()
-        result = fn(self, *args, **kwargs)
-        return time.perf_counter() - start
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result = fn(*args, **kwargs)
+        end = time.time()
+        elapsed = end - start
+        if isinstance(result, tuple):
+            return (elapsed, *result)
+        else:
+            return (elapsed, result)
     return wrapper
-
-def read_csv_into_dict(file_path):
-    """Reads a CSV file with one row into a dictionary."""
-    data = {}
-    try:
-        with open(file_path, mode='r') as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                for key, value in row.items():
-                    data[key] = value
-                break  # only read the first row
-    except FileNotFoundError:
-        pass
-    return data
-
-def get_model_op_info(onnx_model_path):
-        model = onnx.load(onnx_model_path)
-        model_op_info = {
-                'num_ops': len(model.graph.node),
-                'num_params': sum(onnx.numpy_helper.to_array(i).size for i in model.graph.initializer),
-                'model_ops': [node.op_type for node in model.graph.node]
-            }
-        return model_op_info
-
-def get_fft_summary(fft_file, prefix):
-    """Extract summary stats from FFT CSV report."""
-    fft_metrics = {}
-    try:
-        df = pd.read_csv(fft_file)
-        fft_metrics[f'{prefix}_fft_count'] = int(len(df))
-        fft_metrics[f'{prefix}_fft_largest'] = int(df['size'].max())
-        fft_metrics[f'{prefix}_fft_total_time(s)'] = float(df['duration(s)'].sum())
-        fft_metrics[f'{prefix}_fft_avg_time(s)'] = float(df['duration(s)'].mean())
-        fft_metrics[f'{prefix}_fft_device'] = str(df['device'].iloc[0])
-    except Exception:
-        pass
-    return fft_metrics
-
-def total_fft_duration(fft_file):
-    """Calculate total duration from FFT CSV report."""
-    try:
-        df = pd.read_csv(fft_file)
-        return float(df['duration(s)'].sum())
-    except Exception:
-        return 0.0
-
-
-def get_msm_summary(msm_file, prefix):
-    """Extract summary stats from MSM CSV report."""
-    msm_metrics = {}
-    try:
-        df = pd.read_csv(msm_file)
-        msm_metrics[f'{prefix}_msm_count'] = int(len(df))
-        msm_metrics[f'{prefix}_msm_largest'] = int(df['num_coeffs'].max())
-        msm_metrics[f'{prefix}_msm_total_time(s)'] = float(df['duration(s)'].sum())
-        msm_metrics[f'{prefix}_msm_avg_time(s)'] = float(df['duration(s)'].mean())
-        msm_metrics[f'{prefix}_msm_device'] = str(df['device'].iloc[0])
-    except Exception:
-        pass
-    return msm_metrics
-
-def get_total_msm_duration(msm_file):
-    """Calculate total duration from MSM CSV report."""
-    try:
-        df = pd.read_csv(msm_file)
-        return float(df['duration(s)'].sum())
-    except Exception:
-        return 0.0
-
-
-from concurrent.futures import ProcessPoolExecutor, TimeoutError
-
-def heartbeat_loop(dispatcher, worker_id, job_id, sub_job_id, status_file, interval=15):
-    import grpc
-    import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
-    channel = grpc.insecure_channel(dispatcher)
-    stub = pb_grpc.ZKJobServiceStub(channel)
-    last_stage = None
-    try:
-        while True:
-            try:
-                with open(status_file) as f:
-                    stage = f.read().strip()
-            except Exception:
-                stage = None
-            if stage and stage != last_stage:
-                stub.SendHeartbeat(pb.HeartbeatRequest(
-                    worker_id=worker_id,
-                    sub_job_id=sub_job_id,
-                    job_id=job_id,
-                    status="STARTED" if stage not in ("DONE", "FAILED") else stage,
-                    message=stage
-                ))
-                last_stage = stage
-                if stage in ("DONE", "FAILED"):
-                    break
-            time.sleep(interval)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        channel.close()
 
 
 class EZKLProofStages:
@@ -173,14 +78,16 @@ class EZKLProofStages:
         # If not overwrite, check if settings already exist locally or in S3
         if not self.overwrite:
             if os.path.exists(self.settings_path):
-                return
+                return ("skipped",)
             if self.s3_bucket and download_if_exists_in_s3(self.s3_bucket, f"{self.cache_dir}/settings.json", self.settings_path):
                 assert os.path.exists(self.settings_path)
-                return
+                return ("downloaded",)
+
         # If we are here, either overwrite is True or settings file did not exist
         self.ezkl.gen_settings(self.onnx_model_path, self.settings_path)
         self.ezkl.calibrate_settings(self.input_data_path, self.onnx_model_path, self.settings_path, "resources")
         assert os.path.exists(self.settings_path)
+        return ("created",)
 
 
     @timed
@@ -189,30 +96,33 @@ class EZKLProofStages:
          # If not overwrite, check if compiled circuit exists locally or can be downloaded from S3
         if not self.overwrite:
             if os.path.exists(self.compiled_circuit_path):
-                return
+                return ("skipped",)
             if self.s3_bucket and download_if_exists_in_s3(self.s3_bucket,f"{self.cache_dir}/network.compiled",self.compiled_circuit_path):
                 assert os.path.exists(self.compiled_circuit_path)
-                return
+                return ("downloaded",)
         # If here, we need to (re)compile
         self.ezkl.compile_circuit(self.onnx_model_path, self.compiled_circuit_path, self.settings_path)
         assert os.path.exists(self.compiled_circuit_path)
+        return ("created",)
     @timed
     def get_srs(self):
         self._update_status("GETTING_SRS")
         self.ezkl.get_srs(self.settings_path)
+        return ("created",)
 
     @timed
     def gen_witness(self):
         self._update_status("GENERATING_WITNESS")
         self.ezkl.gen_witness(self.input_data_path, self.compiled_circuit_path, self.witness_path)
         assert os.path.exists(self.witness_path)
+        return ("created",)
 
     @timed
     def setup(self):
         self._update_status("SETTING_UP")
         if not self.overwrite:
             if os.path.exists(self.pk_path) and os.path.exists(self.vk_path):
-                return
+                return ("skipped",)
         if (
             self.s3_bucket
             and file_exists_in_s3(self.s3_bucket, f"{self.cache_dir}/pk.json")
@@ -221,18 +131,22 @@ class EZKLProofStages:
             download_from_s3(self.s3_bucket, f"{self.cache_dir}/pk.json", self.pk_path)
             download_from_s3(self.s3_bucket, f"{self.cache_dir}/vk.json", self.vk_path)
             if os.path.exists(self.pk_path) and os.path.exists(self.vk_path):
-                return
+                return ("downloaded",)
         # If here, either overwriting or files do not exist
         self.ezkl.setup(self.compiled_circuit_path, self.vk_path, self.pk_path)
+        return ("created",)
 
     @timed
     def prove(self):
         self._update_status("PROVING")
         self.ezkl.prove(self.witness_path, self.compiled_circuit_path, self.pk_path, self.proof_path, "single")
         assert os.path.exists(self.proof_path)
+        return ("created",)
 
     def run_all(self):
         timings = {}
+        provenances = {}
+
         try:
             for name, fn in [
                 ("calibrate_settings", self.calibrate_settings),
@@ -242,18 +156,20 @@ class EZKLProofStages:
                 ("setup", self.setup),
                 ("prove", self.prove),
             ]:
-                t = fn()
-                timings[f"ezkl_{name}(s)"] = f"{t:.3f}s"
+                t, provenance = fn()
+                timings[f"ezkl_{name}(s)"] = f"{t:.3f}"
+                provenances[f"ezkl_{name}_provenance"] = provenance
+
                 self.logger.info(f"{self.job_name}: {name} took {t:.3f}s")
             self._update_status("REPORTING")
             self.logger.info(f"{self.job_name}: All stages completed..")
-            return {"timings": timings, "error": None}
+            return {"timings": timings, "provenances": provenances, "error": None}
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
             self.logger.error(f"{self.job_name}: Exception during proof: {e}\n{tb}")
             self._update_status("FAILED")
-            return {"timings": timings, "error": f"{type(e).__name__}: {e}\n{tb}"}
+            return {"timings": timings, "provenances": provenances, "error": f"{type(e).__name__}: {e}\n{tb}"}
 
 
 class ZKProofWorker:
@@ -282,6 +198,7 @@ class ZKProofWorker:
                 return
             # self.global_job_id = response.job_id
             # self.current_sub_job_id = response.sub_job_id
+
             self.logger.info(f"📦 Got sub-job {response.sub_model_name} for job {response.job_id}")
             job_id = response.job_id
             sub_job_id = response.sub_job_id
@@ -349,6 +266,7 @@ class ZKProofWorker:
                 except Exception:
                     proc.kill()
             # ---- Upload reports to S3 if needed ----
+            s3_upload_start = time.perf_counter()
             if cache_setup and s3_bucket:
                 # Upload settings, compiled circuit, pk, vk, and proof files
                 upload_if_not_exists(proof_stages.settings_path, s3_bucket, f"{cache_prefix}/settings.json")
@@ -356,6 +274,8 @@ class ZKProofWorker:
                 upload_if_not_exists(proof_stages.pk_path, s3_bucket, f"{cache_prefix}/pk.json")
                 upload_if_not_exists(proof_stages.vk_path, s3_bucket, f"{cache_prefix}/vk.json")
                 # upload_if_not_exists(proof_stages.proof_path, s3_bucket, f"{cache_prefix}/proof.pf")
+            time_to_upload = time.perf_counter() - s3_upload_start
+
 
             if result.get("error"):
                 self.logger.error(f"❌ Error during proof: {result['error']}")
@@ -368,13 +288,15 @@ class ZKProofWorker:
                 ))
                 return
             
-            metrics = result.get("timings", {})
+            timing_metrics = result.get("timings", {})
+            provenance_metrics = result.get("provenances", {})
+            timing_metrics.update({"s3_upload_time(s)": f"{time_to_upload:.3f}"})
             
             #generate and reports share with the job_manager
             max_process_mem, max_system_mem = parse_resource_usage_file(resource_usage_file)
 
             model_info = {"job_id": job_id, "sub_job_id": sub_job_id, "onnx_model_path": local_model_path, "input_data_path": local_input_path, "max_process_memory(GB)": max_process_mem, "max_system_memory(GB)": max_system_mem}
-            ezkl_perf = {**model_info, **metrics}
+            ezkl_perf = {**model_info, **timing_metrics, **provenance_metrics}
             circuit_info = read_csv_into_dict("halo2_circuit.csv")
             prover_info = read_csv_into_dict("halo2_prover.csv")
             prover_info_cpu = read_csv_into_dict("halo2_prover_cpu.csv")
@@ -385,7 +307,7 @@ class ZKProofWorker:
                 fft_file = f"halo2_ffts.csv"
                 msm_file = f"halo2_msms.csv"
                 if os.path.exists(fft_file):
-                    fft_data[f"fft_total_time(s)"] = total_fft_duration(fft_file)
+                    fft_data[f"fft_total_time(s)"] = get_total_fft_duration(fft_file)
                 if os.path.exists(msm_file):
                     msm_data[f"msm_total_time(s)"] = get_total_msm_duration(msm_file)
 
