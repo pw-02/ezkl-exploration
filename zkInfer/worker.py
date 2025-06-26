@@ -371,14 +371,17 @@ class ZKProofWorker:
                 ezkl_json=json.dumps(ezkl_perf),
                 halo2_json=json.dumps(halo2_perf)))  # or whatever your gRPC call is
             
-            # #clean up local files
-            self.clean_local_files()
+
             self.stub.SubmitSubJobResult(pb.SubJobResult(
                         job_id=job_id,
                         sub_job_id= sub_job_id,
                         proof = open(proof_stages.proof_path, "rb").read(),
                         success=True
                     ))
+                        # #clean up local files
+            self.clean_local_files()
+            #delet e the local working directory
+            shutil.rmtree(local_working_dir, ignore_errors=True)
             
             self.stub.SendHeartbeat(pb.HeartbeatRequest(
                 worker_id=self.worker_id,

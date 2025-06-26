@@ -3,7 +3,6 @@ import time
 from datetime import datetime
 import argparse
 import sys
-import signal
 
 def log_system_usage(f, interval):
     cpu_usage = psutil.cpu_percent(interval=0)
@@ -42,20 +41,11 @@ def main():
         except psutil.NoSuchProcess:
             print(f"No such process: {args.pid}")
             sys.exit(1)
+    
 
-    stop = False
-    def signal_handler(sig, frame):
-        nonlocal stop
-        stop = True
-        print("Terminating resource logger...")
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
 
     with open(args.log_file, "a") as f:
-        cpu_percents = []
-        peak_mem = 0
-        while not stop:
+        while True:
             log_system_usage(f, args.interval)
             if proc:
                 alive = log_process_usage(proc, f, args.interval)

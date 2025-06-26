@@ -263,8 +263,14 @@ class JobManager:
     def record_performance_report(self, job_id: str, sub_job_id: str, worker_id, ezkl_perf: Dict, halo2_perf: Dict):
         job = self.proof_jobs.get(job_id)
         report_dir = job.report_directory if job else None
+
+        report_line = {
+            "config_name": job.name,
+            "cache_setup": self.cache_setup,
+            "overwrite_setup": self.overwrite_setup
+        }
         ezkl_file = os.path.join(report_dir, "ezkl_perf.csv")
         halo2_file = os.path.join(report_dir, "halo2_perf.csv")
-        write_dict_to_csv(ezkl_perf, ezkl_file)
-        write_dict_to_csv(halo2_perf, halo2_file)
-        
+
+        write_dict_to_csv({**report_line, **ezkl_perf}, ezkl_file)
+        write_dict_to_csv({**report_line, **halo2_perf}, halo2_file)
