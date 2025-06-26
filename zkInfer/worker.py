@@ -341,7 +341,7 @@ class ZKProofWorker:
                 halo2_json=json.dumps(halo2_perf)))  # or whatever your gRPC call is
 
             #delete the local working directory
-            # shutil.rmtree(local_working_dir, ignore_errors=True)
+            shutil.rmtree(local_working_dir, ignore_errors=True)
 
             self.stub.SendHeartbeat(pb.HeartbeatRequest(
                 worker_id=self.worker_id,
