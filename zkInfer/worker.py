@@ -452,7 +452,7 @@ class ZKProofWorker:
         while True:
             self.fetch_and_run_job()
 
-@hydra.main(config_path="../conf", config_name="config", version_base=None)
+@hydra.main(config_path="../conf", config_name="config")
 def main(cfg: DictConfig):
 
     logging.basicConfig(

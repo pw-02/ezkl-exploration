@@ -27,7 +27,7 @@ from zkInfer.worker import main as run_worker
 #         time.sleep(interval)
 
 
-@hydra.main(config_path="../conf", config_name="config", version_base=None)
+@hydra.main(config_path="../conf", config_name="config")
 def main(cfg: DictConfig):
     job_cfg = cfg.model
     host = cfg.dispatcher.host
