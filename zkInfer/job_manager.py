@@ -250,9 +250,9 @@ class JobManager:
             job.time_since_start = elapsed_since_started_seconds
             job.sub_job_proofs[sub_job_id] = proof  # Store the proof for this sub-job
             #save the proof to a file
-            proof_file = os.path.join(job.report_directory, f"{sub_job_id}_proof.pf")
-            with open(proof_file, 'wb') as f:
-                f.write(proof)
+            # proof_file = os.path.join(job.report_directory, f"{sub_job_id}_proof.pf")
+            # with open(proof_file, 'wb') as f:
+            #     f.write(proof)
 
             if job.all_sub_jobs_completed():
                 job.status = JobStatus.COMPLETED

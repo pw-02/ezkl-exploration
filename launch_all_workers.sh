@@ -1,0 +1,2 @@
+pssh -h hosts.txt -l ubuntu -x "-i C:/Users/pw/aws/us-west-2-kp.pem" -i \
+"tmux new-session -d -s worker 'conda activate dzkml && cd ezkl-exploration && export PYTHONPATH=.:$PYTHONPATH && python zkInfer/worker.py'"
