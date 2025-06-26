@@ -19,14 +19,16 @@ def compute_content_md5_hex(path):
             md5.update(chunk)
     # Hex digest is always safe for folder/file names
     return md5.hexdigest()
+import hashlib
 
-# def compute_content_md5(path):
-#     md5 = hashlib.md5()
-#     with open(path, 'rb') as f:
-#         for chunk in iter(lambda: f.read(8192), b''):
-#             md5.update(chunk)
-#     # S3 expects base64 encoding of the raw digest
-#     return base64.b64encode(md5.digest()).decode('utf-8')
+def compute_bytes_md5_hex(raw_bytes: bytes) -> str:
+    """
+    Compute the MD5 hash of a bytes object, returning a hex digest (safe for filesystem use).
+    """
+    md5 = hashlib.md5()
+    md5.update(raw_bytes)
+    return md5.hexdigest()
+
 
 def compute_bytes_md5(raw_bytes: bytes) -> str:
     """

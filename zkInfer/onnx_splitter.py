@@ -8,7 +8,7 @@ import onnx
 import onnxruntime as ort
 from onnx.utils import Extractor
 from zkInfer.s3_utils import upload_modelproto_if_not_exists, upload_json_to_s3, upload_modelproto_to_s3
-from zkInfer.utils import compute_bytes_md5
+from zkInfer.utils import compute_bytes_md5_hex
 
 def load_json_input(file_path):
     """Load input data from a JSON file."""
@@ -157,7 +157,7 @@ def prepare_submodel_record(sub_model, intermediate_outputs):
 
     
     raw_bytes = sub_model.SerializeToString()
-    md5_hash = compute_bytes_md5(raw_bytes)
+    md5_hash = compute_bytes_md5_hex(raw_bytes)
     model_metadata = {
         'name': getattr(sub_model, 'name', 'submodel'),
         'num_ops': len(sub_model.graph.node),
