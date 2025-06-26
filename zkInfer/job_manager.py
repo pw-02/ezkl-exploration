@@ -224,7 +224,7 @@ class JobManager:
     def record_heartbeat(self, job_id, sub_job_id, worker_id, status, message):
         if job_id in self.proof_jobs:
             self.proof_jobs[job_id].sub_job_status_map[sub_job_id] = status
-            self.logger.info(f"Heartbeat from {worker_id} | {sub_job_id} | {message}")
+            self.logger.info(f"Heartbeat from {worker_id} | {sub_job_id} | {status}")
 
     def handle_sub_job_result(self, job_id: str, sub_job_id: str, proof: bytes):
 

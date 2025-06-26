@@ -20,17 +20,19 @@ while True:
         # check if the status file exists
         if os.path.exists(status_file):
             with open(status_file) as f:
-                stage = f.read().strip()
+                status_msg = f.read().strip()
             stub.SendHeartbeat(
                 pb.HeartbeatRequest(
                     worker_id=worker_id,
                     sub_job_id=sub_job_id,
                     job_id=job_id,
-                    status="STARTED" if stage not in ["DONE", "FAILED"] else stage,
-                    message=stage
+                    status=status_msg.upper() if status_msg else None,
+                    message=f"Worker {worker_id} is alive",
                 )
             )
-        if stage and stage in ("DONE", "FAILED"):
+        if status_msg is not None:
+            # ensure case sensitive comparison
+            if status_msg.upper() in ("DONE", "FAILED"):
                 break
     except Exception as e:
         print("Heartbeat exception:", e, file=sys.stderr)

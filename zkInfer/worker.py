@@ -334,7 +334,7 @@ class ZKProofWorker:
                         job_id=job_id,
                         sub_job_id=sub_job_id,
                         proof=proof_bytes,
-                        success=True
+                        success=True if result.get("error") is None else False,
                     )), "submit sub-job result"
                 )
             except Exception as e:
@@ -379,9 +379,9 @@ class ZKProofWorker:
             except Exception as e:
                 self.logger.error(f"Failed to clean up working directory: {local_working_dir} ({e})")
 
-            # --- 12. Final heartbeat and completion log ---
-            self.safe_send_heartbeat(job_id, sub_job_id, "DONE", "COMPLETED")
-            self.logger.info(f"✅ Completed sub-job {sub_job_id}")
+            # # --- 12. Final heartbeat and completion log ---
+            # self.safe_send_heartbeat(job_id, sub_job_id, "DONE", "COMPLETED")
+            # self.logger.info(f"✅ Completed sub-job {sub_job_id}")
 
         except Exception as e:
             self.logger.error(f"❌ Error during job: {e}", exc_info=True)

@@ -24,17 +24,13 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0fzkservice.proto\x12\tzkservice\"\x81\x01\n\x10SubmitJobRequest\x12\x10\n\x08job_name\x18\x01 \x01(\t\x12\x17\n\x0fonnx_model_path\x18\x02 \x01(\t\x12\x17\n\x0finput_data_path\x18\x03 \x01(\t\x12\x12\n\nsplit_mode\x18\x04 \x01(\t\x12\x15\n\rops_per_chunk\x18\x05 \x01(\x05\"\'\n\x15JobSubmissionResponse\x12\x0e\n\x06job_id\x18\x01 \x01(\t\"\x1e\n\x0cJobIDRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\"3\n\x11JobStatusResponse\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\"\xa9\x01\n\x12JobSummaryResponse\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x10\n\x08job_name\x18\x02 \x01(\t\x12\x0e\n\x06status\x18\x03 \x01(\t\x12\x16\n\x0etotal_sub_jobs\x18\x04 \x01(\x05\x12\x1a\n\x12\x63ompleted_sub_jobs\x18\x05 \x01(\x05\x12-\n\x08sub_jobs\x18\x06 \x03(\x0b\x32\x1b.zkservice.SubJobStatusInfo\"$\n\x0fWorkerIDRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\"\xce\x01\n\x10SubJobAssignment\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x16\n\x0esub_model_name\x18\x02 \x01(\t\x12\x12\n\nsub_job_id\x18\x03 \x01(\t\x12\x12\n\nmodel_path\x18\x04 \x01(\t\x12\x12\n\ninput_json\x18\x05 \x01(\t\x12\x11\n\ts3_bucket\x18\x06 \x01(\t\x12\x13\n\x0b\x63\x61\x63he_setup\x18\x07 \x01(\x08\x12\x17\n\x0foverwrite_setup\x18\x08 \x01(\x08\x12\x15\n\rjob_available\x18\t \x01(\x08\"R\n\x0cSubJobResult\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x12\n\nsub_job_id\x18\x02 \x01(\t\x12\r\n\x05proof\x18\x03 \x01(\x0c\x12\x0f\n\x07success\x18\x04 \x01(\x08\"\x83\x01\n\x10HeartbeatRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x0e\n\x06job_id\x18\x02 \x01(\t\x12\x12\n\nsub_job_id\x18\x03 \x01(\t\x12\'\n\x06status\x18\x04 \x01(\x0e\x32\x17.zkservice.SubJobStatus\x12\x0f\n\x07message\x18\x05 \x01(\t\"\x1f\n\x0cHeartbeatAck\x12\x0f\n\x07success\x18\x01 \x01(\x08\"\x98\x01\n\x10SubJobStatusInfo\x12\x12\n\nsub_job_id\x18\x01 \x01(\t\x12\x11\n\tworker_id\x18\x02 \x01(\t\x12\'\n\x06status\x18\x03 \x01(\x0e\x32\x17.zkservice.SubJobStatus\x12\x10\n\x08progress\x18\x04 \x01(\x02\x12\x0f\n\x07message\x18\x05 \x01(\t\x12\x11\n\tlast_seen\x18\x06 \x01(\t\"\xa5\x01\n\x14SubJobStatusResponse\x12?\n\x08statuses\x18\x01 \x03(\x0b\x32-.zkservice.SubJobStatusResponse.StatusesEntry\x1aL\n\rStatusesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12*\n\x05value\x18\x02 \x01(\x0b\x32\x1b.zkservice.SubJobStatusInfo:\x02\x38\x01\"-\n\tStatusAck\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"j\n\nPerfReport\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x12\n\nsub_job_id\x18\x02 \x01(\t\x12\x11\n\tworker_id\x18\x03 \x01(\t\x12\x11\n\tezkl_json\x18\x04 \x01(\t\x12\x12\n\nhalo2_json\x18\x05 \x01(\t*\xaf\x01\n\x0cSubJobStatus\x12\x0b\n\x07UNKNOWN\x10\x00\x12\n\n\x06QUEUED\x10\x01\x12\x0b\n\x07STARTED\x10\x02\x12\x17\n\x13GENERATING_SETTINGS\x10\x03\x12\x0f\n\x0b\x43\x41LIBRATING\x10\x04\x12\r\n\tCOMPILING\x10\x05\x12\x0e\n\nSETTING_UP\x10\x06\x12\x0b\n\x07PROVING\x10\x07\x12\r\n\tVERIFYING\x10\x08\x12\x08\n\x04\x44ONE\x10\t\x12\n\n\x06\x46\x41ILED\x10\n2\xb6\x03\n\x0cZKJobService\x12J\n\tSubmitJob\x12\x1b.zkservice.SubmitJobRequest\x1a .zkservice.JobSubmissionResponse\x12\x45\n\x0cGetJobStatus\x12\x17.zkservice.JobIDRequest\x1a\x1c.zkservice.JobStatusResponse\x12H\n\rGetNextSubJob\x12\x1a.zkservice.WorkerIDRequest\x1a\x1b.zkservice.SubJobAssignment\x12\x43\n\x12SubmitSubJobResult\x12\x17.zkservice.SubJobResult\x1a\x14.zkservice.StatusAck\x12\x45\n\rSendHeartbeat\x12\x1b.zkservice.HeartbeatRequest\x1a\x17.zkservice.HeartbeatAck\x12=\n\x0eSendPerfReport\x12\x15.zkservice.PerfReport\x1a\x14.zkservice.StatusAckb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0fzkservice.proto\x12\tzkservice\"\x81\x01\n\x10SubmitJobRequest\x12\x10\n\x08job_name\x18\x01 \x01(\t\x12\x17\n\x0fonnx_model_path\x18\x02 \x01(\t\x12\x17\n\x0finput_data_path\x18\x03 \x01(\t\x12\x12\n\nsplit_mode\x18\x04 \x01(\t\x12\x15\n\rops_per_chunk\x18\x05 \x01(\x05\"\'\n\x15JobSubmissionResponse\x12\x0e\n\x06job_id\x18\x01 \x01(\t\"\x1e\n\x0cJobIDRequest\x12\x0e\n\x06job_id\x18\x01 \x01(\t\"3\n\x11JobStatusResponse\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\"$\n\x0fWorkerIDRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\"\xce\x01\n\x10SubJobAssignment\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x16\n\x0esub_model_name\x18\x02 \x01(\t\x12\x12\n\nsub_job_id\x18\x03 \x01(\t\x12\x12\n\nmodel_path\x18\x04 \x01(\t\x12\x12\n\ninput_json\x18\x05 \x01(\t\x12\x11\n\ts3_bucket\x18\x06 \x01(\t\x12\x13\n\x0b\x63\x61\x63he_setup\x18\x07 \x01(\x08\x12\x17\n\x0foverwrite_setup\x18\x08 \x01(\x08\x12\x15\n\rjob_available\x18\t \x01(\x08\"R\n\x0cSubJobResult\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x12\n\nsub_job_id\x18\x02 \x01(\t\x12\r\n\x05proof\x18\x03 \x01(\x0c\x12\x0f\n\x07success\x18\x04 \x01(\x08\"j\n\x10HeartbeatRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x0e\n\x06job_id\x18\x02 \x01(\t\x12\x12\n\nsub_job_id\x18\x03 \x01(\t\x12\x0e\n\x06status\x18\x04 \x01(\t\x12\x0f\n\x07message\x18\x05 \x01(\t\"\x1f\n\x0cHeartbeatAck\x12\x0f\n\x07success\x18\x01 \x01(\x08\"-\n\tStatusAck\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"j\n\nPerfReport\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x12\n\nsub_job_id\x18\x02 \x01(\t\x12\x11\n\tworker_id\x18\x03 \x01(\t\x12\x11\n\tezkl_json\x18\x04 \x01(\t\x12\x12\n\nhalo2_json\x18\x05 \x01(\t2\xb6\x03\n\x0cZKJobService\x12J\n\tSubmitJob\x12\x1b.zkservice.SubmitJobRequest\x1a .zkservice.JobSubmissionResponse\x12\x45\n\x0cGetJobStatus\x12\x17.zkservice.JobIDRequest\x1a\x1c.zkservice.JobStatusResponse\x12H\n\rGetNextSubJob\x12\x1a.zkservice.WorkerIDRequest\x1a\x1b.zkservice.SubJobAssignment\x12\x43\n\x12SubmitSubJobResult\x12\x17.zkservice.SubJobResult\x1a\x14.zkservice.StatusAck\x12\x45\n\rSendHeartbeat\x12\x1b.zkservice.HeartbeatRequest\x1a\x17.zkservice.HeartbeatAck\x12=\n\x0eSendPerfReport\x12\x15.zkservice.PerfReport\x1a\x14.zkservice.StatusAckb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'zkservice_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_SUBJOBSTATUSRESPONSE_STATUSESENTRY']._loaded_options = None
-  _globals['_SUBJOBSTATUSRESPONSE_STATUSESENTRY']._serialized_options = b'8\001'
-  _globals['_SUBJOBSTATUS']._serialized_start=1437
-  _globals['_SUBJOBSTATUS']._serialized_end=1612
   _globals['_SUBMITJOBREQUEST']._serialized_start=31
   _globals['_SUBMITJOBREQUEST']._serialized_end=160
   _globals['_JOBSUBMISSIONRESPONSE']._serialized_start=162
@@ -43,28 +39,20 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_JOBIDREQUEST']._serialized_end=233
   _globals['_JOBSTATUSRESPONSE']._serialized_start=235
   _globals['_JOBSTATUSRESPONSE']._serialized_end=286
-  _globals['_JOBSUMMARYRESPONSE']._serialized_start=289
-  _globals['_JOBSUMMARYRESPONSE']._serialized_end=458
-  _globals['_WORKERIDREQUEST']._serialized_start=460
-  _globals['_WORKERIDREQUEST']._serialized_end=496
-  _globals['_SUBJOBASSIGNMENT']._serialized_start=499
-  _globals['_SUBJOBASSIGNMENT']._serialized_end=705
-  _globals['_SUBJOBRESULT']._serialized_start=707
-  _globals['_SUBJOBRESULT']._serialized_end=789
-  _globals['_HEARTBEATREQUEST']._serialized_start=792
-  _globals['_HEARTBEATREQUEST']._serialized_end=923
-  _globals['_HEARTBEATACK']._serialized_start=925
-  _globals['_HEARTBEATACK']._serialized_end=956
-  _globals['_SUBJOBSTATUSINFO']._serialized_start=959
-  _globals['_SUBJOBSTATUSINFO']._serialized_end=1111
-  _globals['_SUBJOBSTATUSRESPONSE']._serialized_start=1114
-  _globals['_SUBJOBSTATUSRESPONSE']._serialized_end=1279
-  _globals['_SUBJOBSTATUSRESPONSE_STATUSESENTRY']._serialized_start=1203
-  _globals['_SUBJOBSTATUSRESPONSE_STATUSESENTRY']._serialized_end=1279
-  _globals['_STATUSACK']._serialized_start=1281
-  _globals['_STATUSACK']._serialized_end=1326
-  _globals['_PERFREPORT']._serialized_start=1328
-  _globals['_PERFREPORT']._serialized_end=1434
-  _globals['_ZKJOBSERVICE']._serialized_start=1615
-  _globals['_ZKJOBSERVICE']._serialized_end=2053
+  _globals['_WORKERIDREQUEST']._serialized_start=288
+  _globals['_WORKERIDREQUEST']._serialized_end=324
+  _globals['_SUBJOBASSIGNMENT']._serialized_start=327
+  _globals['_SUBJOBASSIGNMENT']._serialized_end=533
+  _globals['_SUBJOBRESULT']._serialized_start=535
+  _globals['_SUBJOBRESULT']._serialized_end=617
+  _globals['_HEARTBEATREQUEST']._serialized_start=619
+  _globals['_HEARTBEATREQUEST']._serialized_end=725
+  _globals['_HEARTBEATACK']._serialized_start=727
+  _globals['_HEARTBEATACK']._serialized_end=758
+  _globals['_STATUSACK']._serialized_start=760
+  _globals['_STATUSACK']._serialized_end=805
+  _globals['_PERFREPORT']._serialized_start=807
+  _globals['_PERFREPORT']._serialized_end=913
+  _globals['_ZKJOBSERVICE']._serialized_start=916
+  _globals['_ZKJOBSERVICE']._serialized_end=1354
 # @@protoc_insertion_point(module_scope)

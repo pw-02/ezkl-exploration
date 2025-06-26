@@ -8,6 +8,7 @@ python -m grpc_tools.protoc -IzkInfer --python_out=zkInfer --grpc_python_out=zkI
 
 // ===== ENUMS =====
 
+/*
 enum SubJobStatus {
   UNKNOWN = 0;
   QUEUED = 1;
@@ -20,7 +21,7 @@ enum SubJobStatus {
   VERIFYING = 8;
   DONE = 9;
   FAILED = 10;
-}
+} */
 
 // ===== USER SUBMISSION & JOB STATUS =====
 
@@ -45,14 +46,6 @@ message JobStatusResponse {
   string status = 2;
 }
 
-message JobSummaryResponse {
-  string job_id = 1;
-  string job_name = 2;
-  string status = 3;
-  int32 total_sub_jobs = 4;
-  int32 completed_sub_jobs = 5;
-  repeated SubJobStatusInfo sub_jobs = 6;
-}
 
 // ===== WORKER INTERACTION =====
 
@@ -87,7 +80,7 @@ message HeartbeatRequest {
   string worker_id = 1;
   string job_id = 2;
   string sub_job_id = 3;
-  SubJobStatus status = 4;
+  string status = 4;
   string message = 5;
 }
 
@@ -95,19 +88,6 @@ message HeartbeatAck {
   bool success = 1;
 }
 
-// SubJobStatusInfo: Status of a single subjob.
-message SubJobStatusInfo {
-  string sub_job_id = 1;
-  string worker_id = 2;
-  SubJobStatus status = 3;
-  float progress = 4;
-  string message = 5;
-  string last_seen = 6;
-}
-
-message SubJobStatusResponse {
-  map<string, SubJobStatusInfo> statuses = 1;
-}
 
 message StatusAck {
   bool success = 1;
@@ -139,7 +119,6 @@ service ZKJobService {
 
   // Heartbeats and Monitoring
   rpc SendHeartbeat (HeartbeatRequest) returns (HeartbeatAck);
-  //rpc ListActiveSubJobs (StatusAck) returns (SubJobStatusResponse);
 
   // Performance reporting
   rpc SendPerfReport (PerfReport) returns (StatusAck);

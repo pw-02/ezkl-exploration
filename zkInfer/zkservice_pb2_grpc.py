@@ -102,7 +102,6 @@ class ZKJobServiceServicer(object):
 
     def SendHeartbeat(self, request, context):
         """Heartbeats and Monitoring
-        rpc ListActiveSubJobs (StatusAck) returns (SubJobStatusResponse);
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
