@@ -71,7 +71,11 @@ message SubJobResult {
   string job_id = 1;
   string sub_job_id = 2;
   bytes proof = 3;
-  bool success = 4;
+  string status = 4;
+  string ezkl_json = 5;
+  string halo2_json = 6;
+  string message = 7; // Additional message or error description
+
 }
 
 // ===== HEARTBEAT & STATUS =====
@@ -94,16 +98,6 @@ message StatusAck {
   string message = 2;
 }
 
-// ===== PERFORMANCE REPORTS =====
-
-message PerfReport {
-  string job_id = 1;
-  string sub_job_id = 2;
-  string worker_id = 3;
-  string ezkl_json = 4;
-  string halo2_json = 5;
-}
-
 // ===== SERVICE =====
 
 service ZKJobService {
@@ -115,12 +109,12 @@ service ZKJobService {
 
   // Worker API
   rpc GetNextSubJob (WorkerIDRequest) returns (SubJobAssignment);
-  rpc SubmitSubJobResult (SubJobResult) returns (StatusAck);
+  rpc FinalizeSubJob (SubJobResult) returns (StatusAck);
 
   // Heartbeats and Monitoring
   rpc SendHeartbeat (HeartbeatRequest) returns (HeartbeatAck);
 
   // Performance reporting
-  rpc SendPerfReport (PerfReport) returns (StatusAck);
+  //rpc SendPerfReport (PerfReport) returns (StatusAck);
 
 }

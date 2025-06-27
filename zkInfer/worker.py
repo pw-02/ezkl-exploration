@@ -162,7 +162,7 @@ class EZKLProofStages:
 
                 self.logger.info(f"{self.job_name}: {name} took {t:.3f}s")
             self._update_status("REPORTING")
-            self.logger.info(f"{self.job_name}: All stages completed..")
+            # self.logger.info(f"{self.job_name}: Proving stages completed..")
             return {"timings": timings, "provenances": provenances, "error": None}
         except Exception as e:
             import traceback
@@ -179,7 +179,7 @@ class ZKProofWorker:
         self.target = f"{cfg.dispatcher.host}:{cfg.dispatcher.port}"
         self.channel = None
         self.stub = None
-        self.logger = logger
+        self.logger: logging.Logger = logger
 
     def connect(self):
         if self.channel:
@@ -201,6 +201,7 @@ class ZKProofWorker:
                     self.logger.error(f"❌ {action} encountered an exception: {e}", exc_info=True)
                     if attempt == max_retries:
                         raise
+
     def safe_send_heartbeat(self, job_id, sub_job_id, status, message):
         try:
             self.stub.SendHeartbeat(pb.HeartbeatRequest(
@@ -216,6 +217,23 @@ class ZKProofWorker:
         except Exception as e:
             self.logger.error(f"Exception sending heartbeat: {e}", exc_info=True)
     
+    def send_final_subjob_result(self, job_id, sub_job_id, status, proof=None, message=None, ezkl_perf=None, halo2_perf=None):
+        def _call():
+            return self.stub.FinalizeSubJob(pb.SubJobResult(
+                job_id=job_id,
+                sub_job_id=sub_job_id,
+                proof=proof or b"",
+                status=status,
+                ezkl_json=json.dumps(ezkl_perf) if ezkl_perf else "",
+                halo2_json=json.dumps(halo2_perf) if halo2_perf else "",
+                message=message or "",
+            ))
+        try:
+            self.safe_grpc_call(_call, action=f"FinalizeSubJob({status})", max_retries=3)
+            self.logger.info(f"Sent final SubJobResult: {sub_job_id} ({status})")
+        except grpc.RpcError as e:
+            self.logger.error(f"❌ gRPC error sending SubJobResult after retries: {e} (code={e.code()})")
+
     
     def fetch_and_run_job(self):
         sub_job_id = None
@@ -248,7 +266,7 @@ class ZKProofWorker:
             input_json = json.loads(response.input_json)
             cache_prefix = os.path.dirname(model_path)
             worker_pid = str(os.getpid())
-            # --- 2. Model download/setup ---
+              # 2. Model download/setup
             try:
                 if not os.path.exists(model_path):
                     os.makedirs(cache_prefix, exist_ok=True)
@@ -258,7 +276,7 @@ class ZKProofWorker:
                     local_model_path = model_path
             except Exception as e:
                 self.logger.error(f"❌ Failed to prepare model: {e}", exc_info=True)
-                self.safe_send_heartbeat(job_id, sub_job_id, "FAILED", "Model prep failed")
+                self.send_final_subjob_result(job_id, sub_job_id, status="FAILED", message=f"Model prep failed: {e}")
                 return
             
             # --- 3. Local input + job info ---
@@ -310,8 +328,14 @@ class ZKProofWorker:
             # --- 7. On error: Send failure heartbeat, log, and cleanup ---
             if result.get("error"):
                 self.logger.error(f"❌ Error during proof: {result['error']}")
-                self.safe_send_heartbeat(job_id, sub_job_id, "FAILED", result['error'])
+                self.send_final_subjob_result(job_id, sub_job_id, status="FAILED", message=result['error'])
+                
+                try:
+                    shutil.rmtree(local_working_dir, ignore_errors=True)
+                except Exception as e:
+                    self.logger.error(f"Failed to clean up working directory: {local_working_dir} ({e})")
                 return
+
 
              # --- 8. Upload setup to S3 if needed ---
             s3_upload_start = time.perf_counter()
@@ -325,68 +349,74 @@ class ZKProofWorker:
                     self.logger.error(f"❌ S3 upload failed: {e}", exc_info=True)
             time_to_upload = time.perf_counter() - s3_upload_start
 
-            # --- 9. Send proof and metrics to dispatcher (with error handling) ---
+            # 9. Parse resource usage, create performance reports (do this before reading proof)
+            timing_metrics = result.get("timings", {})
+            provenance_metrics = result.get("provenances", {})
+            timing_metrics.update({"s3_upload_time(s)": f"{time_to_upload:.3f}"})
+            try:
+                max_process_mem, max_system_mem, avg_process_cpu, avg_system_cpu = parse_resource_usage_file(resource_usage_file)
+            except Exception as e:
+                self.logger.error(f"❌ Failed to parse resource usage: {e}", exc_info=True)
+                max_process_mem = max_system_mem = avg_process_cpu = avg_system_cpu = None
+            
+            model_info = {
+            "job_id": job_id, "sub_job_id": sub_job_id, "onnx_model_path": local_model_path,
+            "input_data_path": local_input_path, "max_process_memory(GB)": max_process_mem,
+            "max_system_memory(GB)": max_system_mem, "avg_process_cpu(%)": avg_process_cpu,
+            "avg_system_cpu(%)": avg_system_cpu
+            }
+            circuit_info = read_csv_into_dict(os.path.join(local_working_dir, "halo2_circuit.csv"))
+            prover_info_cpu = read_csv_into_dict(os.path.join(local_working_dir, "halo2_prover_cpu.csv"))
+            fft_summary = get_fft_summary(os.path.join(local_working_dir, f"halo2_ffts.csv"))
+            msm_summary = get_msm_summary(os.path.join(local_working_dir, f"halo2_msms.csv"))
+            halo2_perf = {**model_info, **circuit_info, **prover_info_cpu, **fft_summary, **msm_summary}
+            ezkl_perf = {**model_info, **timing_metrics, **provenance_metrics}
+
+             # 10. Send proof and metrics to dispatcher
             try:
                 with open(proof_stages.proof_path, "rb") as f:
                     proof_bytes = f.read()
-                self.safe_grpc_call(
-                    lambda: self.stub.SubmitSubJobResult(pb.SubJobResult(
-                        job_id=job_id,
-                        sub_job_id=sub_job_id,
-                        proof=proof_bytes,
-                        success=True if result.get("error") is None else False,
-                    )), "submit sub-job result"
+                self.send_final_subjob_result(
+                    job_id, sub_job_id, status="COMPLETED",
+                    proof=proof_bytes,
+                    ezkl_perf=ezkl_perf,
+                    halo2_perf=halo2_perf
                 )
             except Exception as e:
                 self.logger.error(f"❌ Failed to send proof: {e}", exc_info=True)
-                self.safe_send_heartbeat(job_id, sub_job_id, "FAILED", f"Send proof failed: {e}")
-                return
-            
-            # --- 10. Parse resource usage, create and send performance reports ---
-            try:
-                timing_metrics = result.get("timings", {})
-                provenance_metrics = result.get("provenances", {})
-                timing_metrics.update({"s3_upload_time(s)": f"{time_to_upload:.3f}"})
-
-                max_process_mem, max_system_mem, avg_process_cpu, avg_system_cpu = parse_resource_usage_file(resource_usage_file)
-                model_info = {
-                    "job_id": job_id, "sub_job_id": sub_job_id, "onnx_model_path": local_model_path,
-                    "input_data_path": local_input_path, "max_process_memory(GB)": max_process_mem,
-                    "max_system_memory(GB)": max_system_mem, "avg_process_cpu(%)": avg_process_cpu,
-                    "avg_system_cpu(%)": avg_system_cpu
-                }
-                circuit_info = read_csv_into_dict(os.path.join(local_working_dir, "halo2_circuit.csv"))
-                prover_info_cpu = read_csv_into_dict(os.path.join(local_working_dir, "halo2_prover_cpu.csv"))
-                fft_summary = get_fft_summary(os.path.join(local_working_dir, f"halo2_ffts.csv"))
-                msm_summary = get_msm_summary(os.path.join(local_working_dir, f"halo2_msms.csv"))
-                halo2_perf = {**model_info, **circuit_info, **prover_info_cpu, **fft_summary, **msm_summary}
-                ezkl_perf = {**model_info, **timing_metrics, **provenance_metrics}
-                self.safe_grpc_call(
-                    lambda: self.stub.SendPerfReport(pb.PerfReport(
-                        job_id=job_id,
-                        sub_job_id=sub_job_id,
-                        worker_id=self.worker_id,
-                        ezkl_json=json.dumps(ezkl_perf),
-                        halo2_json=json.dumps(halo2_perf)
-                    )), "send perf report"
+                self.send_final_subjob_result(
+                    job_id, sub_job_id, status="FAILED",
+                    message=f"Send proof failed: {e}",
+                    ezkl_perf=ezkl_perf,
+                    halo2_perf=halo2_perf
                 )
-            except Exception as e:
-                self.logger.error(f"❌ Failed to send performance report: {e}", exc_info=True)
-
-             # --- 11. Cleanup working directory ---
+                try:
+                    shutil.rmtree(local_working_dir, ignore_errors=True)
+                except Exception as e:
+                    self.logger.error(f"Failed to clean up working directory: {local_working_dir} ({e})")
+                return
+        
+            # 11. Cleanup working directory
             try:
                 shutil.rmtree(local_working_dir, ignore_errors=True)
             except Exception as e:
                 self.logger.error(f"Failed to clean up working directory: {local_working_dir} ({e})")
 
-            # # --- 12. Final heartbeat and completion log ---
-            # self.safe_send_heartbeat(job_id, sub_job_id, "DONE", "COMPLETED")
-            # self.logger.info(f"✅ Completed sub-job {sub_job_id}")
-
+            self.logger.info(f"✅ Completed sub-job {sub_job_id}")
+        
         except Exception as e:
             self.logger.error(f"❌ Error during job: {e}", exc_info=True)
             if sub_job_id and job_id:
-                self.safe_send_heartbeat(job_id, sub_job_id, "FAILED", str(e))
+                self.send_final_subjob_result(
+                    job_id, sub_job_id, status="FAILED",
+                    message=str(e)
+                )
+            if local_working_dir:
+                try:
+                    shutil.rmtree(local_working_dir, ignore_errors=True)
+                except Exception as ex:
+                    self.logger.error(f"Failed to clean up working directory: {local_working_dir} ({ex})")
+
 
     def reconnect_if_needed(self):
         self.logger.info("🔁 Attempting to reconnect gRPC channel...")

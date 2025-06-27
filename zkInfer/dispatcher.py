@@ -107,14 +107,24 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
         )
     
 
-    def SubmitSubJobResult(self, request, context):
-        self.job_manager.handle_sub_job_result(
-            job_id=request.job_id,
-            sub_job_id=request.sub_job_id,
-            proof=request.proof,
+    def FinalizeSubJob(self, request, context):
+        try:
+            self.job_manager.finalize_sub_job(
+                job_id=request.job_id,
+                sub_job_id=request.sub_job_id,
+                status=request.status,
+                proof=request.proof,
+                message=request.message,
+                ezkl_perf= json.loads(request.ezkl_json),
+                halo2_perf= json.loads(request.halo2_json)
 
-        )
-        return pb.StatusAck(success=True, message="Result received")
+            )
+            return pb.StatusAck(success=True, message="Result received")
+        except Exception as e:
+            self.logger.error(f"❌ Error finalizing sub-job: {str(e)}")
+            context.set_details(f"Error finalizing sub-job: {str(e)}")
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return pb.StatusAck(success=False, message=str(e))
 
     def SendHeartbeat(self, request, context):
         try:
@@ -143,21 +153,21 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
     #         resp.statuses[sid].last_seen = info["last_seen"]
     #     return resp
     
-    def SendPerfReport(self, request, context):
-        try:
-            self.job_manager.record_performance_report(
-                job_id=request.job_id,
-                sub_job_id=request.sub_job_id,
-                worker_id=request.worker_id,
-                ezkl_perf=json.loads(request.ezkl_json),
-                halo2_perf=json.loads(request.halo2_json)
-            )
-            return pb.StatusAck(success=True, message="Performance report received")
-        except Exception as e:
-            self.logger.error(f"❌ Error in performance report: {str(e)}")
-            context.set_details(f"Error in performance report: {str(e)}")
-            context.set_code(grpc.StatusCode.INTERNAL)
-            return pb.StatusAck(success=False, message=str(e))
+    # def SendPerfReport(self, request, context):
+    #     try:
+    #         self.job_manager.record_performance_report(
+    #             job_id=request.job_id,
+    #             sub_job_id=request.sub_job_id,
+    #             worker_id=request.worker_id,
+    #             ezkl_perf=json.loads(request.ezkl_json),
+    #             halo2_perf=json.loads(request.halo2_json)
+    #         )
+    #         return pb.StatusAck(success=True, message="Performance report received")
+    #     except Exception as e:
+    #         self.logger.error(f"❌ Error in performance report: {str(e)}")
+    #         context.set_details(f"Error in performance report: {str(e)}")
+    #         context.set_code(grpc.StatusCode.INTERNAL)
+    #         return pb.StatusAck(success=False, message=str(e))
 
 @hydra.main(config_path="../conf", config_name="config")
 def serve(cfg: DictConfig):

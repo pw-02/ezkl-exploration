@@ -51,8 +51,8 @@ class ZKJobServiceStub(object):
                 request_serializer=zkservice__pb2.WorkerIDRequest.SerializeToString,
                 response_deserializer=zkservice__pb2.SubJobAssignment.FromString,
                 _registered_method=True)
-        self.SubmitSubJobResult = channel.unary_unary(
-                '/zkservice.ZKJobService/SubmitSubJobResult',
+        self.FinalizeSubJob = channel.unary_unary(
+                '/zkservice.ZKJobService/FinalizeSubJob',
                 request_serializer=zkservice__pb2.SubJobResult.SerializeToString,
                 response_deserializer=zkservice__pb2.StatusAck.FromString,
                 _registered_method=True)
@@ -60,11 +60,6 @@ class ZKJobServiceStub(object):
                 '/zkservice.ZKJobService/SendHeartbeat',
                 request_serializer=zkservice__pb2.HeartbeatRequest.SerializeToString,
                 response_deserializer=zkservice__pb2.HeartbeatAck.FromString,
-                _registered_method=True)
-        self.SendPerfReport = channel.unary_unary(
-                '/zkservice.ZKJobService/SendPerfReport',
-                request_serializer=zkservice__pb2.PerfReport.SerializeToString,
-                response_deserializer=zkservice__pb2.StatusAck.FromString,
                 _registered_method=True)
 
 
@@ -94,7 +89,7 @@ class ZKJobServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def SubmitSubJobResult(self, request, context):
+    def FinalizeSubJob(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -102,13 +97,6 @@ class ZKJobServiceServicer(object):
 
     def SendHeartbeat(self, request, context):
         """Heartbeats and Monitoring
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def SendPerfReport(self, request, context):
-        """Performance reporting
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -132,8 +120,8 @@ def add_ZKJobServiceServicer_to_server(servicer, server):
                     request_deserializer=zkservice__pb2.WorkerIDRequest.FromString,
                     response_serializer=zkservice__pb2.SubJobAssignment.SerializeToString,
             ),
-            'SubmitSubJobResult': grpc.unary_unary_rpc_method_handler(
-                    servicer.SubmitSubJobResult,
+            'FinalizeSubJob': grpc.unary_unary_rpc_method_handler(
+                    servicer.FinalizeSubJob,
                     request_deserializer=zkservice__pb2.SubJobResult.FromString,
                     response_serializer=zkservice__pb2.StatusAck.SerializeToString,
             ),
@@ -141,11 +129,6 @@ def add_ZKJobServiceServicer_to_server(servicer, server):
                     servicer.SendHeartbeat,
                     request_deserializer=zkservice__pb2.HeartbeatRequest.FromString,
                     response_serializer=zkservice__pb2.HeartbeatAck.SerializeToString,
-            ),
-            'SendPerfReport': grpc.unary_unary_rpc_method_handler(
-                    servicer.SendPerfReport,
-                    request_deserializer=zkservice__pb2.PerfReport.FromString,
-                    response_serializer=zkservice__pb2.StatusAck.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -242,7 +225,7 @@ class ZKJobService(object):
             _registered_method=True)
 
     @staticmethod
-    def SubmitSubJobResult(request,
+    def FinalizeSubJob(request,
             target,
             options=(),
             channel_credentials=None,
@@ -255,7 +238,7 @@ class ZKJobService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/zkservice.ZKJobService/SubmitSubJobResult',
+            '/zkservice.ZKJobService/FinalizeSubJob',
             zkservice__pb2.SubJobResult.SerializeToString,
             zkservice__pb2.StatusAck.FromString,
             options,
@@ -285,33 +268,6 @@ class ZKJobService(object):
             '/zkservice.ZKJobService/SendHeartbeat',
             zkservice__pb2.HeartbeatRequest.SerializeToString,
             zkservice__pb2.HeartbeatAck.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def SendPerfReport(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/zkservice.ZKJobService/SendPerfReport',
-            zkservice__pb2.PerfReport.SerializeToString,
-            zkservice__pb2.StatusAck.FromString,
             options,
             channel_credentials,
             insecure,

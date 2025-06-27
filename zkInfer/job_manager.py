@@ -26,6 +26,17 @@ class JobStatus(str, Enum):
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+    
+def as_job_status(val):
+    if isinstance(val, JobStatus):
+        return val
+    try:
+        return JobStatus(val)
+    except ValueError:
+        # Optionally log or raise for unknown status
+        return JobStatus.UNKNOWN  # Default to UNKNOWN if unknown
+        # raise ValueError(f"Unknown JobStatus: {val}")   
 
 
 class ProofJob:
@@ -57,6 +68,11 @@ class ProofJob:
         self.report_dir_prefix = "reports"
         self.sub_job_queue: Deque = deque()
         self.sub_job_status_map: Dict[str, JobStatus] = {}
+        self.sub_job_definitions: Dict[str, Dict] = {}    # NEW: stores all original sub-job dicts
+        self.sub_job_retries: Dict[str, int] = {}         # NEW: retry count for each sub-job
+        self.sub_job_failure_map: Dict[str, str] = {}     # NEW: failure reason for each sub-job
+
+
         self.report_directory = os.path.join(
             self.report_dir_prefix,
             self.name,
@@ -69,7 +85,7 @@ class ProofJob:
         self.start_time: Optional[datetime] = None
         self.overwrite_setup = overwrite_setup
         self.sub_job_proofs: Dict[str, bytes] = {}  # Store proofs for each sub-job
-        self.time_since_start: Optional[float] = None  # Total wall time for the job
+        self.time_since_started: Optional[float] = None  # Total wall time for the job
         self.time_since_queued: Optional[float] = None  # Total wall time for the job
 
     def queue_models_for_proving(self):
@@ -91,15 +107,17 @@ class ProofJob:
 
                 inference_json_str  = json.dumps(load_json(self.input_data_path))
                 sub_job_id = self.job_id  # sub_job_id is the same as job_id since we are not splitting
-                self.sub_job_queue.append({
-                    "job_id": self.job_id,                  # Unique job ID
-                    "sub_model_name": self.name,                # Human-readable model name
-                    "sub_job_id": sub_job_id,              # For non-split, just use job_id (or generate a new UUID if you prefer)
-                    "model_path": model_path,               # Where the model is (local or S3 path)
-                    "input_json": inference_json_str,       # JSON string to send over RPC
-                })
+                job_info = {
+                    "job_id": self.job_id,
+                    "sub_model_name": self.name,
+                    "sub_job_id": sub_job_id,
+                    "model_path": model_path,
+                    "input_json": inference_json_str,
+                }
+                self.sub_job_queue.append(job_info)
                 self.sub_job_status_map[sub_job_id] = JobStatus.QUEUED
-
+                self.sub_job_definitions[sub_job_id] = job_info.copy()
+                self.sub_job_retries[sub_job_id] = 0 
             else:
                 # Prepare for split mode (auto or fixed)
                 intermediate_outputs = collect_intermediate_inference_outputs(self.onnx_model_path, self.input_data_path)
@@ -125,23 +143,22 @@ class ProofJob:
                 
                 for sub_model_name, (md5_hash, model_path, flattened_inputs, model_metadata) in submodel_info_map.items():
                     sub_job_id = f"{sub_model_name}_{self.job_id}"  # use self.job_id for global uniqueness
-                    input_json = json.dumps(flattened_inputs)
-                    self.sub_job_queue.append(
-                        {
-                            "job_id": self.job_id,
-                            "sub_model_name": sub_model_name, # Use sub_model_name for clarity
-                            "sub_job_id": sub_job_id,
-                            "model_path": model_path,  # Path to the submodel
-                            "input_json": input_json,  # JSON string of inputs
-                        }
-                    )
+                    job_info = {
+                        "job_id": self.job_id,
+                        "sub_model_name": sub_model_name,
+                        "sub_job_id": sub_job_id,
+                        "model_path": model_path,
+                        "input_json": json.dumps(flattened_inputs),
+                    }
+                    self.sub_job_queue.append(job_info)
                     self.sub_job_status_map[sub_job_id] = JobStatus.QUEUED
-                self.logger.info(f"Queued {len(submodel_info_map)} sub-jobs for job {self.name} (job_id={self.job_id})")
-            
+                    self.sub_job_definitions[sub_job_id] = job_info.copy()    # NEW
+                    self.sub_job_retries[sub_job_id] = 0                      # NEW
+              
             self.status = JobStatus.QUEUED
             self.queued_time = datetime.now(timezone.utc)
             self.logger.info(
-                f"Queued {len(self.sub_job_queue)} sub-jobs for proving global job {self.name} (job_id={self.job_id}"
+                f"Queued {len(self.sub_job_queue)} sub-jobs fo job {self.name}"
             )
         except Exception as e:
             self.logger.error(f"Error during model preparation: {e}", exc_info=True)
@@ -156,6 +173,12 @@ class ProofJob:
     
     def all_sub_jobs_completed(self):
         return all(status == JobStatus.COMPLETED for status in self.sub_job_status_map.values())
+    
+    def any_sub_job_failed(self):  # NEW: for summary/status
+        return any(status == JobStatus.FAILED for status in self.sub_job_status_map.values())
+    
+    def all_sub_jobs_done(self):
+        return len(self.sub_job_queue) == 0
 
     def delete_job_data(self):
         """
@@ -169,6 +192,22 @@ class ProofJob:
             self.logger.debug(f"Deleting local cache directory: {self.cache_prefix}")
             shutil.rmtree(self.cache_prefix)
 
+    def retry_sub_job(self, sub_job_id: str, max_retries=2):
+        """
+        Retry a specific sub-job by re-queuing it.
+        """
+        if sub_job_id in self.sub_job_status_map:
+            if self.sub_job_status_map[sub_job_id] == JobStatus.FAILED:
+                retry_count = self.sub_job_retries.get(sub_job_id, 0)
+                if retry_count < max_retries:
+                    job_info = self.sub_job_definitions[sub_job_id]
+                    self.sub_job_queue.append(job_info)
+                    self.sub_job_status_map[sub_job_id] = JobStatus.QUEUED
+                    self.sub_job_retries[sub_job_id] = retry_count + 1
+                    self.logger.info(f"Retrying sub-job {sub_job_id} (retry {self.sub_job_retries[sub_job_id]})")
+                    return True
+                else:
+                    return False
 
 class JobManager:
     def __init__(self, logger, num_prover_workers, s3_bucket, cache_setup=False, overwrite_setup=False):
@@ -199,6 +238,7 @@ class JobManager:
     def get_job_status(self, job_id: str) -> str:
         return self.proof_jobs.get(job_id).status if job_id in self.proof_jobs else "UNKNOWN"
 
+
     def get_job_progress(self, job_id: str) -> float:
         job = self.proof_jobs.get(job_id)
         if job:
@@ -214,71 +254,86 @@ class JobManager:
             sub_job_id = next_sub_job_info["sub_job_id"]
             self.sub_job_assignments[sub_job_id] = worker_id
             if job.status == JobStatus.QUEUED:
-                # Mark the global job as IN_PROGRESS if it was previously QUEUED
                 job.status = JobStatus.IN_PROGRESS
                 job.start_time = datetime.now(timezone.utc)
-            job.sub_job_status_map[sub_job_id] = JobStatus.IN_PROGRESS # Mark the sub-job as IN_PROGRESS    
+            job.sub_job_status_map[sub_job_id] = JobStatus.IN_PROGRESS
             return next_sub_job_info
         return None
 
+    
     def record_heartbeat(self, job_id, sub_job_id, worker_id, status, message):
         if job_id in self.proof_jobs:
-            self.proof_jobs[job_id].sub_job_status_map[sub_job_id] = status
-            self.logger.info(f"Heartbeat from {worker_id} | {sub_job_id} | {status}")
+            job = self.proof_jobs[job_id]
+            # status_enum = as_job_status(status)
+            job.sub_job_status_map[sub_job_id] = status
+            self.logger.info(f"Heartbeat for {sub_job_id} : {status}")
 
-    def handle_sub_job_result(self, job_id: str, sub_job_id: str, proof: bytes):
 
+    def finalize_sub_job(self, job_id, sub_job_id, status, proof=None, message=None, ezkl_perf: Dict = None, halo2_perf: Dict = None):
         job = self.proof_jobs.get(job_id)
+        status_enum = as_job_status(status)
         
-        if job and sub_job_id in job.sub_job_status_map:
+        if not (job and sub_job_id in job.sub_job_status_map):
+            return
+
+        job.sub_job_status_map[sub_job_id] = status_enum
+
+        # Timing and reporting for COMPLETED
+        if status_enum == JobStatus.COMPLETED:
+            # if proof is not None:
+            #     job.sub_job_proofs[sub_job_id] = proof
+            
             time_now = datetime.now(timezone.utc)
-            job.sub_job_status_map[sub_job_id] = JobStatus.COMPLETED
-            elapsed_since_queued_seconds = (time_now - job.queued_time).total_seconds()
-            elapsed_since_started_seconds = (time_now - job.start_time).total_seconds()
-            self.logger.info(f"✅ Sub-job {sub_job_id} marked COMPLETED")
+            job.time_since_queued = (time_now - job.queued_time).total_seconds() if job.queued_time else None
+            job.time_since_started = (time_now - job.start_time).total_seconds() if job.start_time else None
             os.makedirs(job.report_directory, exist_ok=True)
-            elapsed_times_file = os.path.join(job.report_directory, "global_job_progress.log")
             log_line = (
                 f"{time_now.isoformat()} - {sub_job_id} completed. "
-                f"Time since global job queued: {elapsed_since_queued_seconds:.2f} s, "
-                f"Time since global job started: {elapsed_since_started_seconds:.2f} s\n"
+                f"Time since global job queued: {job.time_since_queued:.2f} s, "
+                f"Time since global job started: {job.time_since_started:.2f} s\n"
             )
-            # Open in append mode, create file if it does not exist
-            with open(elapsed_times_file, 'a') as f:
+            with open(os.path.join(job.report_directory, "global_job_progress.log"), 'a') as f:
                 f.write(log_line)
-            job.time_since_queued = elapsed_since_queued_seconds
-            job.time_since_start = elapsed_since_started_seconds
-            # job.sub_job_proofs[sub_job_id] = proof  # Store the proof for this sub-job
-            #save the proof to a file
-            # proof_file = os.path.join(job.report_directory, f"{sub_job_id}_proof.pf")
-            # with open(proof_file, 'wb') as f:
-            #     f.write(proof)
+            self.logger.info(f"✅ Sub-job {sub_job_id} COMPLETED")
 
-            if job.all_sub_jobs_completed():
+        # Handling failures
+        elif status_enum == JobStatus.FAILED:
+            job.sub_job_failure_map[sub_job_id] = message
+            self.logger.error(f"❌ Sub-job {sub_job_id} FAILED (reason: {message})")
+            requeued = job.retry_sub_job(sub_job_id, max_retries=2)  # Custom retry logic
+            if not requeued:
+                job.status = JobStatus.FAILED
+                self.logger.error(f"Sub-job {sub_job_id} failed and exceeded max retries. Job {job_id} will be marked as FAILED.")
+
+        # Write performance reports (if present)
+        if status_enum in [JobStatus.COMPLETED, JobStatus.FAILED]:
+            os.makedirs(job.report_directory, exist_ok=True)
+            report_line = {
+                "config_name": job.name,
+                "cache_setup": self.cache_setup,
+                "overwrite_setup": self.overwrite_setup,
+                "global_prover_workers": job.num_prover_workers,
+                "global_job_time_since_started(s)": job.time_since_started,
+                "global_job_time_since_queued(s)": job.time_since_queued
+            }
+            ezkl_file = os.path.join(job.report_directory, "ezkl_perf.csv")
+            halo2_file = os.path.join(job.report_directory, "halo2_perf.csv")
+            write_dict_to_csv({**report_line, **(ezkl_perf or {})}, ezkl_file)
+            write_dict_to_csv({**report_line, **(halo2_perf or {})}, halo2_file)
+
+        # Global job completion/failure logic
+        if job.all_sub_jobs_done():
+            if job.any_sub_job_failed():
+                job.status = JobStatus.FAILED
+                self.logger.error(f"❌ Job {job_id} FAILED. One or more sub-jobs failed. Reports saved to {job.report_directory}")
+            else:
                 job.status = JobStatus.COMPLETED
-
-                self.logger.info(f"All sub-jobs for {job_id} completed. Finalizing job.")
                 self.logger.info(f"🏁 Job {job_id} COMPLETED. Reports saved to {job.report_directory}")
+            if not self.cache_setup: 
+                job.delete_job_data()
 
-                if not self.cache_setup: 
-                    job.delete_job_data() #remove all job setup files from local and s3 storage
 
-    def record_performance_report(self, job_id: str, sub_job_id: str, worker_id, ezkl_perf: Dict, halo2_perf: Dict):
-        job = self.proof_jobs.get(job_id)
-        os.makedirs(job.report_directory, exist_ok=True)
-        report_dir = job.report_directory if job else None
 
-        report_line = {
-            "config_name": job.name,
-            "cache_setup": self.cache_setup,
-            "overwrite_setup": self.overwrite_setup,
-            "global_prover_workers": job.num_prover_workers,
-            "global_job_time_since_start(s)": job.time_since_start,
-            "global_job_time_since_queued(s)": job.time_since_queued
-        }
-        ezkl_file = os.path.join(report_dir, "ezkl_perf.csv")
-        halo2_file = os.path.join(report_dir, "halo2_perf.csv")
 
-        write_dict_to_csv({**report_line, **ezkl_perf}, ezkl_file)
-        write_dict_to_csv({**report_line, **halo2_perf}, halo2_file)
+
 
