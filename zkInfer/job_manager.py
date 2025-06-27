@@ -178,7 +178,10 @@ class ProofJob:
         return any(status == JobStatus.FAILED for status in self.sub_job_status_map.values())
     
     def all_sub_jobs_done(self):
-        return len(self.sub_job_queue) == 0
+        return all(
+            status in (JobStatus.COMPLETED, JobStatus.FAILED)
+            for status in self.sub_job_status_map.values()
+            )
 
     def delete_job_data(self):
         """
