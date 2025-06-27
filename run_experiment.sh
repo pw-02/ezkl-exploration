@@ -14,7 +14,7 @@ tmux rename-window -t $SESSION:0 'dispatcher'
 tmux send-keys -t $SESSION:dispatcher 'conda activate dzkml' C-m
 tmux send-keys -t $SESSION:dispatcher 'cd ezkl-exploration' C-m
 tmux send-keys -t $SESSION:dispatcher 'export PYTHONPATH=.:$PYTHONPATH' C-m
-tmux send-keys -t $SESSION:dispatcher "python zkInfer/dispatcher.py dispatcher.host=localhost dispatcher.num_prover_workers=${NUM_WORKERS}" C-m
+tmux send-keys -t $SESSION:dispatcher "python zkInfer/dispatcher.py s3_bucket=None dispatcher.host=localhost dispatcher.num_prover_workers=${NUM_WORKERS}" C-m
 
 # Start workers in their own windows
 for i in $(seq 1 $NUM_WORKERS); do
