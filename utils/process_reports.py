@@ -87,6 +87,8 @@ def extract_num_workers(report_path):
 def create_summary_report(report_dir):
     halo2_perf_file = glob.glob(os.path.join(report_dir, "halo2_perf.csv"))[0]
     halo2_job_metrics = convert_csv_to_dict(halo2_perf_file)
+    ezkl_perf_file = glob.glob(os.path.join(report_dir, "ezkl_perf.csv"))[0]
+    ezkl_job_metrics = convert_csv_to_dict(ezkl_perf_file)
     # num_workers = extract_num_workers(report_dir.split("reports\\", 1)[1])
     ec2_instance = report_dir.split("reports\\", 1)[0].split("\\")[-1]
     
@@ -121,9 +123,12 @@ def create_summary_report(report_dir):
         "fft_device": halo2_job_metrics.get('fft_device', 'N/A')[0],
         "total_msm_time_s": sum(halo2_job_metrics.get('msm_total_time(s)', 0)),
         "msm_device": halo2_job_metrics.get('msm_device', 'N/A')[0],
-
-        "s3_upload_time_s": sum(halo2_job_metrics.get('s3_upload_time(s)', [])),
-       
+        "s3_upload_time_s": sum(ezkl_job_metrics.get('s3_upload_time(s)', [])),
+        "ezl_calibrate_time_s": sum(ezkl_job_metrics.get('ezkl_calibrate_settings(s)', [])),
+        "ezl_src_time_s": sum(ezkl_job_metrics.get('ezkl_get_srs(s)', [])),
+        "ezkl_gen_witness_time_s": sum(ezkl_job_metrics.get('ezkl_gen_witness(s)', [])),
+        "ezkl_setup_time_s": sum(ezkl_job_metrics.get('ezkl_setup(s)', [])),
+        "ezkl_prove_time_s": sum(ezkl_job_metrics.get('ezkl_prove(s)', [])),
     }
     save_dict_to_csv(report_summary, "report_summary.csv")
 
@@ -169,11 +174,19 @@ def create_summary_report(report_dir):
 
 
 if __name__ == "__main__":
-
-    for folder in glob.glob(r"C:\Users\pw\Desktop\r6a32xlarge\nano_gpt_4_layers_64_embd_split_size_1\*"):
-        if os.path.isdir(folder):
-            print(f"Processing folder: {folder}")
-            create_summary_report(folder)
+    if os.path.exists("report_summary.csv"):
+        os.remove("report_summary.csv")
+    
+    folders=[
+        r"C:\Users\pw\Desktop\dzkml\c5a4xlarge\nano_gpt_4_layers_64_embd_split_size_1\*",
+        r"C:\Users\pw\Desktop\dzkml\r6a32xlarge\nano_gpt_4_layers_64_embd_split_size_1\*",
+    ]
+    for folder in folders:
+        for subfolder in glob.glob(folder):
+            if os.path.isdir(subfolder):
+                print(f"Processing folder: {subfolder}")
+                create_summary_report(subfolder)
+    print("Summary report created: report_summary.csv")
 
     # folder = r"C:\Users\pw\Desktop\reports\mnist_gan_split_size_1\2025-06-24_19-35-37-4w"  # Change this to your folder
     # process_reports(folder)
