@@ -1,5 +1,5 @@
 # Dispatcher service config
-host: "172.31.8.163"
+host: "172.31.8.163"  # IP address of the dispatcher host
 port: 50051
 max_workers: 1
 num_prover_workers: 2 # Number of workers for the prover - used for logging only
