@@ -2,4 +2,4 @@
 host: "localhost"
 port: 50051
 max_workers: 1
-num_prover_workers: 1 # Number of workers for the prover - used for logging only
+num_prover_workers: 2 # Number of workers for the prover - used for logging only
