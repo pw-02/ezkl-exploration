@@ -268,7 +268,7 @@ class ZKProofWorker:
             worker_pid = str(os.getpid())
               # 2. Model download/setup
             try:
-                if not os.path.exists(model_path):
+                if not os.path.exists(model_path) and s3_bucket:
                     os.makedirs(cache_prefix, exist_ok=True)
                     local_model_path = os.path.join(cache_prefix, os.path.basename(model_path))
                     download_from_s3(s3_bucket, model_path, local_model_path)
