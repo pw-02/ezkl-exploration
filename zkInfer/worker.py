@@ -376,9 +376,10 @@ class ZKProofWorker:
             try:
                 with open(proof_stages.proof_path, "rb") as f:
                     proof_bytes = f.read()
+                empty_proof_for_testing = b""
                 self.send_final_subjob_result(
                     job_id, sub_job_id, status="COMPLETED",
-                    proof=proof_bytes,
+                    proof=empty_proof_for_testing,
                     ezkl_perf=ezkl_perf,
                     halo2_perf=halo2_perf
                 )
