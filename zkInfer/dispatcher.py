@@ -2,7 +2,7 @@ import grpc
 from concurrent import futures
 import time
 import hydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import zkservice_pb2 as pb
 import zkservice_pb2_grpc as pb_grpc
 from zkInfer.job_manager import JobManager
@@ -183,6 +183,7 @@ def serve(cfg: DictConfig):
     s3_bucket = cfg.s3_bucket
     cache_setup = cfg.cache_setup
     overwrite_setup = cfg.overwrite_setup
+    print("\n" + OmegaConf.to_yaml(cfg))
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     pb_grpc.add_ZKJobServiceServicer_to_server(ZKJobDispatcher(logger, num_prover_workers, s3_bucket, cache_setup, overwrite_setup), server)
