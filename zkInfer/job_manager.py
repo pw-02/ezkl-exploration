@@ -269,7 +269,7 @@ class JobManager:
             job = self.proof_jobs[job_id]
             # status_enum = as_job_status(status)
             job.sub_job_status_map[sub_job_id] = status
-            self.logger.info(f"Heartbeat for {sub_job_id} : {status}")
+            self.logger.info(f"Heartbeat: {worker_id} | {sub_job_id} | {status}")
 
 
     def finalize_sub_job(self, job_id, sub_job_id, status, proof=None, message=None, ezkl_perf: Dict = None, halo2_perf: Dict = None):
