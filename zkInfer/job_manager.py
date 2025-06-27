@@ -124,7 +124,7 @@ class ProofJob:
                 group_size = 1 if self.split_mode == "auto" else self.ops_per_chunk
                 # Split the ONNX model and save submodels
                 sub_models = split_onnx_model(self.onnx_model_path, group_size)
-
+                logging.info(f"s3_bucket: {self.s3_bucket}")
                 if self.s3_bucket:  # if using s3 upload model for remote workers on different machines
                     submodel_info_map = save_split_models_s3(
                         submodels=sub_models,
