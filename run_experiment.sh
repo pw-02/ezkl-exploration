@@ -1,6 +1,9 @@
 #!/bin/bash
-#1,2,4,6,8,10
-NUM_WORKERS=${1:-1} # sets NUM_WORKERS to the first argument if provided, otherwise defaults to 1.
+# Usage: ./yourscript.sh NUM_WORKERS MODEL_NAME
+# Example: ./yourscript.sh 4 resnet50
+
+NUM_WORKERS=${1:-1}                         # First arg = number of workers, default 1
+MODEL_NAME=${2:-mobilenetv2_050_Opset18_split_size_1}  # Second arg = model name, default as before
 SESSION=zkexp
 
 # Create a new tmux session
@@ -22,12 +25,12 @@ for i in $(seq 1 $NUM_WORKERS); do
     tmux send-keys -t $SESSION:worker$i 'python zkInfer/worker.py' C-m
 done
 
-# Optionally: Submit the job in another window
+# Optionally: Submit the job in another window (now using MODEL_NAME)
 tmux new-window -t $SESSION -n "submit_job"
 tmux send-keys -t $SESSION:submit_job 'conda activate dzkml' C-m
 tmux send-keys -t $SESSION:submit_job 'cd ezkl-exploration' C-m
 tmux send-keys -t $SESSION:submit_job 'export PYTHONPATH=.:$PYTHONPATH' C-m
-tmux send-keys -t $SESSION:submit_job 'python zkInfer/submit_job.py model=mobilenetv2_050_Opset18_split_size_1' C-m
+tmux send-keys -t $SESSION:submit_job "python zkInfer/submit_job.py model=${MODEL_NAME}" C-m
 
 # Attach to the tmux session
 tmux attach -t $SESSION
