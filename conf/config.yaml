@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - dispatcher: default
-  - worker: default
+  # - worker: default
   - model: nano_gpt_4_layers_64_embd_split_size_1  # Options: mobilenetv2_050_Opset18, mnist_gan, little_transformer, nano_gpt, mnist_classifier,nano_gpt_4_layers_64_embd
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
