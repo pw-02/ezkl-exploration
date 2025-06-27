@@ -27,7 +27,7 @@ tmux new-window -t $SESSION -n "submit_job"
 tmux send-keys -t $SESSION:submit_job 'conda activate dzkml' C-m
 tmux send-keys -t $SESSION:submit_job 'cd ezkl-exploration' C-m
 tmux send-keys -t $SESSION:submit_job 'export PYTHONPATH=.:$PYTHONPATH' C-m
-tmux send-keys -t $SESSION:submit_job 'python zkInfer/submit_job.py' C-m
+tmux send-keys -t $SESSION:submit_job 'python zkInfer/submit_job.py model=mobilenetv2_050_Opset18_split_size_1' C-m
 
 # Attach to the tmux session
 tmux attach -t $SESSION
