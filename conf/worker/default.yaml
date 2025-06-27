@@ -1,5 +1,0 @@
-# Worker client config
-worker_id: null  # auto-generate if null
-dispatcher_host: "localhost"
-dispatcher_port: 50051
-heartbeat_interval: 30
