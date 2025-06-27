@@ -11,6 +11,8 @@ from uuid import uuid4
 import subprocess
 import shutil
 import logging
+
+import psutil
 import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
 import pandas as pd
 from zkInfer.s3_utils import download_from_s3, upload_to_s3, file_exists_in_s3, upload_if_not_exists, download_if_exists_in_s3
@@ -174,12 +176,24 @@ class EZKLProofStages:
 
 class ZKProofWorker:
     def __init__(self, cfg: DictConfig, logger=None):
-        self.worker_id = f"worker_{base64.urlsafe_b64encode(uuid.uuid4().bytes).rstrip(b'=').decode('ascii')}"
+
+        if cfg.worker.worker_id is None:
+            self.worker_id = f"worker_{base64.urlsafe_b64encode(uuid.uuid4().bytes).rstrip(b'=').decode('ascii')}"
+        else:
+            # Use the provided worker ID from the config
+            self.worker_id = cfg.worker.worker_id
+
         self.cfg = cfg
         self.target = f"{cfg.dispatcher.host}:{cfg.dispatcher.port}"
         self.channel = None
         self.stub = None
         self.logger: logging.Logger = logger
+         # Get system resources
+        self.num_cpus_pysical = psutil.cpu_count(logical=False)
+        self.num_cpus_logical = psutil.cpu_count(logical=True)
+        self.mem_bytes = psutil.virtual_memory().total
+        self.mem_gb = round(self.mem_bytes / 1e9, 2)  # or use 1024**3 for GiB
+        pass
 
     def connect(self):
         if self.channel:
@@ -242,7 +256,7 @@ class ZKProofWorker:
         heartbeat_proc = None
         resource_usage_proc = None
         try:
-            # --- 1. Fetch a new job from the dispatcher ---
+            # --- 1. Pull a new job from the dispatcher ---
             try:
                 response = self.stub.GetNextSubJob(pb.WorkerIDRequest(worker_id=self.worker_id))
             except grpc.RpcError as e:
@@ -256,17 +270,21 @@ class ZKProofWorker:
                 return
             
             self.logger.info(f"📦 Got job {response.sub_model_name} for job {response.job_id}")
+            job_start_time = time.perf_counter()
+            # --- 2. Prepare job info ---
             job_id = response.job_id
             sub_job_id = response.sub_job_id
             sub_model_name = response.sub_model_name
             model_path = response.model_path
             s3_bucket = response.s3_bucket
+            cache_prefix = os.path.dirname(model_path)
             cache_setup = response.cache_setup
             overwrite_setup = response.overwrite_setup
             input_json = json.loads(response.input_json)
-            cache_prefix = os.path.dirname(model_path)
             worker_pid = str(os.getpid())
-              # 2. Model download/setup
+            # 2. Model download/setup
+            
+            
             try:
                 if not os.path.exists(model_path) and s3_bucket:
                     os.makedirs(cache_prefix, exist_ok=True)
@@ -448,4 +466,9 @@ def main(cfg: DictConfig):
     worker.run()
 
 if __name__ == "__main__":
+
+    import uuid, base64
+    wid = f"worker_{base64.urlsafe_b64encode(uuid.uuid4().bytes).rstrip(b'=').decode('ascii')}"
+    print(wid)
+
     main()

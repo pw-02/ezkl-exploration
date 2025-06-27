@@ -3,9 +3,10 @@ from concurrent import futures
 import time
 import hydra
 from omegaconf import DictConfig, OmegaConf
-import zkservice_pb2 as pb
+import zkservice_pb2 as pb2
 import zkservice_pb2_grpc as pb_grpc
 from zkInfer.job_manager import JobManager
+from zkInfer.job_manager_copy import InferenceRequestManager
 import logging
 import sys
 import json
@@ -50,14 +51,56 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
         self.s3_bucket = s3_bucket
         self.cache_setup = cache_setup
         self.overwrite_setup = overwrite_setup
-        
-        self.job_manager = JobManager(
-            logger=logger,
-            num_prover_workers=num_prover_workers,
-            s3_bucket=s3_bucket,
-            cache_setup=cache_setup,
-            overwrite_setup=overwrite_setup
+        self.manager = InferenceRequestManager(logger=logger)
+
+    # API for submitting new inference requests
+    def SubmitInferenceRequest(self, request, context):
+        request_id = self.manager.submit_request(
+            model_name=request.model_name,
+            onnx_model_path=request.onnx_model_path,
+            input_data_path=request.input_data_path,
+            split_mode=request.split_mode,
+            ops_per_chunk=request.ops_per_chunk,
+            logger=self.logger,
+            num_prover_workers=self.manager.num_prover_workers,
+            overwrite_cached_setup=self.overwrite_setup,
+            s3_bucket=self.s3_bucket
         )
+        return pb2.InferenceRequestAck(request_id=request_id)
+    
+    # Worker pulls a job
+    def GetNextProofJob(self, request, context):
+        job = self.manager.get_next_job()
+        if job:
+            # Convert ProofJob to proto message
+            return pb2.ProofJobResponse(has_job=True, job=job.to_proto())
+        else:
+            return pb2.ProofJobResponse(has_job=False)
+        
+    # Worker submits results
+    def SubmitProofResult(self, request, context):
+        ok = self.manager.submit_job_result(
+            job_id=request.job_id,
+            zk_proof=request.zk_proof,
+            status=request.status,
+            profiling_data=request.profiling_data,
+            error_message=getattr(request, "error_message", None)
+        )
+        return pb2.SubmitAck(ok=ok)
+    
+     # (Optionally) User queries status
+    def GetRequestStatus(self, request, context):
+        status = self.manager.get_request_status(request.request_id)
+        if status is None:
+            return pb2.RequestStatus(not_found=True)
+        # Fill out proto status message
+        return pb2.RequestStatus(
+            progress=status["progress"],
+            all_done=status["all_done"],
+            any_failed=status["any_failed"],
+            # etc...
+        )
+
 
     
     def SubmitJob(self, request, context):
@@ -119,6 +162,10 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
                 halo2_perf= json.loads(request.halo2_json)
 
             )
+
+            #kill dispacther now that the sub-job is done
+            sys.exit(0)  # Uncomment to exit the dispatcher after job completion
+
             return pb.StatusAck(success=True, message="Result received")
         except Exception as e:
             self.logger.error(f"❌ Error finalizing sub-job: {str(e)}")

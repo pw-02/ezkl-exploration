@@ -1,33 +1,29 @@
 import csv
+from enum import Enum
 import hashlib
 import base64
 import json
 import re
-
 import pandas as pd
 from pyparsing import Dict
+# from s3_utils import *
+import os
+import boto3
+from botocore.exceptions import ClientError
 
-def load_json(path):
-    with open(path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    return data
+class JobStatus(str, Enum):
+    PREPARING = "PREPARING"
+    QUEUED = "QUEUED"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
 
-def compute_content_md5_hex(path):
-    md5 = hashlib.md5()
-    with open(path, 'rb') as f:
-        for chunk in iter(lambda: f.read(8192), b''):
-            md5.update(chunk)
-    # Hex digest is always safe for folder/file names
-    return md5.hexdigest()
-import hashlib
 
-def compute_bytes_md5_hex(raw_bytes: bytes) -> str:
-    """
-    Compute the MD5 hash of a bytes object, returning a hex digest (safe for filesystem use).
-    """
-    md5 = hashlib.md5()
-    md5.update(raw_bytes)
-    return md5.hexdigest()
+
+
+
+
 
 
 def compute_bytes_md5(raw_bytes: bytes) -> str:
@@ -38,13 +34,7 @@ def compute_bytes_md5(raw_bytes: bytes) -> str:
     md5.update(raw_bytes)
     return base64.b64encode(md5.digest()).decode('utf-8')
 
-def write_dict_to_csv(data: Dict, file_path: str):
-        """Write a dictionary to a CSV file."""
-        with open(file_path, "a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=data.keys())
-            if f.tell() == 0:
-                writer.writeheader()
-            writer.writerow(data)
+
 
 
 

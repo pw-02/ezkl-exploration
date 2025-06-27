@@ -1,0 +1,126 @@
+
+import csv
+import os
+import json
+from typing import Dict
+import boto3
+from botocore.exceptions import ClientError
+import pandas as pd
+import onnx
+
+
+# def load_json(path):
+#     with open(path, 'r', encoding='utf-8') as f:
+#         data = json.load(f)
+#     return data
+
+def compute_content_md5_hex(path):
+    md5 = hashlib.md5()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(8192), b''):
+            md5.update(chunk)
+    # Hex digest is always safe for folder/file names
+    return md5.hexdigest()
+import hashlib
+
+def compute_bytes_md5_hex(raw_bytes: bytes) -> str:
+    """
+    Compute the MD5 hash of a bytes object, returning a hex digest (safe for filesystem use).
+    """
+    md5 = hashlib.md5()
+    md5.update(raw_bytes)
+    return md5.hexdigest()
+
+
+
+def load_model_proto(path_or_key, use_s3=False, s3_bucket=None):
+    """
+    Load an ONNX model from a local path or S3 key.
+    If use_s3 is True, it will download the model from S3.
+    """
+    if use_s3:
+        s3 = boto3.client("s3")
+        try:
+            response = s3.get_object(Bucket=s3_bucket, Key=s3_path(path_or_key))
+            raw_bytes = response['Body'].read()
+            model_proto = onnx.ModelProto()
+            model_proto.ParseFromString(raw_bytes)
+            return model_proto
+        except ClientError as e:
+            raise RuntimeError(f"Failed to download {path_or_key} from S3 bucket {s3_bucket}: {e}")
+    else:
+        return onnx.load(path_or_key)
+
+
+
+def s3_path(key_or_prefix: str) -> str:
+    """
+    Converts Windows-style paths to S3-friendly keys by replacing backslashes with forward slashes.
+    """
+    return key_or_prefix.replace("\\", "/")
+
+def convert_csv_to_dict(csv_file, start_timestamp = None, end_timestamp = None):
+    df = pd.read_csv(csv_file)
+    return df.to_dict(orient='list')
+
+def write_dict_to_csv(data: Dict, file_path: str):
+        """Write a dictionary to a CSV file."""
+        with open(file_path, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=data.keys())
+            if f.tell() == 0:
+                writer.writeheader()
+            writer.writerow(data)
+
+            
+            
+def s3_file_exists(s3_bucket, key):
+    s3 = boto3.client("s3")
+    try:
+        s3.head_object(Bucket=s3_bucket, Key=s3_path(key))
+        return True
+    except ClientError as e:
+        # If error code is 404, the object does not exist.
+        if e.response["Error"]["Code"] == "404":
+            return False
+        # Otherwise, re-raise (could be permissions, etc.)
+        raise
+    
+def s3_download_file_to_string(s3_bucket, key):
+    s3 = boto3.client("s3")
+    try:
+        obj = s3.get_object(Bucket=s3_bucket, Key=s3_path(key))
+        return obj['Body'].read().decode('utf-8')
+    except ClientError as e:
+        raise RuntimeError(f"Failed to download {key} from S3 bucket {s3_bucket}: {e}")
+
+
+def file_exists(path_or_key, use_s3=False, s3_bucket=None):
+    if use_s3:
+        # Use boto3 or your S3 client to check
+        return s3_file_exists(s3_bucket, path_or_key)
+    else:
+        return os.path.exists(path_or_key)
+    
+def save_model_proto_file(model_proto, path_or_key, use_s3=False, s3_bucket=None):
+    if use_s3:
+        # Serialize model_proto to bytes and upload to S3
+        raw_bytes = model_proto.SerializeToString()
+        s3 = boto3.client("s3")
+        s3.put_object(Body=raw_bytes, Bucket=s3_bucket, Key=s3_path(path_or_key), ContentType="application/octet-stream")
+    else:
+        #ensure the directory exists
+        os.makedirs(os.path.dirname(path_or_key), exist_ok=True)
+        with open(path_or_key, "wb") as f:
+            f.write(model_proto.SerializeToString())
+
+
+    
+def load_json_file(path_or_key, use_s3=False, s3_bucket=None):
+    if use_s3:
+        # Download file to memory from S3, then parse JSON
+        content = s3_download_file_to_string(s3_bucket, path_or_key)
+        return json.loads(content)
+    else:
+        with open(path_or_key, "r") as f:
+            return json.load(f)
+

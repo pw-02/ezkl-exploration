@@ -89,7 +89,7 @@ def merge_onnx_models(sub_models: OrderedDict):
     return merged_model
 
 
-def collect_intermediate_inference_outputs(onnx_model_path, input_data_path, format_model_input_fn = None):
+def collect_split_inputs_from_inference(onnx_model_path, input_data_path, format_model_input_fn = None):
     model = onnx.load(onnx_model_path)
     model.graph.ClearField('output')
     shape_info = onnx.shape_inference.infer_shapes(model)
@@ -118,27 +118,27 @@ def split_onnx_model(onnx_model_path, split_group_size):
     model = onnx.load(onnx_model_path)
     initializers = {init.name for init in model.graph.initializer}
     exclude_operations = {'Identity', 'Constant'}
-
+    sub_models = []
     all_sub_models = OrderedDict()
     counter = 0
     for idx, node in enumerate(model.graph.node):
         if node.op_type in exclude_operations or node.name in initializers:
             continue
-
         node_inputs = [i for i in node.input if i not in initializers and 'Constant' not in i]
         node_outputs = [o for o in node.output if o not in initializers and 'Constant' not in o]
-        
         sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
+        sub_models.append(sub_model)
+        return sub_models
 
-        all_sub_models[f'sub_model_{counter+1}'] = sub_model
-        counter += 1
-
-    if split_group_size > 1:
-        grouped = [dict(list(all_sub_models.items())[i:i + split_group_size])
-                   for i in range(0, len(all_sub_models), split_group_size)]
-        return [(f"split_group_{i+1}", merge_onnx_models(group)) for i, group in enumerate(grouped)]
-    else:
-        return list(all_sub_models.items())  # [(name, sub_model), ...]
+        # sub_model_name = f'sub_model_{counter+1}'
+        # all_sub_models[f'sub_model_{counter+1}'] = sub_model
+        # counter += 1
+    # if split_group_size > 1:
+    #     grouped = [dict(list(all_sub_models.items())[i:i + split_group_size])
+    #                for i in range(0, len(all_sub_models), split_group_size)]
+    #     return [(f"split_group_{i+1}", merge_onnx_models(group)) for i, group in enumerate(grouped)]
+    # else:
+    #     return list(all_sub_models.items())  # [(name, sub_model), ...]
 
 
 
@@ -201,7 +201,23 @@ def save_split_models_s3(submodels, intermediate_outputs, s3_bucket, prefix, ove
     return models_with_inputs
 
 
+def split_onnx_model_with_inputs(onnx_model_path, input_data_path, split_group_size=1):
+    split_inputs = collect_split_inputs_from_inference(onnx_model_path, input_data_path)
+    sub_models = split_onnx_model(onnx_model_path, split_group_size)
+    models_with_inputs = []
 
+    for idx, sub_model in enumerate(sub_models):
+        flattened_inputs = []
+        for inp in sub_model.graph.input:
+            if inp.name in split_inputs:
+                flattened_inputs.append(split_inputs[inp.name].flatten().tolist())
+        if not flattened_inputs:
+            continue #no inputs for this sub_model
+        sub_mode_input ={'input_data': flattened_inputs}
+        md5_hash = compute_bytes_md5_hex(sub_model.SerializeToString())
+        sub_model_name = f'sub_model_{idx+1}'
+        models_with_inputs.append((sub_model_name, md5_hash, sub_model, sub_mode_input))
+    return models_with_inputs
 
 
 
