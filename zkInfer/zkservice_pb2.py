@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0fzkservice.proto\x12\tzkservice\"}\n\x10InferenceRequest\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x17\n\x0fonnx_model_path\x18\x02 \x01(\t\x12\x17\n\x0finput_data_path\x18\x03 \x01(\t\x12\x12\n\nsplit_mode\x18\x04 \x01(\t\x12\x15\n\rops_per_chunk\x18\x05 \x01(\x05\"1\n\x1bInferenceSubmissionResponse\x12\x12\n\nrequest_id\x18\x01 \x01(\t\"$\n\x0fWorkerIdRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\"\x9f\x01\n\rJobAssignment\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x12\n\nmodel_path\x18\x02 \x01(\t\x12\x12\n\ninput_json\x18\x03 \x01(\t\x12\x11\n\ts3_bucket\x18\x04 \x01(\t\x12\x13\n\x0b\x63\x61\x63he_setup\x18\x05 \x01(\x08\x12\x17\n\x0foverwrite_setup\x18\x06 \x01(\x08\x12\x15\n\rjob_available\x18\x07 \x01(\x08\"r\n\tJobResult\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\r\n\x05proof\x18\x02 \x01(\x0c\x12\x0e\n\x06status\x18\x03 \x01(\t\x12\x11\n\tezkl_json\x18\x04 \x01(\t\x12\x12\n\nhalo2_json\x18\x05 \x01(\t\x12\x0f\n\x07message\x18\x06 \x01(\t\"\\\n\x10HeartbeatRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x0e\n\x06job_id\x18\x02 \x01(\t\x12\x0e\n\x06status\x18\x03 \x01(\t\x12\x15\n\rerror_message\x18\x04 \x01(\t\"\x1f\n\x0cHeartbeatAck\x12\x0f\n\x07success\x18\x01 \x01(\x08\"-\n\tStatusAck\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t2\xb7\x02\n\x0cZKJobService\x12]\n\x16SubmitInferenceRequest\x12\x1b.zkservice.InferenceRequest\x1a&.zkservice.InferenceSubmissionResponse\x12\x42\n\nGetNextJob\x12\x1a.zkservice.WorkerIdRequest\x1a\x18.zkservice.JobAssignment\x12=\n\x0fSubmitJobResult\x12\x14.zkservice.JobResult\x1a\x14.zkservice.StatusAck\x12\x45\n\rSendHeartbeat\x12\x1b.zkservice.HeartbeatRequest\x1a\x17.zkservice.HeartbeatAckb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0fzkservice.proto\x12\tzkservice\"}\n\x10InferenceRequest\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x17\n\x0fonnx_model_path\x18\x02 \x01(\t\x12\x17\n\x0finput_data_path\x18\x03 \x01(\t\x12\x12\n\nsplit_mode\x18\x04 \x01(\t\x12\x15\n\rops_per_chunk\x18\x05 \x01(\x05\")\n\x13InferenceRequestAck\x12\x12\n\nrequest_id\x18\x01 \x01(\t\"$\n\x0fWorkerIdRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\"\x9f\x01\n\rJobAssignment\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\x12\n\nmodel_path\x18\x02 \x01(\t\x12\x12\n\ninput_json\x18\x03 \x01(\t\x12\x11\n\ts3_bucket\x18\x04 \x01(\t\x12\x13\n\x0b\x63\x61\x63he_setup\x18\x05 \x01(\x08\x12\x17\n\x0foverwrite_setup\x18\x06 \x01(\x08\x12\x15\n\rjob_available\x18\x07 \x01(\x08\"a\n\tJobResult\x12\x0e\n\x06job_id\x18\x01 \x01(\t\x12\r\n\x05proof\x18\x02 \x01(\x0c\x12\x0e\n\x06status\x18\x03 \x01(\t\x12\x14\n\x0cperf_metrics\x18\x04 \x01(\t\x12\x0f\n\x07message\x18\x05 \x01(\t\"V\n\x10HeartbeatRequest\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x0e\n\x06job_id\x18\x02 \x01(\t\x12\x0e\n\x06status\x18\x03 \x01(\t\x12\x0f\n\x07message\x18\x04 \x01(\t\"\x1f\n\x0cHeartbeatAck\x12\x0f\n\x07success\x18\x01 \x01(\x08\"\x17\n\tStatusAck\x12\n\n\x02ok\x18\x01 \x01(\x08\x32\xaf\x02\n\x0cZKJobService\x12U\n\x16SubmitInferenceRequest\x12\x1b.zkservice.InferenceRequest\x1a\x1e.zkservice.InferenceRequestAck\x12\x42\n\nGetNextJob\x12\x1a.zkservice.WorkerIdRequest\x1a\x18.zkservice.JobAssignment\x12=\n\x0fSubmitJobResult\x12\x14.zkservice.JobResult\x1a\x14.zkservice.StatusAck\x12\x45\n\rSendHeartbeat\x12\x1b.zkservice.HeartbeatRequest\x1a\x17.zkservice.HeartbeatAckb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,20 +33,20 @@ if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_INFERENCEREQUEST']._serialized_start=30
   _globals['_INFERENCEREQUEST']._serialized_end=155
-  _globals['_INFERENCESUBMISSIONRESPONSE']._serialized_start=157
-  _globals['_INFERENCESUBMISSIONRESPONSE']._serialized_end=206
-  _globals['_WORKERIDREQUEST']._serialized_start=208
-  _globals['_WORKERIDREQUEST']._serialized_end=244
-  _globals['_JOBASSIGNMENT']._serialized_start=247
-  _globals['_JOBASSIGNMENT']._serialized_end=406
-  _globals['_JOBRESULT']._serialized_start=408
-  _globals['_JOBRESULT']._serialized_end=522
-  _globals['_HEARTBEATREQUEST']._serialized_start=524
-  _globals['_HEARTBEATREQUEST']._serialized_end=616
-  _globals['_HEARTBEATACK']._serialized_start=618
-  _globals['_HEARTBEATACK']._serialized_end=649
-  _globals['_STATUSACK']._serialized_start=651
-  _globals['_STATUSACK']._serialized_end=696
-  _globals['_ZKJOBSERVICE']._serialized_start=699
-  _globals['_ZKJOBSERVICE']._serialized_end=1010
+  _globals['_INFERENCEREQUESTACK']._serialized_start=157
+  _globals['_INFERENCEREQUESTACK']._serialized_end=198
+  _globals['_WORKERIDREQUEST']._serialized_start=200
+  _globals['_WORKERIDREQUEST']._serialized_end=236
+  _globals['_JOBASSIGNMENT']._serialized_start=239
+  _globals['_JOBASSIGNMENT']._serialized_end=398
+  _globals['_JOBRESULT']._serialized_start=400
+  _globals['_JOBRESULT']._serialized_end=497
+  _globals['_HEARTBEATREQUEST']._serialized_start=499
+  _globals['_HEARTBEATREQUEST']._serialized_end=585
+  _globals['_HEARTBEATACK']._serialized_start=587
+  _globals['_HEARTBEATACK']._serialized_end=618
+  _globals['_STATUSACK']._serialized_start=620
+  _globals['_STATUSACK']._serialized_end=643
+  _globals['_ZKJOBSERVICE']._serialized_start=646
+  _globals['_ZKJOBSERVICE']._serialized_end=949
 # @@protoc_insertion_point(module_scope)

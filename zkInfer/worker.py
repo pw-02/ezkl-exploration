@@ -81,6 +81,26 @@ class EZKLProofStages:
                 return True, s3_read_time
         return False, 0.0
     
+    def get_pk_file_size_gb(self):
+        """
+        Get the size of the proving key file in GB.
+        Returns:
+            float: Size in GB, or 0.0 if file does not exist.
+        """
+        if os.path.exists(self.pk_path):
+            return os.path.getsize(self.pk_path) / (1024 ** 3)
+        return 0.0
+    
+    def get_vk_file_size_gb(self):
+        """
+        Get the size of the verifying key file in GB.
+        Returns:
+            float: Size in GB, or 0.0 if file does not exist.
+        """
+        if os.path.exists(self.vk_path):
+            return os.path.getsize(self.vk_path) / (1024 ** 3)
+        return 0.0
+
     def _try_load_keys_from_cache(self):
         """
         Helper to load PK/VK from local or S3.
@@ -198,7 +218,7 @@ class EZKLProofStages:
     
     def compute_proof(self):
         self._update_status("PROVING")
-        self.ezkl.compute_proof(self.witness_path, self.compiled_circuit_path, self.pk_path, self.proof_path, "single")
+        self.ezkl.prove(self.witness_path, self.compiled_circuit_path, self.pk_path, self.proof_path, "single")
         assert os.path.exists(self.proof_path)
 
     def run_all(self, setup_only: bool = False) -> Dict[str, Any]:
@@ -206,6 +226,9 @@ class EZKLProofStages:
         Run all proof pipeline stages in sequence.
         Returns: perf_measurements dict for each stage.
         """
+        total_setup_time = 0.0
+        total_s3_read_time = 0.0
+        total_s3_write_time = 0.0
         perf_measurements: Dict[str, Any] = {}
 
         calibrate_settings_start = time.perf_counter()
@@ -215,6 +238,9 @@ class EZKLProofStages:
         perf_measurements["calibrate_settings_used_cache"] = used_cache
         perf_measurements["calibrate_settings_s3_read_time(s)"] = s3_read_time
         perf_measurements["calibrate_settings_s3_write_time(s)"] = s3_write_time
+        total_setup_time += calibrate_settings_time
+        total_s3_read_time += s3_read_time
+        total_s3_write_time += s3_write_time
 
         compile_circuit_start = time.perf_counter()
         used_cache, s3_read_time, s3_write_time = self.compile_circuit()
@@ -223,16 +249,21 @@ class EZKLProofStages:
         perf_measurements["ezkl_compile_circuit_used_cache"] = used_cache
         perf_measurements["ezkl_compile_circuit_s3_read_time(s)"] = s3_read_time
         perf_measurements["ezkl_compile_circuit_s3_write_time(s)"] = s3_write_time
+        total_setup_time += compile_circuit_time
+        total_s3_read_time += s3_read_time
+        total_s3_write_time += s3_write_time
 
         get_srs_start = time.perf_counter()
         self.get_srs()
         get_srs_time = time.perf_counter() - get_srs_start
         perf_measurements["ezkl_get_srs_time(s)"] = get_srs_time
+        total_setup_time += get_srs_time
 
         gen_witness_start = time.perf_counter()
         self.gen_witness()
         gen_witness_time = time.perf_counter() - gen_witness_start
         perf_measurements["ezkl_gen_witness_time(s)"] = gen_witness_time
+        total_setup_time += gen_witness_time
 
         key_gen_start = time.perf_counter()
         used_cache, s3_read_time, s3_write_time = self.gen_keys()
@@ -241,12 +272,19 @@ class EZKLProofStages:
         perf_measurements["ezkl_key_gen_used_cache"] = used_cache
         perf_measurements["ezkl_key_gen_s3_read_time(s)"] = s3_read_time
         perf_measurements["ezkl_key_gen_s3_write_time(s)"] = s3_write_time
+        total_setup_time += key_gen_time
+        total_s3_read_time += s3_read_time
+        total_s3_write_time += s3_write_time
+        perf_measurements["ezkl_setup_time(s)"] = total_setup_time
+        perf_measurements["ezkl_setup_s3_read_time(s)"] = total_s3_read_time
+        perf_measurements["ezkl_setup_s3_write_time(s)"] = total_s3_write_time
 
         if not setup_only:
             compute_proof_start = time.perf_counter()
             self.compute_proof()
             compute_proof_time = time.perf_counter() - compute_proof_start
-            perf_measurements["ezkl_compute_proof_time(s)"] = compute_proof_time
+            perf_measurements["ezkl_proof_time(s)"] = compute_proof_time
+       
         return perf_measurements
 
 
@@ -292,11 +330,10 @@ class ZKProofWorker:
                     if attempt == max_retries:
                         raise
 
-    def safe_send_heartbeat(self, job_id, sub_job_id, status, message):
+    def safe_send_heartbeat(self, job_id, status, message):
         try:
             self.stub.SendHeartbeat(pb.HeartbeatRequest(
                 worker_id=self.worker_id,
-                sub_job_id=sub_job_id,
                 job_id=job_id,
                 status=status,
                 message=message
@@ -328,7 +365,6 @@ class ZKProofWorker:
             shutil.rmtree(working_dir, ignore_errors=True)
     
     def fetch_and_run_job(self):
-        sub_job_id = None
         job_id = None
         local_working_dir = None
         heartbeat_proc = None
@@ -349,7 +385,6 @@ class ZKProofWorker:
                 return
 
             # Get all IDs and job info
-            sub_job_id = response.sub_model_name
             job_id = response.job_id
             model_path = response.model_path
             input_json = json.loads(response.input_json)
@@ -378,7 +413,7 @@ class ZKProofWorker:
 
             # --- 3. Local input + job info ---
             save_input_json_start = time.perf_counter()
-            local_working_dir = os.path.join('tmp', sub_job_id)
+            local_working_dir = os.path.join('tmp', job_id)
             os.makedirs(local_working_dir, exist_ok=True)
             local_input_path = os.path.join(local_working_dir, "input.json")
             with open(local_input_path, "w") as f:
@@ -395,7 +430,7 @@ class ZKProofWorker:
             ])
             heartbeat_proc = subprocess.Popen([
                 sys.executable, "zkInfer/heartbeat.py",
-                self.target, self.worker_id, job_id, sub_job_id, status_file, worker_pid
+                self.target, self.worker_id, job_id, status_file, worker_pid
             ])
             os.environ["EZKL_LOG_DIR"] = local_working_dir
 
@@ -430,7 +465,9 @@ class ZKProofWorker:
                 "max_process_memory(GB)": max_process_mem,
                 "max_system_memory(GB)": max_system_mem,
                 "avg_process_cpu(%)": avg_process_cpu,
-                "avg_system_cpu(%)": avg_system_cpu
+                "avg_system_cpu(%)": avg_system_cpu,
+                "pk_file_size(GB)": proof_stages.get_pk_file_size_gb(),
+                "vk_file_size(GB)": proof_stages.get_vk_file_size_gb(),
             }
             circuit_info = read_csv_into_dict(os.path.join(local_working_dir, "halo2_circuit.csv"))
             prover_info_cpu = read_csv_into_dict(os.path.join(local_working_dir, "halo2_prover_cpu.csv"))
@@ -456,16 +493,15 @@ class ZKProofWorker:
                 )
                 return
 
-            self.logger.info(f"✅ Completed sub-job {sub_job_id}")
+            self.logger.info(f"✅ Completed job {job_id}")
 
         except Exception as e:
             self.logger.error(f"❌ Error during job: {e}", exc_info=True)
-            if sub_job_id and job_id:
-                self.send_final_job_result(
+            self.send_final_job_result(
                     job_id,
                     status="FAILED",
                     message=str(e)
-                )
+                ) 
         finally:
             # --- Cleanup heartbeat/resource usage and working dir ---
             for proc in [heartbeat_proc, resource_usage_proc]:
@@ -508,8 +544,8 @@ def main(cfg: DictConfig):
 
 if __name__ == "__main__":
 
-    import uuid, base64
-    wid = f"worker_{base64.urlsafe_b64encode(uuid.uuid4().bytes).rstrip(b'=').decode('ascii')}"
-    print(wid)
+    # import uuid, base64
+    # wid = f"worker_{base64.urlsafe_b64encode(uuid.uuid4().bytes).rstrip(b'=').decode('ascii')}"
+    # print(wid)
 
     main()

@@ -45,22 +45,22 @@ def main(cfg: DictConfig):
             stub = pb_grpc.ZKJobServiceStub(channel)
 
             # Submit the job
-            response = stub.SubmitJob(pb.SubmitJobRequest(
-                job_name=job_cfg.name,
+            response = stub.SubmitInferenceRequest(pb.InferenceRequest(
+                name=job_cfg.name,
                 onnx_model_path=job_cfg.onnx_file,
                 input_data_path=job_cfg.input_file,
                 split_mode=job_cfg.split_mode,
                 ops_per_chunk=job_cfg.ops_per_chunk
             ))
 
-            print(f"✅ Job submitted. Assigned ID: {response.job_id}")
+            print(f"✅ Job submitted. Assigned ID: {response.request_id}")
 
             # Start live tracking in background
             # tracking_thread = threading.Thread(target=live_status_tracker, args=(stub,), daemon=True)
             # tracking_thread.start()
 
             # Launch a local worker for debugging
-            # run_worker(cfg)
+            run_worker(cfg)
 
     except grpc.RpcError as e:
         print(f"❌ gRPC error: {e.details()} (code={e.code()})")

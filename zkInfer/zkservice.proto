@@ -33,7 +33,7 @@ message InferenceRequest {
   int32 ops_per_chunk = 5;        // Only used if split_mode == "fixed"
 }
 
-message InferenceSubmissionResponse {
+message InferenceRequestAck {
   string request_id = 1;
 }
 
@@ -68,15 +68,14 @@ message HeartbeatRequest {
   string worker_id = 1;
   string job_id = 2;
   string status = 3;
-  string error_message = 4;
+  string message = 4;
 }
 message HeartbeatAck {
   bool success = 1;
 }
 
 message StatusAck {
-  bool success = 1;
-  string message = 2;
+  bool ok = 1;
 }
 
 // ===== SERVICE =====
@@ -84,7 +83,7 @@ message StatusAck {
 service ZKJobService {
 
   // User API
-  rpc SubmitInferenceRequest (InferenceRequest) returns (InferenceSubmissionResponse);
+  rpc SubmitInferenceRequest (InferenceRequest) returns (InferenceRequestAck);
   //rpc GetJobStatus (JobIDRequest) returns (JobStatusResponse);
   //rpc GetJobSummary (JobIDRequest) returns (JobSummaryResponse);
 

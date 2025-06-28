@@ -6,7 +6,7 @@ import grpc
 import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
 import psutil
 import os
-target, worker_id, job_id, sub_job_id, status_file, parent_pid = sys.argv[1:7]
+target, worker_id, job_id, status_file, parent_pid = sys.argv[1:7]
 parent_pid = int(parent_pid)
 
 channel = grpc.insecure_channel(target)
@@ -24,7 +24,6 @@ while True:
             stub.SendHeartbeat(
                 pb.HeartbeatRequest(
                     worker_id=worker_id,
-                    sub_job_id=sub_job_id,
                     job_id=job_id,
                     status=status_msg.upper() if status_msg else None,
                     message=f"Worker {worker_id} is alive",

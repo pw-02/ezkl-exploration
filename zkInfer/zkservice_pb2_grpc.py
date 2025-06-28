@@ -39,7 +39,7 @@ class ZKJobServiceStub(object):
         self.SubmitInferenceRequest = channel.unary_unary(
                 '/zkservice.ZKJobService/SubmitInferenceRequest',
                 request_serializer=zkservice__pb2.InferenceRequest.SerializeToString,
-                response_deserializer=zkservice__pb2.InferenceSubmissionResponse.FromString,
+                response_deserializer=zkservice__pb2.InferenceRequestAck.FromString,
                 _registered_method=True)
         self.GetNextJob = channel.unary_unary(
                 '/zkservice.ZKJobService/GetNextJob',
@@ -98,7 +98,7 @@ def add_ZKJobServiceServicer_to_server(servicer, server):
             'SubmitInferenceRequest': grpc.unary_unary_rpc_method_handler(
                     servicer.SubmitInferenceRequest,
                     request_deserializer=zkservice__pb2.InferenceRequest.FromString,
-                    response_serializer=zkservice__pb2.InferenceSubmissionResponse.SerializeToString,
+                    response_serializer=zkservice__pb2.InferenceRequestAck.SerializeToString,
             ),
             'GetNextJob': grpc.unary_unary_rpc_method_handler(
                     servicer.GetNextJob,
@@ -144,7 +144,7 @@ class ZKJobService(object):
             target,
             '/zkservice.ZKJobService/SubmitInferenceRequest',
             zkservice__pb2.InferenceRequest.SerializeToString,
-            zkservice__pb2.InferenceSubmissionResponse.FromString,
+            zkservice__pb2.InferenceRequestAck.FromString,
             options,
             channel_credentials,
             insecure,

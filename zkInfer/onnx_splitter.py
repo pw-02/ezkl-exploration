@@ -7,8 +7,9 @@ import numpy as np
 import onnx
 import onnxruntime as ort
 from onnx.utils import Extractor
-from zkInfer.s3_utils import upload_modelproto_if_not_exists, upload_json_to_s3, upload_modelproto_to_s3
-from zkInfer.utils import compute_bytes_md5_hex
+# from zkInfer.s3_utils import upload_modelproto_if_not_exists, upload_json_to_s3, upload_modelproto_to_s3
+# from zkInfer.utils import compute_bytes_md5_hex
+from zkInfer.storage_utils import compute_bytes_md5_hex, upload_to_s3
 
 def load_json_input(file_path):
     """Load input data from a JSON file."""
@@ -166,39 +167,39 @@ def prepare_submodel_record(sub_model, intermediate_outputs):
     }
     return (json_input, raw_bytes, md5_hash, model_metadata)
 
-def save_split_models_disk(submodels, intermediate_outputs, prefix, overwrite=False):
+# def save_split_models_disk(submodels, intermediate_outputs, prefix, overwrite=False):
     
-    models_with_inputs = OrderedDict()
-    for name, sub_model in submodels:
-        record = prepare_submodel_record(sub_model, intermediate_outputs)
-        if record is None:
-            continue
-        json_input, raw_bytes, md5_hash, model_metadata = record
+#     models_with_inputs = OrderedDict()
+#     for name, sub_model in submodels:
+#         record = prepare_submodel_record(sub_model, intermediate_outputs)
+#         if record is None:
+#             continue
+#         json_input, raw_bytes, md5_hash, model_metadata = record
 
-        model_dir = os.path.join(prefix, md5_hash)
-        os.makedirs(model_dir, exist_ok=True)
-        model_path = os.path.join(model_dir, 'model.onnx')
-        if overwrite or not os.path.exists(model_path):
-            onnx.save(sub_model, model_path)
-        models_with_inputs[name] = (md5_hash, model_path, json_input, model_metadata)
-    return models_with_inputs
+#         model_dir = os.path.join(prefix, md5_hash)
+#         os.makedirs(model_dir, exist_ok=True)
+#         model_path = os.path.join(model_dir, 'model.onnx')
+#         if overwrite or not os.path.exists(model_path):
+#             onnx.save(sub_model, model_path)
+#         models_with_inputs[name] = (md5_hash, model_path, json_input, model_metadata)
+#     return models_with_inputs
 
-def save_split_models_s3(submodels, intermediate_outputs, s3_bucket, prefix, overwrite=False):
+# def save_split_models_s3(submodels, intermediate_outputs, s3_bucket, prefix, overwrite=False):
 
-    models_with_inputs = OrderedDict()
-    for name, sub_model in submodels:
-        record = prepare_submodel_record(sub_model, intermediate_outputs)
-        if record is None:
-            continue
-        json_input, raw_bytes, md5_hash, model_metadata = record
-        model_dir = os.path.join(prefix, md5_hash)
-        s3_model_key = os.path.join(model_dir, 'model.onnx')
-        if overwrite:
-            upload_modelproto_to_s3(raw_bytes, s3_bucket, s3_model_key)
-        else:
-            upload_modelproto_if_not_exists(raw_bytes, s3_bucket, s3_model_key)
-        models_with_inputs[name] = (md5_hash, s3_model_key, json_input, model_metadata)
-    return models_with_inputs
+#     models_with_inputs = OrderedDict()
+#     for name, sub_model in submodels:
+#         record = prepare_submodel_record(sub_model, intermediate_outputs)
+#         if record is None:
+#             continue
+#         json_input, raw_bytes, md5_hash, model_metadata = record
+#         model_dir = os.path.join(prefix, md5_hash)
+#         s3_model_key = os.path.join(model_dir, 'model.onnx')
+#         if overwrite:
+#             upload_modelproto_to_s3(raw_bytes, s3_bucket, s3_model_key)
+#         else:
+#             upload_modelproto_if_not_exists(raw_bytes, s3_bucket, s3_model_key)
+#         models_with_inputs[name] = (md5_hash, s3_model_key, json_input, model_metadata)
+#     return models_with_inputs
 
 
 def split_onnx_model_with_inputs(onnx_model_path, input_data_path, split_group_size=1):

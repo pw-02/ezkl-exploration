@@ -5,7 +5,6 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 import zkservice_pb2 as pb2
 import zkservice_pb2_grpc as pb_grpc
-from zkInfer.job_manager import JobManager
 from zkInfer.job_manager import InferenceRequestManager
 import logging
 import sys
@@ -46,148 +45,167 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
                  s3_bucket=None, 
                  cache_setup=False,
                  overwrite_setup=False):
-        
         self.logger = logger
         self.s3_bucket = s3_bucket
         self.cache_setup = cache_setup
         self.overwrite_setup = overwrite_setup
+        self.num_prover_workers = num_prover_workers
         self.manager = InferenceRequestManager(logger=logger)
 
     # API for submitting new inference requests
     def SubmitInferenceRequest(self, request, context):
-        request_id = self.manager.submit_request(
-            model_name=request.model_name,
-            onnx_model_path=request.onnx_model_path,
-            input_data_path=request.input_data_path,
-            split_mode=request.split_mode,
-            ops_per_chunk=request.ops_per_chunk,
-            logger=self.logger,
-            num_prover_workers=self.manager.num_prover_workers,
-            overwrite_cached_setup=self.overwrite_setup,
-            s3_bucket=self.s3_bucket
-        )
-        return pb2.InferenceRequestAck(request_id=request_id)
-    
-    # Worker pulls a job
-    def GetNextProofJob(self, request, context):
-        job = self.manager.get_next_job()
-        if job:
-            # Convert ProofJob to proto message
-            return pb2.ProofJobResponse(has_job=True, job=job.to_proto())
-        else:
-            return pb2.ProofJobResponse(has_job=False)
-        
-    # Worker submits results
-    def SubmitProofResult(self, request, context):
-        ok = self.manager.submit_job_result(
-            job_id=request.job_id,
-            zk_proof=request.zk_proof,
-            status=request.status,
-            profiling_data=request.profiling_data,
-            error_message=getattr(request, "error_message", None)
-        )
-        return pb2.SubmitAck(ok=ok)
-    
-     # (Optionally) User queries status
-    def GetRequestStatus(self, request, context):
-        status = self.manager.get_request_status(request.request_id)
-        if status is None:
-            return pb2.RequestStatus(not_found=True)
-        # Fill out proto status message
-        return pb2.RequestStatus(
-            progress=status["progress"],
-            all_done=status["all_done"],
-            any_failed=status["any_failed"],
-            # etc...
-        )
-
-
-    
-    def SubmitJob(self, request, context):
         try:
-            job_name = request.job_name
-            split_mode = request.split_mode or "auto"
-            ops_per_chunk = request.ops_per_chunk if split_mode == "fixed" else None
-            self.logger.info(
-                f"💼 Submitting job '{job_name}' with split_mode='{split_mode}'"
-                f"{f', ops_per_chunk={ops_per_chunk}' if ops_per_chunk else ''}")
-
-            job_id = self.job_manager.register_job(
-                job_name=job_name,
+            # if not request.name:
+            #     raise ValueError("Request name cannot be empty")
+            # if not request.onnx_model_path:
+            #     raise ValueError("ONNX model path cannot be empty")
+            # if not request.input_data_path:
+            #     raise ValueError("Input data path cannot be empty")
+            # if request.split_mode not in ["auto", "fixed"]:
+            #     raise ValueError("Invalid split mode. Must be 'auto' or 'fixed'")
+            # if request.split_mode == "fixed" and request.ops_per_chunk <= 0:
+            #     raise ValueError("ops_per_chunk must be greater than 0 for fixed split mode")
+            request_id = self.manager.submit_request(
+                name=request.name,
                 onnx_model_path=request.onnx_model_path,
                 input_data_path=request.input_data_path,
-                split_mode=split_mode,
-                ops_per_chunk=ops_per_chunk,
+                split_mode=request.split_mode,
+                ops_per_chunk=request.ops_per_chunk,
+                logger=self.logger,
+                num_prover_workers=self.num_prover_workers,
+                overwrite_cached_setup=self.overwrite_setup,
+                s3_bucket=self.s3_bucket
             )
-            self.logger.info(f"✅ Job '{job_name}' registered with ID: {job_id}")
-
-            return pb.JobSubmissionResponse(job_id=job_id)
+            return pb2.InferenceRequestAck(request_id=request_id)
         except Exception as e:
-            self.logger.error(f"❌ Error submitting job: {str(e)}")
-            context.set_details(f"Error submitting job: {str(e)}")
+            self.logger.error(f"❌ Error submitting inference request: {str(e)}", exc_info=True)
+            context.set_details(f"Error submitting inference request: {str(e)}")
             context.set_code(grpc.StatusCode.INTERNAL)
-            return pb.JobSubmissionResponse(job_id="")
-
-    def GetJobStatus(self, request, context):
-        status = self.job_manager.get_job_status(request.job_id)
-        return pb.JobStatusResponse(job_id=request.job_id, status=status)
-
-    def GetNextSubJob(self, request, context):
-        subjob = self.job_manager.get_next_sub_job(request.worker_id)
-        if subjob is None:
-            return pb.SubJobAssignment(job_available=False)
-
-        return pb.SubJobAssignment(
-            job_id=subjob["job_id"],
-            sub_model_name=subjob["sub_model_name"],
-            sub_job_id=subjob["sub_job_id"],
-            model_path=subjob["model_path"],
-            input_json=subjob["input_json"],
-            s3_bucket=self.s3_bucket,
-            cache_setup=self.cache_setup,
-            overwrite_setup=self.overwrite_setup,
-            job_available=True
-        )
+            return pb2.InferenceRequestAck(request_id="")
     
+    # Worker pulls a job
+    def GetNextJob(self, request, context):
+        try:
+            job = self.manager.get_next_job()
+            if job:
+                # Convert Job to proto message
+                return pb2.JobAssignment(
+                    job_id=job.job_id,
+                    model_path=job.model_path,
+                    input_json=json.dumps(job.input_json),
+                    s3_bucket=self.s3_bucket,
+                    cache_setup=self.cache_setup,
+                    overwrite_setup=self.overwrite_setup,   
+                    job_available=True)
+            else:
+                return pb2.JobAssignment(job_available=False)
+        except Exception as e:
+            self.logger.error(f"❌ Error fetching next job: {str(e)}", exc_info=True)
+            context.set_details(f"Error fetching next job: {str(e)}")
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return pb2.JobAssignment(job_available=False)
 
+    # Worker submits results
     def SubmitJobResult(self, request, context):
         try:
-            self.job_manager.finalize_sub_job(
+            ok = self.manager.submit_job_result(
                 job_id=request.job_id,
-                sub_job_id=request.sub_job_id,
+                zk_proof=request.proof,
                 status=request.status,
-                proof=request.proof,
+                perf_metrics=json.loads(request.perf_metrics) if request.perf_metrics else None,
                 message=request.message,
-                ezkl_perf= json.loads(request.ezkl_json),
-                halo2_perf= json.loads(request.halo2_json)
-
             )
-
-            #kill dispacther now that the sub-job is done
-            sys.exit(0)  # Uncomment to exit the dispatcher after job completion
-
-            return pb.StatusAck(success=True, message="Result received")
+            return pb2.StatusAck(ok=ok)
         except Exception as e:
-            self.logger.error(f"❌ Error finalizing sub-job: {str(e)}")
-            context.set_details(f"Error finalizing sub-job: {str(e)}")
+            self.logger.error(f"❌ Error submitting job result: {str(e)}", exc_info=True)
+            context.set_details(f"Error submitting job result: {str(e)}")
             context.set_code(grpc.StatusCode.INTERNAL)
-            return pb.StatusAck(success=False, message=str(e))
-
+            return pb2.StatusAck(ok=False)
+    
     def SendHeartbeat(self, request, context):
         try:
-            self.job_manager.record_heartbeat(
-                job_id=request.job_id,
-                sub_job_id=request.sub_job_id,
+            self.manager.record_heartbeat(
                 worker_id=request.worker_id,
+                job_id=request.job_id,
                 status=request.status,
                 message=request.message
             )
-            return pb.HeartbeatAck(success=True)
+            return pb2.HeartbeatAck(success=True)
         except Exception as e:
-            self.logger.error(f"❌ Error in heartbeat: {str(e)}")
+            self.logger.error(f"❌ Error in heartbeat: {str(e)}", exc_info=True)
             context.set_details(f"Error in heartbeat: {str(e)}")
             context.set_code(grpc.StatusCode.INTERNAL)
-            return pb.HeartbeatAck(success=False)
+            return pb2.HeartbeatAck(success=False)
+        
+    
+    # def SubmitJob(self, request, context):
+    #     try:
+    #         job_name = request.job_name
+    #         split_mode = request.split_mode or "auto"
+    #         ops_per_chunk = request.ops_per_chunk if split_mode == "fixed" else None
+    #         self.logger.info(
+    #             f"💼 Submitting job '{job_name}' with split_mode='{split_mode}'"
+    #             f"{f', ops_per_chunk={ops_per_chunk}' if ops_per_chunk else ''}")
+
+    #         job_id = self.job_manager.register_job(
+    #             job_name=job_name,
+    #             onnx_model_path=request.onnx_model_path,
+    #             input_data_path=request.input_data_path,
+    #             split_mode=split_mode,
+    #             ops_per_chunk=ops_per_chunk,
+    #         )
+    #         self.logger.info(f"✅ Job '{job_name}' registered with ID: {job_id}")
+
+    #         return pb2.JobSubmissionResponse(job_id=job_id)
+    #     except Exception as e:
+    #         self.logger.error(f"❌ Error submitting job: {str(e)}")
+    #         context.set_details(f"Error submitting job: {str(e)}")
+    #         context.set_code(grpc.StatusCode.INTERNAL)
+    #         return pb2.JobSubmissionResponse(job_id="")
+
+
+    # def GetNextSubJob(self, request, context):
+    #     subjob = self.job_manager.get_next_sub_job(request.worker_id)
+    #     if subjob is None:
+    #         return pb2.SubJobAssignment(job_available=False)
+
+    #     return pb2.SubJobAssignment(
+    #         job_id=subjob["job_id"],
+    #         sub_model_name=subjob["sub_model_name"],
+    #         sub_job_id=subjob["sub_job_id"],
+    #         model_path=subjob["model_path"],
+    #         input_json=subjob["input_json"],
+    #         s3_bucket=self.s3_bucket,
+    #         cache_setup=self.cache_setup,
+    #         overwrite_setup=self.overwrite_setup,
+    #         job_available=True
+    #     )
+    
+
+    # def SubmitJobResult(self, request, context):
+    #     try:
+    #         self.job_manager.finalize_sub_job(
+    #             job_id=request.job_id,
+    #             sub_job_id=request.sub_job_id,
+    #             status=request.status,
+    #             proof=request.proof,
+    #             message=request.message,
+    #             ezkl_perf= json.loads(request.ezkl_json),
+    #             halo2_perf= json.loads(request.halo2_json)
+
+    #         )
+
+    #         #kill dispacther now that the sub-job is done
+    #         sys.exit(0)  # Uncomment to exit the dispatcher after job completion
+
+    #         return pb.StatusAck(success=True, message="Result received")
+    #     except Exception as e:
+    #         self.logger.error(f"❌ Error finalizing sub-job: {str(e)}")
+    #         context.set_details(f"Error finalizing sub-job: {str(e)}")
+    #         context.set_code(grpc.StatusCode.INTERNAL)
+    #         return pb2.StatusAck(success=False, message=str(e))
+
+
 
     # def ListActiveSubJobs(self, request, context):
     #     live = self.job_manager.list_active_jobs()
@@ -230,7 +248,7 @@ def serve(cfg: DictConfig):
     s3_bucket = cfg.s3_bucket
     cache_setup = cfg.cache_setup
     overwrite_setup = cfg.overwrite_setup
-    print("\n" + OmegaConf.to_yaml(cfg))
+    # print("\n" + OmegaConf.to_yaml(cfg))
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     pb_grpc.add_ZKJobServiceServicer_to_server(ZKJobDispatcher(logger, num_prover_workers, s3_bucket, cache_setup, overwrite_setup), server)
