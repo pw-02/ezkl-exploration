@@ -135,8 +135,6 @@ def save_model_proto_file(model_proto, path_or_key, use_s3=False, s3_bucket=None
         os.makedirs(os.path.dirname(path_or_key), exist_ok=True)
         with open(path_or_key, "wb") as f:
             f.write(model_proto.SerializeToString())
-
-
     
 def load_json_file(path_or_key, use_s3=False, s3_bucket=None):
     if use_s3:
@@ -146,4 +144,16 @@ def load_json_file(path_or_key, use_s3=False, s3_bucket=None):
     else:
         with open(path_or_key, "r") as f:
             return json.load(f)
+
+def save_json_file(data, path_or_key, use_s3=False, s3_bucket=None):
+    if use_s3:
+        # Serialize data to JSON and upload to S3
+        json_str = json.dumps(data, indent=4)
+        s3 = boto3.client("s3")
+        s3.put_object(Body=json_str.encode('utf-8'), Bucket=s3_bucket, Key=s3_path(path_or_key), ContentType="application/json")
+    else:
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(path_or_key), exist_ok=True)
+        with open(path_or_key, "w") as f:
+            json.dump(data, f, indent=4)
 

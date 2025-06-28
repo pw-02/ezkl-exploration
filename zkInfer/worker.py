@@ -272,6 +272,7 @@ class EZKLProofStages:
         perf_measurements["ezkl_key_gen_used_cache"] = used_cache
         perf_measurements["ezkl_key_gen_s3_read_time(s)"] = s3_read_time
         perf_measurements["ezkl_key_gen_s3_write_time(s)"] = s3_write_time
+
         total_setup_time += key_gen_time
         total_s3_read_time += s3_read_time
         total_s3_write_time += s3_write_time

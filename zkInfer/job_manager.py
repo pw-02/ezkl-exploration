@@ -20,7 +20,8 @@ from zkInfer.storage_utils import (
     convert_csv_to_dict, 
     load_model_proto, 
     compute_bytes_md5_hex,
-    write_dict_to_csv
+    write_dict_to_csv,
+    save_json_file
 )
 
 class JobStatus(str, Enum):
@@ -32,7 +33,7 @@ class JobStatus(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
-class RequestStatus(Enum):
+class RequestStatus(str, Enum):
     CREATED = "CREATED"
     PREPARING = "PREPARING"
     QUEUED = "QUEUED"
@@ -45,7 +46,8 @@ class RequestStatus(Enum):
 class ProofJob:
     def __init__(self, job_name, 
                  inference_request_id: str, 
-                 model_path, input_json, 
+                 model_path, 
+                 input_json, 
                  model_write_time: Optional[float] = None, 
                  profiling_data: Optional[Dict] = None, 
                  predicted_duration: Optional[float] = None):
@@ -59,6 +61,7 @@ class ProofJob:
         self.predicted_duration = predicted_duration or 0.0
         self.model_write_time = model_write_time or 0.0
         self.job_status = JobStatus.PREPARING
+        self.profiling_file_path: Optional[str] = None
         self.queued_time = datetime.now(timezone.utc)
         self.zk_proof: Optional[bytes] = None
         self.started_time: Optional[datetime] = None
@@ -67,6 +70,8 @@ class ProofJob:
         self.retry_count = 0
         self.max_retries = 2   # Or set per-job if you want
     
+    def save_profiling_metrics(self, profiling_metrics: Dict, use_s3: bool = False, s3_bucket: Optional[str] = None):
+        """Save profiling metrics to a JSON file in the request's cache directory."""
 
 class InferenceRequest:
     def __init__(
@@ -145,7 +150,8 @@ class InferenceRequest:
                 input_json=input_json,
                 model_write_time=model_write_time,
                 profiling_data=profiling_data,
-                predicted_duration=predicted_duration
+                predicted_duration=predicted_duration,
+                profiling_file_path=profiling_file
             )
             self.proof_jobs.append(proof_job)
         # Optionally sort jobs by predicted_duration
@@ -162,6 +168,8 @@ class InferenceRequest:
 
     def any_job_failed(self):
         return any(job.job_status == JobStatus.FAILED for job in self.proof_jobs)
+    
+
 
 
 class InferenceRequestManager:
@@ -290,7 +298,7 @@ class InferenceRequestManager:
                 return False
 
             job.completed_time = datetime.now(timezone.utc)
-            job.job_status = status
+            job.job_status = JobStatus(status)
 
             if job.job_status == JobStatus.FAILED:
                 job.error_message = message
@@ -322,8 +330,10 @@ class InferenceRequestManager:
         
         if job.job_status != JobStatus.QUEUED:  # Only if it's a true completion or final failure
             # Write per-job report (optional)
-            self.write_job_report_to_disk(job, out_dir="reports", perf_metrics=perf_metrics)
-
+            job_report = self.write_job_report_to_disk(job, out_dir="reports", perf_metrics=perf_metrics)
+            #upload profiling metrics if available
+            parent_req = self.active_requests.get(job.inference_request_id)
+            save_json_file(job_report, job.profiling_file_path, use_s3=parent_req.use_s3, s3_bucket=parent_req.s3_bucket)
 
         # Update parent InferenceRequest status if all jobs finished
         parent_req = self.active_requests.get(job.inference_request_id)
@@ -349,9 +359,22 @@ class InferenceRequestManager:
         circuit_size = perf_metrics.get("circuit_size(n)", 0) if perf_metrics else 0
         vk_size_gb = perf_metrics.get("vk_file_size(GB)", 0) if perf_metrics else 0
         pk_size_gb = perf_metrics.get("pk_file_size(GB)", 0) if perf_metrics else 0
-        setup_time_s = perf_metrics.get("setup_time(s)", 0) if perf_metrics else 0
-        prove_time_s = perf_metrics.get("proof_time", 0) if perf_metrics else 0
-        verify_time_s = perf_metrics.get("verify_time", 0) if perf_metrics else 0
+         # craete pk and vk times will be zero if already created in cache location
+        create_vk_time_s = perf_metrics.get("create_vk_time(s)", 0) if perf_metrics else 0
+        create_pk_time_s = perf_metrics.get("create_pk_time(s)", 0) if perf_metrics else 0
+        # the ezkl setup includes the time to create vk and pk, as well, gen settings, calibrate and everything else needed to prepare for proofing
+        setup_time_s = perf_metrics.get("ezkl_setup_time(s)", 0) if perf_metrics else 0
+        prove_time_s = perf_metrics.get("proof_time(s)", 0) if perf_metrics else 0
+        verify_time_s = perf_metrics.get("verify_time(s)", 0) if perf_metrics else 0
+        
+
+        read_vk_time_s = perf_metrics.get("read_vk_time(s)", 0) if perf_metrics else 0
+        read_pk_time_s = perf_metrics.get("read_pk_time(s)", 0) if perf_metrics else 0
+
+        #ezkl proof time is longer than regular proof coming out of halo2 time because it includes time taken to load vk and pk. 
+        ezkl_proof_time_s = perf_metrics.get("ezkl_proof_time(s)", 0) if perf_metrics else 0
+
+
         max_system_memory_usage_gb = perf_metrics.get("max_system_memory(GB)", 0) if perf_metrics else 0
         max_process_memory_usage_gb = perf_metrics.get("max_process_memory(GB)", 0) if perf_metrics else 0
         avg_system_cpu_usage = perf_metrics.get("avg_system_cpu(%)", 0) if perf_metrics else 0
@@ -365,7 +388,7 @@ class InferenceRequestManager:
             "request_id": job.inference_request_id,
             "job_id": job.job_id,
             "model_path": job.model_path,
-            "job_status": str(job.job_status),
+            "job_status": job.job_status.value,
             "queued_time": str(job.queued_time.isoformat()),
             "started_time": str(job.started_time.isoformat()) if job.started_time else None,
             "completed_time": str(job.completed_time.isoformat()) if job.completed_time else None,
@@ -375,11 +398,16 @@ class InferenceRequestManager:
             "job_runtime(s)": job_runtime_s,
             "total_elapsed_time(s)": total_elapsed_time_s,
             "circuit_size(n)": circuit_size,
+            "create_vk_time(s)": create_vk_time_s,
+            "create_pk_time(s)": create_pk_time_s,
             "vk_size_gb": vk_size_gb,
             "pk_size_gb": pk_size_gb,
-            "setup_time(s)": setup_time_s,
+            "setup_time(s)": setup_time_s, #incudes everythig from ezkl preperation, including vk and pk creation, settings etc.
             "prove_time(s)": prove_time_s,
             "verify_time(s)": verify_time_s,
+            # "read_vk_time(s)": read_vk_time_s,
+            "read_pk_time(s)": read_pk_time_s,
+            "ezkl_proof_time(s)": ezkl_proof_time_s,
             "max_system_memory(GB)": max_system_memory_usage_gb,
             "max_process_memory(GB)": max_process_memory_usage_gb,
             "avg_system_cpu(%)": avg_system_cpu_usage,
@@ -402,6 +430,7 @@ class InferenceRequestManager:
             write_dict_to_csv({**metadata, **perf_metrics}, halo2_file)
 
         self.logger.debug(f"Report for job {job.job_id} saved to {report_dir}")
+        return job_report
 
     def write_request_report_to_disk(self, request: InferenceRequest, out_dir="reports"):
         report_dir = os.path.join(out_dir, request.request_id)
