@@ -7,7 +7,7 @@ defaults:
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
 # Global control flags
-s3_bucket: null #dzkml  # S3 bucket name - only needed when workers are distributed across multiple machines
+s3_bucket: dzkml #null  # S3 bucket name - only needed when workers are distributed across multiple machines
 cache_setup: true     # Whether to keep setup artifacts (onns modles/`vk/pk etc.)
 overwrite_setup: false  # Whether to overwrite existing files in the storage backend
 

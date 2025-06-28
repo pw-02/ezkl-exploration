@@ -293,7 +293,7 @@ class ZKProofWorker:
     def __init__(self, cfg: DictConfig, logger=None):
 
         if cfg.worker.worker_id is None:
-            self.worker_id = f"worker_{base64.urlsafe_b64encode(uuid.uuid4().bytes).rstrip(b'=').decode('ascii')}"
+            self.worker_id = f"{base64.urlsafe_b64encode(uuid.uuid4().bytes).rstrip(b'=').decode('ascii')}"
         else:
             # Use the provided worker ID from the config
             self.worker_id = cfg.worker.worker_id
@@ -331,19 +331,19 @@ class ZKProofWorker:
                     if attempt == max_retries:
                         raise
 
-    def safe_send_heartbeat(self, job_id, status, message):
-        try:
-            self.stub.SendHeartbeat(pb.HeartbeatRequest(
-                worker_id=self.worker_id,
-                job_id=job_id,
-                status=status,
-                message=message
-            ))
-        except grpc.RpcError as e:
-            self.logger.error(f"Failed to send heartbeat: {e} (code={e.code()})")
-            self.reconnect_if_needed()
-        except Exception as e:
-            self.logger.error(f"Exception sending heartbeat: {e}", exc_info=True)
+    # def safe_send_heartbeat(self, job_id, status, message):
+    #     try:
+    #         self.stub.SendHeartbeat(pb.HeartbeatRequest(
+    #             worker_id=self.worker_id,
+    #             job_id=job_id,
+    #             status=status,
+    #             message=message
+    #         ))
+    #     except grpc.RpcError as e:
+    #         self.logger.error(f"Failed to send heartbeat: {e} (code={e.code()})")
+    #         self.reconnect_if_needed()
+    #     except Exception as e:
+    #         self.logger.error(f"Exception sending heartbeat: {e}", exc_info=True)
     
     def send_final_job_result(self, job_id, status, proof=None, message=None, perf_metrics=None):
         def _call():
@@ -425,14 +425,30 @@ class ZKProofWorker:
             status_file = os.path.join(local_working_dir, "status.txt")
             resource_usage_file = os.path.join(local_working_dir, 'resource_usage.log')
             resource_usage_proc = subprocess.Popen([
-                sys.executable, "zkInfer/resource_logger.py",
+                sys.executable, 
+                "zkInfer/resource_logger.py",
                 "--log_file", resource_usage_file,
                 "--pid", worker_pid
             ])
+
             heartbeat_proc = subprocess.Popen([
                 sys.executable, "zkInfer/heartbeat.py",
-                self.target, self.worker_id, job_id, status_file, worker_pid
+                "--target", self.target,
+                "--worker_id", self.worker_id,
+                "--job_id", job_id,
+                "--status_file", status_file,
+                "--parent_pid", worker_pid
             ])
+
+            # heartbeat_proc = subprocess.Popen([
+            #     sys.executable, 
+            #     "zkInfer/heartbeat.py",
+            #     self.target, 
+            #     self.worker_id,
+            #     job_id, 
+            #     status_file, 
+            #     worker_pid
+            # ])
             os.environ["EZKL_LOG_DIR"] = local_working_dir
 
             # --- 5. Proof computation ---

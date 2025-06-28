@@ -47,7 +47,8 @@ class ProofJob:
     def __init__(self, job_name, 
                  inference_request_id: str, 
                  model_path, 
-                 input_json, 
+                 input_json,
+                 profiling_file_path: Optional[str] = None,
                  model_write_time: Optional[float] = None, 
                  profiling_data: Optional[Dict] = None, 
                  predicted_duration: Optional[float] = None):
@@ -61,7 +62,7 @@ class ProofJob:
         self.predicted_duration = predicted_duration or 0.0
         self.model_write_time = model_write_time or 0.0
         self.job_status = JobStatus.PREPARING
-        self.profiling_file_path: Optional[str] = None
+        self.profiling_file_path: Optional[str] = profiling_file_path
         self.queued_time = datetime.now(timezone.utc)
         self.zk_proof: Optional[bytes] = None
         self.started_time: Optional[datetime] = None
@@ -137,8 +138,8 @@ class InferenceRequest:
                 model_write_time = time.perf_counter() - save_started     
             
             if profiling_exists:
-                profiling_data = load_json_file(profiling_file, use_s3=self.use_s3)
-                predicted_duration = profiling_data.get("predicted_duration", 0.0)
+                profiling_data = load_json_file(profiling_file, use_s3=self.use_s3, s3_bucket=self.s3_bucket)
+                predicted_duration = profiling_data.get("job_runtime(s)", 0.0)
             else:
                 # self.logger.warning(f"Profiling data not found for {model_name} at {profiling_file}. Using default predicted_duration=0.0")
                 predicted_duration = 0.0
@@ -248,8 +249,7 @@ class InferenceRequestManager:
                 "message": message,
                 "timestamp": now.isoformat(),
             }
-        if self.logger:
-            self.logger.debug(f"Heartbeat from worker {worker_id}: {self.worker_status[worker_id]}")
+            self.logger.info(f"Heartbeat - Worker: {worker_id} | Job: {job_id} | Status: {status}")
 
      # --- Dead worker detection and job requeue ---
     def check_for_dead_workers(self, interval_sec=15, max_missed=3):
@@ -383,6 +383,9 @@ class InferenceRequestManager:
         fft_device = perf_metrics.get("fft_device", "unknown") if perf_metrics else "unknown"
         total_msm_time = perf_metrics.get("msm_total_time(s)", 0) if perf_metrics else 0
         msm_device = perf_metrics.get("msm_device", "unknown") if perf_metrics else "unknown"
+        total_s3_read_time = perf_metrics.get("ezkl_setup_s3_read_time(s)", 0) if perf_metrics else 0
+        total_s3_write_time = perf_metrics.get("ezkl_setup_s3_write_time(s)", 0) if perf_metrics else 0
+        total_s3_write_time += job.model_write_time
 
         job_report = {
             "request_id": job.inference_request_id,
@@ -416,6 +419,8 @@ class InferenceRequestManager:
             "fft_device": fft_device,
             "total_msm_time(s)": total_msm_time,
             "msm_device": msm_device,
+            "total_s3_read_time(s)": total_s3_read_time,
+            "total_s3_write_time(s)": total_s3_write_time
         }
      
         jobs_report_file = os.path.join(report_dir, "job_report.csv")
