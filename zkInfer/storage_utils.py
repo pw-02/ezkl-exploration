@@ -71,7 +71,30 @@ def write_dict_to_csv(data: Dict, file_path: str):
                 writer.writeheader()
             writer.writerow(data)
 
-            
+def upload_to_s3(local_path, bucket, s3_key):
+    s3 = boto3.client('s3')
+    s3.upload_file(local_path, bucket, s3_path(s3_key))
+
+def download_from_s3(bucket, s3_key, local_path):
+    s3 = boto3.client('s3')
+    s3.download_file(bucket, s3_path(s3_key), local_path)
+
+def file_exists_in_s3(bucket, s3_key):
+    s3 = boto3.client('s3')
+    try:
+        s3.head_object(Bucket=bucket, Key=s3_path(s3_key))
+        return True
+    except:
+        return False
+
+def download_if_exists_in_s3(bucket: str, s3_key: str, local_path: str):
+    """
+    Downloads a file from S3 if it exists.
+    """
+    if file_exists_in_s3(bucket, s3_key):
+        download_from_s3(bucket, s3_key, local_path)
+        return True
+    return False
             
 def s3_file_exists(s3_bucket, key):
     s3 = boto3.client("s3")

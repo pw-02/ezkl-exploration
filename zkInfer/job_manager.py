@@ -1,24 +1,27 @@
 import base64
 import shutil
+import threading
+import time
 import uuid
 import os
 import csv
 from collections import deque
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Deque, Dict, Optional
+from typing import Any, Deque, Dict, List, Optional
 import json
-from s3_utils import upload_to_s3, upload_if_not_exists, delete_s3_prefix, delete_s3_file, delete_non_onnx_files_from_s3
-from zkInfer.onnx_splitter import (
-    split_onnx_model,
-    collect_intermediate_inference_outputs,
-    save_split_models_disk,
-    get_model_info,
-    run_model_inference,
-    save_split_models_s3
-)
-from zkInfer.utils import compute_content_md5_hex, load_json, write_dict_to_csv
+from zkInfer.onnx_splitter import split_onnx_model_with_inputs
+# from zkInfer.utils import compute_content_md5_hex, load_json, write_dict_to_csv, JobStatus
 import logging
+from zkInfer.storage_utils import (
+    load_json_file, 
+    file_exists, 
+    save_model_proto_file,
+    convert_csv_to_dict, 
+    load_model_proto, 
+    compute_bytes_md5_hex,
+    write_dict_to_csv
+)
 
 class JobStatus(str, Enum):
     PREPARING = "PREPARING"
@@ -27,316 +30,424 @@ class JobStatus(str, Enum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     UNKNOWN = "UNKNOWN"
-    
-def as_job_status(val):
-    if isinstance(val, JobStatus):
-        return val
-    try:
-        return JobStatus(val)
-    except ValueError:
-        # Optionally log or raise for unknown status
-        return JobStatus.UNKNOWN  # Default to UNKNOWN if unknown
-        # raise ValueError(f"Unknown JobStatus: {val}")   
+
+
+class RequestStatus(Enum):
+    CREATED = "CREATED"
+    PREPARING = "PREPARING"
+    QUEUED = "QUEUED"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 
 class ProofJob:
+    def __init__(self, job_name, 
+                 inference_request_id: str, 
+                 model_path, input_json, 
+                 model_write_time: Optional[float] = None, 
+                 profiling_data: Optional[Dict] = None, 
+                 predicted_duration: Optional[float] = None):
+        
+        self.job_name = job_name
+        self.job_id = f"{self.job_name}_{uuid.uuid4().hex[:8]}"
+        self.inference_request_id = inference_request_id
+        self.model_path = model_path
+        self.input_json = input_json
+        self.profiling_data = profiling_data or {}
+        self.predicted_duration = predicted_duration or 0.0
+        self.model_write_time = model_write_time or 0.0
+        self.job_status = JobStatus.PREPARING
+        self.queued_time = datetime.now(timezone.utc)
+        self.zk_proof: Optional[bytes] = None
+        self.started_time: Optional[datetime] = None
+        self.completed_time: Optional[datetime] = None
+        self.error_message: Optional[str] = None
+        self.retry_count = 0
+        self.max_retries = 2   # Or set per-job if you want
+    
+
+class InferenceRequest:
     def __init__(
         self,
-        name: str,
+        model_name: str,
         onnx_model_path: str,
         input_data_path: str,
         split_mode: str,
         ops_per_chunk: int,
         logger: Any,
         num_prover_workers: int,
+        overwrite_cached_setup: bool,
         s3_bucket: Optional[str],
-        overwrite_setup: bool,
-
-    ):  
-        date_time_now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
-        
-        self.name = name
-        self.job_id = f"{self.name}_{date_time_now_str}"
+    ):
+        self.model_name = model_name
         self.onnx_model_path = onnx_model_path
         self.input_data_path = input_data_path
         self.split_mode = split_mode
         self.ops_per_chunk = ops_per_chunk
-        self.logger:logging.Logger = logger
+        self.logger: logging.Logger = logger
         self.num_prover_workers = num_prover_workers
+        self.overwrite_cached_setup = overwrite_cached_setup
         self.s3_bucket = s3_bucket
-        self.md5_hash = compute_content_md5_hex(self.onnx_model_path)
-        self.report_dir_prefix = "reports"
-        self.sub_job_queue: Deque = deque()
-        self.sub_job_status_map: Dict[str, JobStatus] = {}
-        self.sub_job_definitions: Dict[str, Dict] = {}    # NEW: stores all original sub-job dicts
-        self.sub_job_retries: Dict[str, int] = {}         # NEW: retry count for each sub-job
-        self.sub_job_failure_map: Dict[str, str] = {}     # NEW: failure reason for each sub-job
+        date_time_now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
+        self.request_id = f"{self.model_name}_{date_time_now_str}-{num_prover_workers}w"
+        self.proof_jobs: List[ProofJob] = []
+        self.cache_prefix = "cache"
+        self.use_s3 = s3_bucket is not None and s3_bucket != ""
+        self.created_time = datetime.now(timezone.utc)
+        self.queued_time = None
+        self.started_time = None
+        self.completed_time = None
+        self.error_message = None
+        self.request_status = RequestStatus.CREATED
 
-
-        self.report_directory = os.path.join(
-            self.report_dir_prefix,
-            self.name,
-            f"{date_time_now_str}-{num_prover_workers}w"
-        )
-        self.cache_prefix = os.path.join("cache", self.md5_hash)
-        self.status = JobStatus.PREPARING
-        self.progress = 0.0
-        self.queued_time: Optional[datetime] = None
-        self.start_time: Optional[datetime] = None
-        self.overwrite_setup = overwrite_setup
-        self.sub_job_proofs: Dict[str, bytes] = {}  # Store proofs for each sub-job
-        self.time_since_started: Optional[float] = None  # Total wall time for the job
-        self.time_since_queued: Optional[float] = None  # Total wall time for the job
-
-    def queue_models_for_proving(self):
-        try:
-            if self.split_mode == "none":
-                model_basename = "model.onnx"
-                model_path = os.path.join(self.cache_prefix, model_basename)
-
-                if self.s3_bucket: #if using s3 uplaod model for remote workers on different machines
-                    if self.overwrite_setup:
-                        upload_to_s3(self.onnx_model_path, self.s3_bucket, model_path)
-                    else:
-                        upload_if_not_exists(self.onnx_model_path, self.s3_bucket, model_path)
-                else:
-                    os.makedirs(self.cache_prefix, exist_ok=True)
-                    if self.overwrite_setup or not os.path.exists(model_path):
-                        self.logger.debug(f"Copying model to {model_path}")
-                        shutil.copyfile(self.onnx_model_path, model_path)
-
-                inference_json_str  = json.dumps(load_json(self.input_data_path))
-                sub_job_id = self.job_id  # sub_job_id is the same as job_id since we are not splitting
-                job_info = {
-                    "job_id": self.job_id,
-                    "sub_model_name": self.name,
-                    "sub_job_id": sub_job_id,
-                    "model_path": model_path,
-                    "input_json": inference_json_str,
-                }
-                self.sub_job_queue.append(job_info)
-                self.sub_job_status_map[sub_job_id] = JobStatus.QUEUED
-                self.sub_job_definitions[sub_job_id] = job_info.copy()
-                self.sub_job_retries[sub_job_id] = 0 
+        
+    def prepare_proof_jobs(self):
+        self.request_status = RequestStatus.PREPARING
+        # 1. Split the ONNX model (if necessary)
+        if self.split_mode == "none":
+            model_proto = load_model_proto(self.onnx_model_path)
+            input_json  = load_json_file(self.input_data_path)
+            model_hash = compute_bytes_md5_hex(model_proto.SerializeToString())
+            models_with_inputs = [(self.model_name, model_hash, model_proto, input_json)]
+        else:
+            models_with_inputs = split_onnx_model_with_inputs(self.onnx_model_path, self.input_data_path, self.ops_per_chunk)
+            # submodels: list of (submodel_name, submodel_path, submodel_input_path)
+  
+        for model_name, model_hash, model_proto, input_json in models_with_inputs:
+            cache_dir = os.path.join(self.cache_prefix, model_hash)
+            model_file = os.path.join(cache_dir, "model.onnx")
+            profiling_file = os.path.join(cache_dir, "profiling.json")
+            profiling_exists = file_exists(profiling_file, use_s3=self.use_s3, s3_bucket=self.s3_bucket)
+            model_exists = file_exists(model_file, use_s3=self.use_s3, s3_bucket=self.s3_bucket)
+            profiling_data = {}
+            predicted_duration = 0.0
+            model_write_time = 0.0
+            
+            if model_exists and profiling_exists and not self.overwrite_cached_setup:
+                self.logger.debug(f"Using cached model {model_name} at {model_file}")
+                #load metrics from profiling.json
+                profiling_data = load_json_file(profiling_file, use_s3=self.use_s3)
+                predicted_duration = profiling_data.get("predicted_duration", 0.0)
             else:
-                # Prepare for split mode (auto or fixed)
-                intermediate_outputs = collect_intermediate_inference_outputs(self.onnx_model_path, self.input_data_path)
-                group_size = 1 if self.split_mode == "auto" else self.ops_per_chunk
-                # Split the ONNX model and save submodels
-                sub_models = split_onnx_model(self.onnx_model_path, group_size)
-                logging.info(f"s3_bucket: {self.s3_bucket}")
-                if self.s3_bucket:  # if using s3 upload model for remote workers on different machines
-                    submodel_info_map = save_split_models_s3(
-                        submodels=sub_models,
-                        intermediate_outputs=intermediate_outputs,
-                        s3_bucket=self.s3_bucket,
-                        prefix=self.cache_prefix,
-                        overwrite=self.overwrite_setup
-                    )
-                else:
-                    submodel_info_map = save_split_models_disk(
-                        submodels=sub_models,
-                        intermediate_outputs=intermediate_outputs,
-                        prefix=self.cache_prefix,
-                        overwrite=self.overwrite_setup
-                    )
-                
-                for sub_model_name, (md5_hash, model_path, flattened_inputs, model_metadata) in submodel_info_map.items():
-                    sub_job_id = f"{sub_model_name}_{self.job_id}"  # use self.job_id for global uniqueness
-                    job_info = {
-                        "job_id": self.job_id,
-                        "sub_model_name": sub_model_name,
-                        "sub_job_id": sub_job_id,
-                        "model_path": model_path,
-                        "input_json": json.dumps(flattened_inputs),
-                    }
-                    self.sub_job_queue.append(job_info)
-                    self.sub_job_status_map[sub_job_id] = JobStatus.QUEUED
-                    self.sub_job_definitions[sub_job_id] = job_info.copy()    # NEW
-                    self.sub_job_retries[sub_job_id] = 0                      # NEW
-              
-            self.status = JobStatus.QUEUED
-            self.queued_time = datetime.now(timezone.utc)
-            self.logger.info(
-                f"Queued {len(self.sub_job_queue)} sub-jobs fo job {self.name}"
+                save_started = time.perf_counter()
+                save_model_proto_file(model_proto, model_file, use_s3=self.use_s3, s3_bucket=self.s3_bucket)
+                model_write_time = time.perf_counter() - save_started
+
+            proof_job = ProofJob(
+                job_name=model_name,
+                inference_request_id=self.request_id,
+                model_path=model_file,
+                input_json=input_json,
+                model_write_time=model_write_time,
+                profiling_data=profiling_data,
+                predicted_duration=predicted_duration
             )
-        except Exception as e:
-            self.logger.error(f"Error during model preparation: {e}", exc_info=True)
-            self.status = JobStatus.FAILED
-            raise
+            self.proof_jobs.append(proof_job)
+        # Optionally sort jobs by predicted_duration
+        self.proof_jobs.sort(key=lambda job: job.predicted_duration or 0.0, reverse=True)
 
-
+    # --- Helper: Progress ---
     def compute_progress(self):
-        total = len(self.sub_job_status_map)
-        completed = sum(1 for s in self.sub_job_status_map.values() if s == JobStatus.COMPLETED)
-        self.progress = (completed / total * 100) if total > 0 else 0.0
-    
-    def all_sub_jobs_completed(self):
-        return all(status == JobStatus.COMPLETED for status in self.sub_job_status_map.values())
-    
-    def any_sub_job_failed(self):  # NEW: for summary/status
-        return any(status == JobStatus.FAILED for status in self.sub_job_status_map.values())
-    
-    def all_sub_jobs_done(self):
-        return all(
-            status in (JobStatus.COMPLETED, JobStatus.FAILED)
-            for status in self.sub_job_status_map.values()
-            )
+        total = len(self.proof_jobs)
+        completed = sum(1 for job in self.proof_jobs if job.job_status == JobStatus.COMPLETED)
+        return (completed / total * 100) if total > 0 else 0.0
 
-    def delete_job_data(self):
-        """
-        Deletes model files and/or setup files for this job, both locally and in S3.
-        """
-        if self.s3_bucket:
-            delete_s3_prefix(self.s3_bucket, self.cache_prefix)
+    def all_jobs_completed(self):
+        return all(job.job_status in (JobStatus.COMPLETED, JobStatus.FAILED) for job in self.proof_jobs)
 
-        #also delete local files if using local storage
-        if os.path.exists(self.cache_prefix):
-            self.logger.debug(f"Deleting local cache directory: {self.cache_prefix}")
-            shutil.rmtree(self.cache_prefix)
+    def any_job_failed(self):
+        return any(job.job_status == JobStatus.FAILED for job in self.proof_jobs)
 
-    def retry_sub_job(self, sub_job_id: str, max_retries=2):
-        """
-        Retry a specific sub-job by re-queuing it.
-        """
-        if sub_job_id in self.sub_job_status_map:
-            if self.sub_job_status_map[sub_job_id] == JobStatus.FAILED:
-                retry_count = self.sub_job_retries.get(sub_job_id, 0)
-                if retry_count < max_retries:
-                    job_info = self.sub_job_definitions[sub_job_id]
-                    self.sub_job_queue.append(job_info)
-                    self.sub_job_status_map[sub_job_id] = JobStatus.QUEUED
-                    self.sub_job_retries[sub_job_id] = retry_count + 1
-                    self.logger.info(f"Retrying sub-job {sub_job_id} (retry {self.sub_job_retries[sub_job_id]})")
-                    return True
-                else:
-                    return False
 
-class JobManager:
+class InferenceRequestManager:
     def __init__(self, logger, num_prover_workers, s3_bucket, cache_setup=False, overwrite_setup=False):
         self.logger:logging.Logger = logger
-        self.proof_jobs: Dict[str, ProofJob] = {}
-        self.sub_job_assignments: Dict[str, str] = {}
-        self.num_prover_workers = num_prover_workers
-        self.s3_bucket = s3_bucket
-        self.cache_setup = cache_setup
-        self.overwrite_setup = overwrite_setup
-
-    def register_job(self, job_name, onnx_model_path, input_data_path, split_mode, ops_per_chunk):
-        job = ProofJob(
-            name=job_name,
-            onnx_model_path=onnx_model_path,
-            input_data_path=input_data_path,
-            split_mode=split_mode,
-            ops_per_chunk=ops_per_chunk,
-            logger=self.logger,
-            num_prover_workers=self.num_prover_workers,
-            s3_bucket=self.s3_bucket,
-            overwrite_setup=self.overwrite_setup
-        )
-        job.queue_models_for_proving()
-        self.proof_jobs[job.job_id] = job
-        return job.job_id
-    
-    def get_job_status(self, job_id: str) -> str:
-        return self.proof_jobs.get(job_id).status if job_id in self.proof_jobs else "UNKNOWN"
-
-
-    def get_job_progress(self, job_id: str) -> float:
-        job = self.proof_jobs.get(job_id)
-        if job:
-            job.compute_progress()
-            return job.progress
-        return 0.0
-    
-    def get_next_sub_job(self, worker_id: str):
-        for job_id, job in self.proof_jobs.items():
-            if not job.sub_job_queue:
-                continue
-            next_sub_job_info = job.sub_job_queue.popleft()
-            sub_job_id = next_sub_job_info["sub_job_id"]
-            self.sub_job_assignments[sub_job_id] = worker_id
-            if job.status == JobStatus.QUEUED:
-                job.status = JobStatus.IN_PROGRESS
-                job.start_time = datetime.now(timezone.utc)
-            job.sub_job_status_map[sub_job_id] = JobStatus.IN_PROGRESS
-            return next_sub_job_info
-        return None
+        self.active_requests: Dict[str, InferenceRequest] = {} # request_id -> InferenceRequest
+        self.job_queue: Deque[ProofJob] = deque()
+        self.active_jobs = {}     # job_id -> ProofJob (currently running)
+        self.lock = threading.Lock()      # For thread safety if multi-threaded gRPC server
+        self.worker_heartbeats: Dict[str, datetime] = {}         # worker_id -> last seen time
+        self.worker_status: Dict[str, dict] = {}                 # worker_id -> latest status dict
+        self.worker_missed_heartbeats: Dict[str, int] = {}  # worker_id -> missed count
 
     
-    def record_heartbeat(self, job_id, sub_job_id, worker_id, status, message):
-        if job_id in self.proof_jobs:
-            job = self.proof_jobs[job_id]
-            # status_enum = as_job_status(status)
-            job.sub_job_status_map[sub_job_id] = status
-            self.logger.info(f"Heartbeat: {worker_id} | {sub_job_id} | {status}")
+    def submit_request(self, *args, **kwargs) -> str:
+        req = InferenceRequest(self, *args, **kwargs)
+        req.prepare_proof_jobs()
+        req.queued_time = datetime.now(timezone.utc)
+        req.request_status = RequestStatus.QUEUED
+        self.active_requests[req.request_id] = req
+        # Add all jobs to the global queue
+        with self.lock:
+            for job in req.proof_jobs:
+                job.job_status = JobStatus.QUEUED
+                self.job_queue.append(job)
+        self.logger.info(f"Submitted request {req.request_id} with {len(req.proof_jobs)} jobs")
+        return req.request_id
+    
+    def get_next_job(self) -> Optional[ProofJob]:
+        with self.lock:
+            if self.job_queue:
+                job = self.job_queue.popleft()
+                self.active_jobs[job.job_id] = job
+                job.job_status = JobStatus.IN_PROGRESS
+                job.started_time = datetime.now(timezone.utc)
+                # Set started_time on the parent request if this is the first job
+                parent_req = self.active_requests.get(job.inference_request_id)
+                if parent_req and parent_req.started_time is None:
+                    parent_req.started_time = datetime.now(timezone.utc)
+                    parent_req.request_status = RequestStatus.IN_PROGRESS
 
-
-    def finalize_sub_job(self, job_id, sub_job_id, status, proof=None, message=None, ezkl_perf: Dict = None, halo2_perf: Dict = None):
-        job = self.proof_jobs.get(job_id)
-        status_enum = as_job_status(status)
-        
-        if not (job and sub_job_id in job.sub_job_status_map):
-            return
-
-        job.sub_job_status_map[sub_job_id] = status_enum
-
-        # Timing and reporting for COMPLETED
-        if status_enum == JobStatus.COMPLETED:
-            # if proof is not None:
-            #     job.sub_job_proofs[sub_job_id] = proof
+                self.logger.info(f"Dispatched job {job.job_id} ({job.job_name})")
+                return job
+            else:
+                return None
             
-            time_now = datetime.now(timezone.utc)
-            job.time_since_queued = (time_now - job.queued_time).total_seconds() if job.queued_time else None
-            job.time_since_started = (time_now - job.start_time).total_seconds() if job.start_time else None
-            os.makedirs(job.report_directory, exist_ok=True)
-            log_line = (
-                f"{time_now.isoformat()} - {sub_job_id} completed. "
-                f"Time since global job queued: {job.time_since_queued:.2f} s, "
-                f"Time since global job started: {job.time_since_started:.2f} s\n"
-            )
-            with open(os.path.join(job.report_directory, "global_job_progress.log"), 'a') as f:
-                f.write(log_line)
-            self.logger.info(f"✅ Sub-job {sub_job_id} COMPLETED")
-
-        # Handling failures
-        elif status_enum == JobStatus.FAILED:
-            job.sub_job_failure_map[sub_job_id] = message
-            self.logger.error(f"❌ Sub-job {sub_job_id} FAILED (reason: {message})")
-            requeued = job.retry_sub_job(sub_job_id, max_retries=2)  # Custom retry logic
-            if not requeued:
-                job.status = JobStatus.FAILED
-                self.logger.error(f"Sub-job {sub_job_id} failed and exceeded max retries. Job {job_id} will be marked as FAILED.")
-
-        # Write performance reports (if present)
-        if status_enum in [JobStatus.COMPLETED, JobStatus.FAILED]:
-            os.makedirs(job.report_directory, exist_ok=True)
-            report_line = {
-                "config_name": job.name,
-                "cache_setup": self.cache_setup,
-                "overwrite_setup": self.overwrite_setup,
-                "global_prover_workers": job.num_prover_workers,
-                "global_job_time_since_started(s)": job.time_since_started,
-                "global_job_time_since_queued(s)": job.time_since_queued
+    # --- Heartbeat recording (from workers) ---
+    def record_heartbeat(self, worker_id, job_id=None, status=None, error_message=None):
+        now = datetime.now(timezone.utc)
+        with self.lock:
+            self.worker_heartbeats[worker_id] = now
+            self.worker_status[worker_id] = {
+                "job_id": job_id,
+                "status": status,
+                # "progress": progress,
+                "error_message": error_message,
+                "timestamp": now.isoformat(),
             }
-            ezkl_file = os.path.join(job.report_directory, "ezkl_perf.csv")
-            halo2_file = os.path.join(job.report_directory, "halo2_perf.csv")
-            write_dict_to_csv({**report_line, **(ezkl_perf or {})}, ezkl_file)
-            write_dict_to_csv({**report_line, **(halo2_perf or {})}, halo2_file)
+        if self.logger:
+            self.logger.debug(f"Heartbeat from worker {worker_id}: {self.worker_status[worker_id]}")
 
-        # Global job completion/failure logic
-        if job.all_sub_jobs_done():
-            if job.any_sub_job_failed():
-                job.status = JobStatus.FAILED
+     # --- Dead worker detection and job requeue ---
+    def check_for_dead_workers(self, interval_sec=15, max_missed=3):
+        now = datetime.now(timezone.utc)
+        to_remove = []
+        with self.lock:
+            for worker_id, last_time in list(self.worker_heartbeats.items()):
+                # How many intervals have passed since last heartbeat?
+                missed = int((now - last_time).total_seconds() // interval_sec)
+                prev_missed = self.worker_missed_heartbeats.get(worker_id, 0)
+
+                if missed > 0:
+                    self.worker_missed_heartbeats[worker_id] = prev_missed + 1
+                else:
+                    self.worker_missed_heartbeats[worker_id] = 0
+
+                # Only requeue after max_missed misses
+                if self.worker_missed_heartbeats[worker_id] >= max_missed:
+                    self.logger.warning(f"Worker {worker_id} missed {max_missed} heartbeats; assuming dead")
+                    # Requeue their job if running
+                    job_info = self.worker_status.get(worker_id)
+                    if job_info and job_info["job_id"]:
+                        job: ProofJob = self.active_jobs.get(job_info["job_id"])
+                        if job and job.job_status == JobStatus.IN_PROGRESS:
+                            job.job_status = JobStatus.QUEUED
+                            job.started_time = None
+                            self.job_queue.append(job)
+                            del self.active_jobs[job.job_id]
+                    to_remove.append(worker_id)
+
+            # Clean up dead workers
+            for worker_id in to_remove:
+                del self.worker_heartbeats[worker_id]
+                del self.worker_status[worker_id]
+                if worker_id in self.worker_missed_heartbeats:
+                    del self.worker_missed_heartbeats[worker_id]
+
+
+
+    # --- Receive result from worker and update status ---
+    def submit_job_result(self, job_id, zk_proof, status, error_message=None, ezkl_perf: Dict = None, halo2_perf: Dict = None) -> bool:
+        with self.lock:
+            job: ProofJob = self.active_jobs.get(job_id)
+            if not job:
+                self.logger.error(f"Job {job_id} not found in active_jobs")
+                return False
+
+            job.completed_time = datetime.now(timezone.utc)
+            job.job_status = status
+
+            if job.job_status == JobStatus.FAILED:
+                job.error_message = error_message
+                job.retry_count += 1
+                if job.retry_count <= job.max_retries:
+                    self.logger.warning(
+                        f"Job {job_id} FAILED (attempt {job.retry_count}/{job.max_retries}). Retrying..."
+                    )
+                    # Reset status and fields for retry
+                    job.job_status = JobStatus.QUEUED
+                    job.completed_time = None
+                    # (Optionally clear error_message or leave for diagnostics)
+                    del self.active_jobs[job_id]  # Remove from active since it's to be re-queued
+                    self.job_queue.append(job)
+                    return True
+                else:
+                    job.job_status = JobStatus.FAILED
+                    self.logger.error(
+                        f"❌ Job {job_id} FAILED after {job.retry_count} attempts: {error_message}"
+                    )
+                    # Optionally: store zk_proof even for final failures
+                    job.zk_proof = zk_proof
+                    # Only now do we remove from active_jobs after permanent failure
+                    del self.active_jobs[job_id]
+            else:
+                self.logger.info(f"✅ Job {job_id} COMPLETED")
+                job.zk_proof = zk_proof
+                del self.active_jobs[job_id]
+        
+        if job.job_status != JobStatus.QUEUED:  # Only if it's a true completion or final failure
+            # Write per-job report (optional)
+            self.write_job_report_to_disk(job)
+
+
+        # Update parent InferenceRequest status if all jobs finished
+        parent_req = self.active_requests.get(job.inference_request_id)
+        if parent_req and parent_req.all_jobs_completed() and parent_req.completed_time is None:
+            parent_req.completed_time = datetime.now(timezone.utc)
+            self.write_request_report_to_disk(parent_req)
+            if parent_req.any_job_failed():
+                parent_req.request_status = RequestStatus.FAILED
+                parent_req.error_message = "One or more sub-jobs failed."
                 self.logger.error(f"❌ Job {job_id} FAILED. One or more sub-jobs failed. Reports saved to {job.report_directory}")
             else:
-                job.status = JobStatus.COMPLETED
+                parent_req.request_status = RequestStatus.COMPLETED
                 self.logger.info(f"🏁 Job {job_id} COMPLETED. Reports saved to {job.report_directory}")
-            if not self.cache_setup: 
-                job.delete_job_data()
+        return True
+    
 
+    def write_job_report_to_disk(self, job: ProofJob, out_dir="reports",  halo2_perf: Dict = None, ezkl_perf: Dict = None):
+        report_dir = os.path.join("reports", job.inference_request_id)
+        os.makedirs(report_dir, exist_ok=True)
+        queue_wait_time_s = (job.started_time - job.queued_time).total_seconds() if job.queued_time and job.started_time else None
+        job_runtime_s = (job.completed_time - job.started_time).total_seconds() if job.started_time and job.completed_time else None
+        total_elapsed_time_s   = (job.completed_time - job.queued_time).total_seconds() if job.queued_time and job.completed_time else None
+        circuit_size = halo2_perf.get("circuit_size(n)", 0) if halo2_perf else 0
+        vk_size_gb = halo2_perf.get("vk_size_gb", 0) if halo2_perf else 0
+        pk_size_gb = halo2_perf.get("pk_size_gb", 0) if halo2_perf else 0
+        setup_time_s = halo2_perf.get("setup_time(s)", 0) if halo2_perf else 0
+        prove_time_s = halo2_perf.get("proof_time", 0) if halo2_perf else 0
+        verify_time_s = halo2_perf.get("verify_time", 0) if halo2_perf else 0
+        max_system_memory_usage_gb = halo2_perf.get("max_system_memory(GB)", 0) if halo2_perf else 0
+        max_process_memory_usage_gb = halo2_perf.get("max_process_memory(GB)", 0) if halo2_perf else 0
+        avg_system_cpu_usage = halo2_perf.get("avg_system_cpu(%)", 0) if halo2_perf else 0
+        avg_process_cpu_usage = halo2_perf.get("avg_process_cpu(%)", 0) if halo2_perf else 0
+        total_ftt_time = halo2_perf.get("fft_total_time(s)", 0) if halo2_perf else 0
+        fft_device = halo2_perf.get("fft_device", "unknown") if halo2_perf else "unknown"
+        total_msm_time = halo2_perf.get("msm_total_time(s)", 0) if halo2_perf else 0
+        msm_device = halo2_perf.get("msm_device", "unknown") if halo2_perf else "unknown"
 
+        job_report = {
+            "job_name": job.job_name,
+            "job_id": job.job_id,
+            "inference_request_id": job.inference_request_id,
+            "model_path": job.model_path,
+            "input_json": job.input_json,
+            "job_status": job.job_status.value,
+            "queued_time": job.queued_time.isoformat(),
+            "started_time": job.started_time.isoformat() if job.started_time else None,
+            "completed_time": job.completed_time.isoformat() if job.completed_time else None,
+            "error_message": job.error_message,
+            "model_write_time": job.model_write_time,
+            "queue_wait_time(s)": queue_wait_time_s,
+            "job_runtime(s)": job_runtime_s,
+            "total_elapsed_time(s)": total_elapsed_time_s,
+            "circuit_size(n)": circuit_size,
+            "vk_size_gb": vk_size_gb,
+            "pk_size_gb": pk_size_gb,
+            "setup_time(s)": setup_time_s,
+            "prove_time(s)": prove_time_s,
+            "verify_time(s)": verify_time_s,
+            "max_system_memory(GB)": max_system_memory_usage_gb,
+            "max_process_memory(GB)": max_process_memory_usage_gb,
+            "avg_system_cpu(%)": avg_system_cpu_usage,
+            "avg_process_cpu(%)": avg_process_cpu_usage,
+            "total_fft_time(s)": total_ftt_time,
+            "fft_device": fft_device,
+            "total_msm_time(s)": total_msm_time,
+            "msm_device": msm_device,
+        }
+     
+        jobs_report_file = os.path.join(report_dir, "job_rport.csv")
+        write_dict_to_csv(job_report, jobs_report_file)
+        metadata ={
+            "job_name": job.job_name,
+            "job_id": job.job_id,
+            "inference_request_id": job.inference_request_id,
+        }
+        #also save ezkl and halo2 performance to their own files if available
+        if halo2_perf is None:
+            halo2_file = os.path.join(report_dir, "halo2_perf.csv")
+            write_dict_to_csv({**metadata, **halo2_perf}, halo2_file)
+        if ezkl_perf is None:
+            ezkl_file = os.path.join(report_dir, "ezkl_perf.csv")
+            write_dict_to_csv({**metadata, **ezkl_perf}, ezkl_file)
 
+        self.logger.debug(f"Report for job {job.job_id} saved to {report_dir}")
 
+    def write_request_report_to_disk(self, request: InferenceRequest, out_dir="reports"):
+        report_dir = os.path.join(out_dir, request.request_id)
+        os.makedirs(report_dir, exist_ok=True)
+        queue_wait_time_s = (request.started_time - request.queued_time).total_seconds() if request.queued_time and request.started_time else None
+        request_runtime_s = (request.completed_time - request.started_time).total_seconds() if request.started_time and request.completed_time else None
+        total_elapsed_time_s = (request.completed_time - request.created_time).total_seconds() if request.created_time and request.completed_time else None
+        num_proof_jobs = len(request.proof_jobs)
 
-
+        #check if the job_rport.csv is available and if so, load it to aggregate some metrics
+        job_report_file = os.path.join(report_dir, "job_rport.csv")
+        if os.path.exists(job_report_file):
+            job_report_data = convert_csv_to_dict(job_report_file)
+            if job_report_data:
+                # # Aggregate some metrics from the job report
+                max_system_memory_usage_gb = max(job_report_data.get('max_system_memory(GB)', [])),
+                max_process_memory_usage_gb = max(job_report_data.get('max_process_memory(GB)', [])),
+                avg_system_cpu_usage = sum(job_report_data.get('avg_system_cpu(%)', [])) / num_proof_jobs,
+                avg_process_cpu_usage = sum(job_report_data.get('avg_process_cpu(%)', [])) / num_proof_jobs
+                agg_setup_time_s = sum(float(job.get("setup_time(s)", 0)) for job in job_report_data)
+                agg_prove_time_s = sum(float(job.get("prove_time(s)", 0)) for job in job_report_data)
+                agg_verify_time_s = sum(float(job.get("verify_time(s)", 0)) for job in job_report_data)
+                agg_fft_time_s = sum(float(job.get("total_fft_time(s)", 0)) for job in job_report_data)
+                agg_msm_time_s = sum(float(job.get("total_msm_time(s)", 0)) for job in job_report_data)
+                max_pk_size_gb = max(float(job.get("pk_size_gb", 0)) for job in job_report_data)
+                max_vk_size_gb = max(float(job.get("vk_size_gb", 0)) for job in job_report_data)
+                agg_circuit_size_n = sum(int(job.get("circuit_size(n)", 0)) for job in job_report_data)
+                agg_job_runtime_s = sum(float(job.get("job_runtime(s)", 0)) for job in job_report_data)              
+        
+        request_report = {
+            "request_id": request.request_id,
+            "model_name": request.model_name,
+            "onnx_model_path": request.onnx_model_path,
+            "input_data_path": request.input_data_path,
+            "split_mode": request.split_mode,
+            "ops_per_chunk": request.ops_per_chunk,
+            "num_proof_jobs": num_proof_jobs,
+            "num_prover_workers": request.num_prover_workers,
+            "overwrite_cached_setup": request.overwrite_cached_setup,
+            "s3_bucket": request.s3_bucket,
+            "created_time": request.created_time.isoformat(),
+            "queued_time": request.queued_time.isoformat() if request.queued_time else None,
+            "started_time": request.started_time.isoformat() if request.started_time else None,
+            "completed_time": request.completed_time.isoformat() if request.completed_time else None,
+            "error_message": request.error_message,
+            "request_status": request.request_status.value,
+            "queue_wait_time(s)": queue_wait_time_s,
+            "request_runtime(s)": request_runtime_s,
+            "total_elapsed_time(s)": total_elapsed_time_s,
+            "agg_setup_time(s)": agg_setup_time_s,
+            "agg_prove_time(s)": agg_prove_time_s,
+            "agg_verify_time(s)": agg_verify_time_s,
+            "agg_fft_time(s)": agg_fft_time_s,
+            "agg_msm_time(s)": agg_msm_time_s,
+            "agg_circuit_size(n)": agg_circuit_size_n,
+            "agg_job_runtime(s)": agg_job_runtime_s,
+            "max_system_memory(GB)": max_system_memory_usage_gb if max_system_memory_usage_gb else 0,
+            "max_process_memory(GB)": max_process_memory_usage_gb if max_process_memory_usage_gb else 0,
+            "avg_system_cpu(%)": avg_system_cpu_usage if avg_system_cpu_usage else 0,
+            "avg_process_cpu(%)": avg_process_cpu_usage if avg_process_cpu_usage else 0,
+            "max_pk_size_gb": max_pk_size_gb if max_pk_size_gb else 0,
+            "max_vk_size_gb": max_vk_size_gb if max_vk_size_gb else 0,
+        }
+        report_file = os.path.join(report_dir, "request_report.csv")
+        write_dict_to_csv(request_report, report_file)
+        self.logger.debug(f"Request report saved to {report_file}")

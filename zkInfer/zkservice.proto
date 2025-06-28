@@ -25,57 +25,41 @@ enum SubJobStatus {
 
 // ===== USER SUBMISSION & JOB STATUS =====
 
-message SubmitJobRequest {
-  string job_name = 1;
+message InferenceRequest {
+  string name = 1;
   string onnx_model_path = 2;
   string input_data_path = 3;
   string split_mode = 4;          // "none", "auto", or "fixed"
   int32 ops_per_chunk = 5;        // Only used if split_mode == "fixed"
 }
 
-message JobSubmissionResponse {
-  string job_id = 1;
+message InferenceSubmissionResponse {
+  string request_id = 1;
 }
-
-message JobIDRequest {
-  string job_id = 1;
-}
-
-message JobStatusResponse {
-  string job_id = 1;
-  string status = 2;
-}
-
 
 // ===== WORKER INTERACTION =====
-
-message WorkerIDRequest {
+message WorkerIdRequest {
   string worker_id = 1;
 }
 
-// SubJobAssignment: Information needed by the worker to process a subjob.
-message SubJobAssignment {
+// JobAssignment: Information needed by the worker to process a job.
+message JobAssignment {
   string job_id = 1;
-  string sub_model_name = 2;           // Consistent: Use "job_id" (not "global_job_id")
-  string sub_job_id = 3;
-  string model_path = 4;
-  string input_json = 5;
-  string s3_bucket = 6; // Only used if storage_backend == "s3"
-  bool cache_setup = 7; // Whether to keep model artifacts (model files, etc.)
-  bool overwrite_setup = 8; // Whether to overwrite existing files
-  bool job_available = 9; // Indicates if the job is still available
+  string model_path = 2;
+  string input_json = 3;
+  string s3_bucket = 4; // Only used if storage_backend == "s3"
+  bool cache_setup = 5; // Whether to keep model artifacts (model files, etc.)
+  bool overwrite_setup = 6; // Whether to overwrite existing files
+  bool job_available = 7; // Indicates if the job is still available
 }
 
-// The result of a subjob proof computation.
-message SubJobResult {
+// The result of a job proof computation.
+message JobResult {
   string job_id = 1;
-  string sub_job_id = 2;
-  bytes proof = 3;
-  string status = 4;
-  string ezkl_json = 5;
-  string halo2_json = 6;
-  string message = 7; // Additional message or error description
-
+  bytes proof = 2;
+  string status = 3;
+  string perf_metrics = 4;
+  string message = 5; // Additional message or error description
 }
 
 // ===== HEARTBEAT & STATUS =====
@@ -83,15 +67,12 @@ message SubJobResult {
 message HeartbeatRequest {
   string worker_id = 1;
   string job_id = 2;
-  string sub_job_id = 3;
-  string status = 4;
-  string message = 5;
+  string status = 3;
+  string error_message = 4;
 }
-
 message HeartbeatAck {
   bool success = 1;
 }
-
 
 message StatusAck {
   bool success = 1;
@@ -103,13 +84,13 @@ message StatusAck {
 service ZKJobService {
 
   // User API
-  rpc SubmitJob (SubmitJobRequest) returns (JobSubmissionResponse);
-  rpc GetJobStatus (JobIDRequest) returns (JobStatusResponse);
+  rpc SubmitInferenceRequest (InferenceRequest) returns (InferenceSubmissionResponse);
+  //rpc GetJobStatus (JobIDRequest) returns (JobStatusResponse);
   //rpc GetJobSummary (JobIDRequest) returns (JobSummaryResponse);
 
   // Worker API
-  rpc GetNextSubJob (WorkerIDRequest) returns (SubJobAssignment);
-  rpc FinalizeSubJob (SubJobResult) returns (StatusAck);
+  rpc GetNextJob (WorkerIdRequest) returns (JobAssignment);
+  rpc SubmitJobResult (JobResult) returns (StatusAck);
 
   // Heartbeats and Monitoring
   rpc SendHeartbeat (HeartbeatRequest) returns (HeartbeatAck);

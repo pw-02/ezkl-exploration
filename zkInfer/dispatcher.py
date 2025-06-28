@@ -6,7 +6,7 @@ from omegaconf import DictConfig, OmegaConf
 import zkservice_pb2 as pb2
 import zkservice_pb2_grpc as pb_grpc
 from zkInfer.job_manager import JobManager
-from zkInfer.job_manager_copy import InferenceRequestManager
+from zkInfer.job_manager import InferenceRequestManager
 import logging
 import sys
 import json
@@ -150,7 +150,7 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
         )
     
 
-    def FinalizeSubJob(self, request, context):
+    def SubmitJobResult(self, request, context):
         try:
             self.job_manager.finalize_sub_job(
                 job_id=request.job_id,
