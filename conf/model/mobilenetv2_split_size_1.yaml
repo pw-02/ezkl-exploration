@@ -1,4 +1,4 @@
-name: mobilenetv2_050_Opset18_split_size_1
+name: mobilenetv2_split_size_1
 onnx_file: examples/onnx/mobile_net/mobilenetv2_050_Opset18.onnx # examples\onnx\mobile_net\mobilenetv2_050_Opset18.onnx
 input_file: examples/onnx/mobile_net/input.json
 # split_mode: "none"  # options: "none", "auto", or "fixed"
