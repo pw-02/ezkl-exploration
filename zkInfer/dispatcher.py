@@ -40,18 +40,23 @@ def setup_logger(name, log_file=None, level=logging.INFO):
 
 
 class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
-    def __init__(self, logger=None, 
-                 num_prover_workers=1, 
-                 s3_bucket=None, 
-                 cache_setup=False,
-                 overwrite_setup=False,
-                 storage_backend=None):
+    def __init__(self, 
+                 s3_bucket, 
+                 cache_setup,
+                 cache_backend,
+                 overwrite_cache,
+                 data_exchange_backend='local',
+                num_prover_workers=1, 
+                                 logger=None, 
+
+    ):
         self.logger = logger
         self.s3_bucket = s3_bucket
         self.cache_setup = cache_setup
-        self.overwrite_setup = overwrite_setup
+        self.overwrite_cache = overwrite_cache
         self.num_prover_workers = num_prover_workers
-        self.storage_backend = storage_backend
+        self.cache_backend = cache_backend
+        self.data_exchange_backend = data_exchange_backend
         self.manager = InferenceRequestManager(logger=logger)
 
     # API for submitting new inference requests
@@ -75,10 +80,11 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
                 ops_per_chunk=request.ops_per_chunk,
                 logger=self.logger,
                 num_prover_workers=self.num_prover_workers,
-                cache_setup=self.cache_setup,
-                overwrite_cached_setup=self.overwrite_setup,
+                data_exchange_backend=self.data_exchange_backend,
                 s3_bucket=self.s3_bucket,
-                storage_backend=self.storage_backend
+                cache_setup=self.cache_setup,
+                overwrite_cache=self.overwrite_cache ,
+                cache_backend=self.cache_backend,
             )
             return pb2.InferenceRequestAck(request_id=request_id)
         except Exception as e:
@@ -96,11 +102,12 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
                 return pb2.JobAssignment(
                     job_id=job.job_id,
                     model_path=job.model_path,
-                    input_json=json.dumps(job.input_json),
+                    input_path=job.input_path,
                     s3_bucket=self.s3_bucket,
                     cache_setup=self.cache_setup,
-                    overwrite_setup=self.overwrite_setup,
-                    cache_location=self.storage_backend,
+                    overwrite_cache=self.overwrite_cache,
+                    cache_backend=self.cache_backend,
+                    share_data_via_s3=True if self.data_exchange_backend == "s3" else False,
                     job_available=True)
             else:
                 return pb2.JobAssignment(job_available=False)
@@ -109,6 +116,7 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
             context.set_details(f"Error fetching next job: {str(e)}")
             context.set_code(grpc.StatusCode.INTERNAL)
             return pb2.JobAssignment(job_available=False)
+        
 
     # Worker submits results
     def SubmitJobResult(self, request, context):
@@ -156,12 +164,24 @@ def serve(cfg: DictConfig):
     num_prover_workers = dispatcher_cfg.num_prover_workers
     s3_bucket = cfg.s3_bucket
     cache_setup = cfg.cache_setup
-    overwrite_setup = cfg.overwrite_cache
-    storage_backend = cfg.storage_backend
+    overwrite_cache = cfg.overwrite_cache
+    cache_backend = cfg.cache_backend
+    data_exchange_backend = cfg.data_exchange_backend
     # print("\n" + OmegaConf.to_yaml(cfg))
 
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
-    pb_grpc.add_ZKJobServiceServicer_to_server(ZKJobDispatcher(logger, num_prover_workers, s3_bucket, cache_setup, overwrite_setup, storage_backend), server)
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers), options=[
+        ("grpc.max_send_message_length", 64 * 1024 * 1024),
+        ("grpc.max_receive_message_length", 64 * 1024 * 1024),
+    ])
+    pb_grpc.add_ZKJobServiceServicer_to_server(ZKJobDispatcher(
+        s3_bucket=s3_bucket,
+        cache_setup=cache_setup,
+        cache_backend=cache_backend,
+        overwrite_cache=overwrite_cache,
+        data_exchange_backend=data_exchange_backend,
+        num_prover_workers=num_prover_workers,
+        logger=logger
+    ), server)
     server.add_insecure_port(f"[::]:{port}")
     server.start()
     logger.info(f"✅ Dispatcher gRPC server running on port {port}")

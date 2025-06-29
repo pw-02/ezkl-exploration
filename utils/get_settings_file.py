@@ -3,9 +3,9 @@ import shutil
 import json
 import csv
 from zkInfer.onnx_splitter import (
-    collect_intermediate_inference_outputs,
+    # collect_intermediate_inference_outputs,
     split_onnx_model,
-    save_split_models,
+    # save_split_models,
     get_model_info,
 )
 import ezkl
@@ -59,12 +59,12 @@ def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, gr
     clean_directory(tmp_cache_directory)
 
 if __name__ == "__main__":
-    name = "oh_decision_tree"
-    input_file = r"examples\onnx\oh_decision_tree\input.json"
-    onnx_file = r"examples\onnx\oh_decision_tree\network.onnx"
+    name = "mobilenet_large"
+    input_file = r"examples/onnx/mobilenet_large/input.json"
+    onnx_file = r"examples/onnx/mobilenet_large/network.onnx"
 
     # input_file = r"examples\onnx\resnet18\input.json"
     # onnx_file = r"examples\onnx\resnet18\resnet18_cifar10.onnx"
-    group_size = 1  # Adjust as needed
+    group_size = None  # Adjust as needed
     get_settings_file(name, onnx_file, input_file, group_size)
     print("Settings file generated successfully.")

@@ -21,7 +21,8 @@ from zkInfer.storage_utils import (
     load_model_proto, 
     compute_bytes_md5_hex,
     write_dict_to_csv,
-    save_json_file
+    save_json_file,
+    remove_file
 )
 
 class JobStatus(str, Enum):
@@ -49,16 +50,16 @@ class ProofJob:
                  model_name: str,
                  inference_request_id: str, 
                  model_path, 
-                 input_json,
+                 input_path,
                  profiling_file_path: Optional[str] = None,
                  model_write_time: Optional[float] = None, 
                  profiling_data: Optional[Dict] = None, 
                  predicted_duration: Optional[float] = None):
-        self.job_id = f"{uuid.uuid4().hex[:8]}"
+        self.job_id = f"{model_name}_{uuid.uuid4().hex[:8]}"
         self.job_name = f"{inference_request_name}_{model_name}"
         self.inference_request_id = inference_request_id
         self.model_path = model_path
-        self.input_json = input_json
+        self.input_path = input_path
         self.profiling_data = profiling_data or {}
         self.predicted_duration = predicted_duration or 0.0
         self.model_write_time = model_write_time or 0.0
@@ -74,6 +75,7 @@ class ProofJob:
     
     def save_profiling_metrics(self, profiling_metrics: Dict, use_s3: bool = False, s3_bucket: Optional[str] = None):
         """Save profiling metrics to a JSON file in the request's cache directory."""
+        pass
 
 class InferenceRequest:
     def __init__(
@@ -85,36 +87,40 @@ class InferenceRequest:
         ops_per_chunk: int,
         logger: Any,
         num_prover_workers: int,
-        cahche_setup: bool,
-        overwrite_cached_setup: bool,
+        data_exchange_backend: str,
         s3_bucket: Optional[str],
-        storage_backend: Optional[str],  
+        cache_setup: bool,
+        overwrite_cache: bool,
+        cache_backend: Optional[str],
     ):
         self.name = name
+        date_time_now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
+        self.request_id = f"{self.name}_{date_time_now_str}-{num_prover_workers}w"
         self.onnx_model_path = onnx_model_path
         self.input_data_path = input_data_path
         self.split_mode = split_mode
         self.ops_per_chunk = ops_per_chunk
         self.logger: logging.Logger = logger
         self.num_prover_workers = num_prover_workers
-        self.overwrite_cached_setup = overwrite_cached_setup
-        self.cache_setup = cahche_setup 
+        self.data_exchange_backend = data_exchange_backend
+        self.share_data_via_s3 = True if data_exchange_backend == "s3" else False
         self.s3_bucket = s3_bucket
-        date_time_now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
-        self.request_id = f"{self.name}_{date_time_now_str}-{num_prover_workers}w"
+        self.cache_setup = cache_setup
+        self.overwrite_cache = overwrite_cache
+        self.cache_backend = cache_backend
+        self.cache_on_s3 = True if cache_backend == "s3" else False
         self.proof_jobs: List[ProofJob] = []
         self.cache_prefix = "cache"
-        self.storage_backend = storage_backend or "local"  # Default to local if not specified
-        self.use_s3 = True if self.storage_backend == "s3" else False
         self.created_time = datetime.now(timezone.utc)
         self.queued_time = None
         self.started_time = None
         self.completed_time = None
         self.error_message = None
         self.request_status = RequestStatus.CREATED
-        self.request_model_hash = None
-        # self.request_model_hash = compute_bytes_md5_hex(load_model_proto(self.onnx_model_path).SerializeToString())
-
+    
+    @property
+    def use_s3_for_cache(self):
+        return self.cache_backend == "s3"
         
     def prepare_proof_jobs(self):
         self.request_status = RequestStatus.PREPARING
@@ -122,43 +128,46 @@ class InferenceRequest:
         
         if self.split_mode == "none":
             model_proto = load_model_proto(self.onnx_model_path)
-            input_json  = load_json_file(self.input_data_path)
+            input_data  = load_json_file(self.input_data_path)
             model_hash = compute_bytes_md5_hex(model_proto.SerializeToString())
-            models_with_inputs = [(self.name, model_hash, model_proto, input_json)]
+            models_with_inputs = [(self.name, model_hash, model_proto, input_data)]
         else:
             models_with_inputs = split_onnx_model_with_inputs(self.onnx_model_path, self.input_data_path, self.ops_per_chunk)
             # submodels: list of (submodel_name, submodel_path, submodel_input_path)
-        
-        for model_name, model_hash, model_proto, input_json in models_with_inputs:
+
+        for model_name, model_hash, model_proto, input_data in models_with_inputs:
             cache_dir = os.path.join(self.cache_prefix, model_hash)
-            model_file = os.path.join(cache_dir, "model.onnx")
+            model_file_path = os.path.join(cache_dir, "model.onnx")
+            input_file_path = os.path.join(cache_dir, "input.json")
             profiling_file = os.path.join(cache_dir, "profiling.json")
-            profiling_exists = file_exists(profiling_file, use_s3=self.use_s3, s3_bucket=self.s3_bucket)
-            model_exists = file_exists(model_file, use_s3=self.use_s3, s3_bucket=self.s3_bucket)
+            profiling_exists = file_exists(profiling_file, use_s3=self.share_data_via_s3, s3_bucket=self.s3_bucket)
+            model_exists = file_exists(model_file_path, use_s3=self.share_data_via_s3, s3_bucket=self.s3_bucket)
             profiling_data = {}
             predicted_duration = 0.0
             model_write_time = 0.0
 
-            if self.overwrite_cached_setup or not model_exists:
-                self.logger.debug(f"Overwriting cached model {model_name} at {model_file}")
+            if self.overwrite_cache or not model_exists: #regenerate model if not exists or overwrite is set
                 save_started = time.perf_counter()
-                save_model_proto_file(model_proto, model_file, use_s3=self.use_s3, s3_bucket=self.s3_bucket)
-                model_write_time = time.perf_counter() - save_started     
+                save_model_proto_file(model_proto, model_file_path, use_s3=self.share_data_via_s3, s3_bucket=self.s3_bucket)
+                model_write_time += time.perf_counter() - save_started     
             
             if profiling_exists:
-                profiling_data = load_json_file(profiling_file, use_s3=self.use_s3, s3_bucket=self.s3_bucket)
+                profiling_data = load_json_file(profiling_file, use_s3=self.share_data_via_s3, s3_bucket=self.s3_bucket)
                 predicted_duration = profiling_data.get("job_runtime(s)", 0.0)
             else:
                 # self.logger.warning(f"Profiling data not found for {model_name} at {profiling_file}. Using default predicted_duration=0.0")
                 predicted_duration = 0.0
+            save_started = time.perf_counter()
+            save_json_file(input_data, input_file_path, use_s3=self.share_data_via_s3, s3_bucket=self.s3_bucket)
+            model_write_time += time.perf_counter() - save_started
 
             proof_job = ProofJob(
                 inference_request_name=self.name,
                 model_name=model_name,
                 inference_request_id=self.request_id,
-                model_path=model_file,
-                input_json=input_json,
-                model_write_time=model_write_time,
+                model_path=model_file_path,
+                input_path=input_file_path,
+                model_write_time=model_write_time if self.share_data_via_s3 else 0.0,  # Only time if using S3
                 profiling_data=profiling_data,
                 predicted_duration=predicted_duration,
                 profiling_file_path=profiling_file
@@ -207,10 +216,12 @@ class InferenceRequestManager:
                     ops_per_chunk: int,
                     logger: Any,
                     num_prover_workers: int,
-                    cache_setup: bool,
-                    overwrite_cached_setup: bool,
+                    data_exchange_backend: str,
                     s3_bucket: Optional[str],
-                    storage_backend: Optional[str]) -> str:
+                    cache_setup: bool,
+                    overwrite_cache: bool,
+                    cache_backend: Optional[str],
+                    ) -> str:
 
         req = InferenceRequest(
             name=name,
@@ -220,10 +231,11 @@ class InferenceRequestManager:
             ops_per_chunk=ops_per_chunk,
             logger=logger,
             num_prover_workers=num_prover_workers,
-            cahche_setup=cache_setup,
-            overwrite_cached_setup=overwrite_cached_setup,
+            data_exchange_backend=data_exchange_backend,
             s3_bucket=s3_bucket,
-            storage_backend=storage_backend
+            cache_setup=cache_setup,
+            overwrite_cache=overwrite_cache,
+            cache_backend=cache_backend
         )
         req.prepare_proof_jobs()
         req.queued_time = datetime.now(timezone.utc)
@@ -332,6 +344,7 @@ class InferenceRequestManager:
                     job.job_status = JobStatus.QUEUED
                     job.completed_time = None
                     # (Optionally clear error_message or leave for diagnostics)
+                    job.error_message = None
                     del self.active_jobs[job_id]  # Remove from active since it's to be re-queued
                     self.job_queue.append(job)
                     return True
@@ -342,6 +355,7 @@ class InferenceRequestManager:
                     )
                     # Optionally: store zk_proof even for final failures
                     job.zk_proof = zk_proof
+                    job.error_message = message or "Job failed permanently after retries."
                     # Only now do we remove from active_jobs after permanent failure
                     del self.active_jobs[job_id]
             else:
@@ -350,12 +364,17 @@ class InferenceRequestManager:
                 del self.active_jobs[job_id]
         
         if job.job_status != JobStatus.QUEUED:  # Only if it's a true completion or final failure
+            parent_req = self.active_requests.get(job.inference_request_id)
+            #remove input file from cache location
+            remove_file(job.input_path, use_s3=parent_req.share_data_via_s3, s3_bucket=parent_req.s3_bucket)
+
             # Write per-job report (optional)
             job_report = self.write_job_report_to_disk(job, out_dir="reports", perf_metrics=perf_metrics)
+            
             #upload profiling metrics if available
-            parent_req = self.active_requests.get(job.inference_request_id)
-            save_json_file(job_report, job.profiling_file_path, use_s3=parent_req.use_s3, s3_bucket=parent_req.s3_bucket)
-
+            if job.job_status == JobStatus.COMPLETED:
+                save_json_file(job_report, job.profiling_file_path, use_s3=parent_req.share_data_via_s3, s3_bucket=parent_req.s3_bucket)
+           
         # Update parent InferenceRequest status if all jobs finished
         parent_req = self.active_requests.get(job.inference_request_id)
         if parent_req and parent_req.all_jobs_completed() and parent_req.completed_time is None:
@@ -377,6 +396,8 @@ class InferenceRequestManager:
         queue_wait_time_s = (job.started_time - job.queued_time).total_seconds() if job.queued_time and job.started_time else None
         job_runtime_s = (job.completed_time - job.started_time).total_seconds() if job.started_time and job.completed_time else None
         total_elapsed_time_s   = (job.completed_time - job.queued_time).total_seconds() if job.queued_time and job.completed_time else None
+        
+        
         circuit_size = perf_metrics.get("circuit_size(n)", 0) if perf_metrics else 0
         vk_size_gb = perf_metrics.get("vk_file_size(GB)", 0) if perf_metrics else 0
         pk_size_gb = perf_metrics.get("pk_file_size(GB)", 0) if perf_metrics else 0
@@ -492,14 +513,14 @@ class InferenceRequestManager:
             "request_name": request.name,
             "onnx_model_path": request.onnx_model_path,
             "input_data_path": request.input_data_path,
-            "storage_backend": request.storage_backend,
+            "data_exchange_backend": request.data_exchange_backend,
             "cache_setup": request.cache_setup,
-            "overwrite_cached_setup": request.overwrite_cached_setup,
+            "overwrite_cache": request.overwrite_cache,
+            "cache_backend": request.cache_backend,
             "split_mode": request.split_mode,
             "ops_per_chunk": request.ops_per_chunk,
             "num_proof_jobs": num_proof_jobs,
             "num_prover_workers": request.num_prover_workers,
-            "overwrite_cached_setup": request.overwrite_cached_setup,
             "s3_bucket": request.s3_bucket,
             "created_time": request.created_time.isoformat(),
             "queued_time": request.queued_time.isoformat() if request.queued_time else None,

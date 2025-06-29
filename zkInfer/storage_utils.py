@@ -197,3 +197,16 @@ def save_json_file(data, path_or_key, use_s3=False, s3_bucket=None):
         with open(path_or_key, "w") as f:
             json.dump(data, f, indent=4)
 
+def remove_file(path_or_key, use_s3=False, s3_bucket=None):
+    if use_s3:
+        s3 = boto3.client("s3")
+        try:
+            s3.delete_object(Bucket=s3_bucket, Key=s3_path(path_or_key))
+        except ClientError as e:
+            raise RuntimeError(f"Failed to delete {path_or_key} from S3 bucket {s3_bucket}: {e}")
+    else:
+        if os.path.exists(path_or_key):
+            os.remove(path_or_key)
+        else:
+            raise FileNotFoundError(f"File {path_or_key} does not exist")
+

@@ -3,7 +3,7 @@ import json
 import os
 import sys
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 import uuid
 import grpc
 import hydra
@@ -36,14 +36,19 @@ class EZKLProofStages:
         self, 
         input_data_path, 
         onnx_model_path, 
-        overwrite=False, 
-        logger = None, 
-        status_file=None,
-        s3_bucket=None,
+        cache_setup: bool,
+        overwrite_cache: bool,
+        cache_backend: Optional[str],
+        s3_bucket: Optional[str] = None,
+        status_file: Optional[str] = None,
         cache_dir=None,
-        cache_setup=False,
-        working_dir=None,
-        use_s3=None
+        local_tmp_dir=None,
+        share_data_via_s3: bool = False,
+        # use_s3=None,
+        logger = None, 
+
+
+   
     ):
         import ezkl  # Only import here for multiprocess safety
         self.ezkl = ezkl
@@ -51,15 +56,20 @@ class EZKLProofStages:
         self.onnx_model_path = onnx_model_path
         self.logger = logger or logging.getLogger("worker")
         self.status_file = status_file
-        self.overwrite = overwrite
-        self.s3_bucket = s3_bucket
+        self.cache_setup = cache_setup
+        self.overwrite_cache = overwrite_cache
+        self.cache_backend = cache_backend
         self.cache_dir = cache_dir
-        self.tmp_dir = working_dir
-        self.cache_Setup = cache_setup
-        self.use_s3 = use_s3
+        self.tmp_dir = local_tmp_dir
+        self.s3_bucket = s3_bucket
+        self.share_data_via_s3 = share_data_via_s3
+        # self.cache_on_s3 = True if cache_backend == "s3" else False
+
+
+        # self.use_s3 = use_s3
 
         # File paths
-        if self.cache_Setup and not self.use_s3:
+        if self.cache_setup and self.cache_backend == "local":
             self.settings_path = os.path.join(self.cache_dir, "settings.json")
             self.compiled_circuit_path = os.path.join(self.cache_dir, "network.compiled")
             self.pk_path = os.path.join(self.cache_dir, "pk.json")
@@ -84,7 +94,7 @@ class EZKLProofStages:
         read_time = 0.0
         if os.path.exists(local_path):
             return True, read_time
-        if self.use_s3:
+        if self.share_data_via_s3:
             download_start = time.perf_counter()
             downloaded = download_if_exists_in_s3(self.s3_bucket, s3_key, local_path)
             read_time = time.perf_counter() - download_start if downloaded else 0.0
@@ -127,7 +137,7 @@ class EZKLProofStages:
 
         # S3 cache
         s3_read_time = 0.0
-        if self.use_s3:
+        if self.share_data_via_s3:
             pk_key = f"{self.cache_dir}/pk.json"
             vk_key = f"{self.cache_dir}/vk.json"
             if file_exists_in_s3(self.s3_bucket, pk_key) and file_exists_in_s3(self.s3_bucket, vk_key):
@@ -145,7 +155,7 @@ class EZKLProofStages:
         s3_read_time = 0.0
         used_cache = False
 
-        if not self.overwrite:
+        if not self.overwrite_cache:
             used_cache, s3_read_time = self._try_load_from_cache(self.settings_path, f"{self.cache_dir}/settings.json")
             if used_cache:
                 return used_cache, s3_read_time, s3_write_time
@@ -156,7 +166,7 @@ class EZKLProofStages:
         assert os.path.exists(self.settings_path)
 
         # Optionally upload to S3
-        if self.use_s3 and self.cache_Setup:
+        if self.cache_setup and self.cache_backend == "s3":
             upload_start = time.perf_counter()
             upload_to_s3(self.settings_path, self.s3_bucket, f"{self.cache_dir}/settings.json")
             s3_write_time = time.perf_counter() - upload_start
@@ -170,7 +180,7 @@ class EZKLProofStages:
         used_cache = False
 
 
-        if not self.overwrite:
+        if not self.overwrite_cache:
             used_cache, s3_read_time = self._try_load_from_cache(self.compiled_circuit_path, f"{self.cache_dir}/network.compiled")
             if used_cache:
                 return used_cache, s3_read_time, s3_write_time
@@ -182,7 +192,7 @@ class EZKLProofStages:
         assert os.path.exists(self.compiled_circuit_path)
 
         # Optionally upload to S3
-        if self.use_s3 and self.cache_Setup:
+        if self.cache_setup and self.cache_backend == "s3":
             upload_start = time.perf_counter()
             upload_to_s3(self.compiled_circuit_path, self.s3_bucket, f"{self.cache_dir}/network.compiled")
             s3_write_time = time.perf_counter() - upload_start
@@ -206,12 +216,12 @@ class EZKLProofStages:
             s3_read_time (float): Time spent downloading from S3 (seconds)
             s3_write_time (float): Time spent uploading to S3 (seconds)
         """
-        self._update_status("SETTING_UP_KEYS")
+        self._update_status("KEY_GEN")
         s3_write_time = 0.0
         s3_read_time = 0.0
         used_cache = False
 
-        if not self.overwrite:
+        if not self.overwrite_cache:
             used_cache, s3_read_time, _ = self._try_load_keys_from_cache()
             if used_cache:
                 return used_cache, s3_read_time, s3_write_time
@@ -220,7 +230,7 @@ class EZKLProofStages:
         self.ezkl.setup(self.compiled_circuit_path, self.vk_path, self.pk_path)
 
         # Optionally upload to S3
-        if self.use_s3 and self.cache_Setup:
+        if self.cache_setup and self.cache_backend == "s3":
             pk_key = f"{self.cache_dir}/pk.json"
             vk_key = f"{self.cache_dir}/vk.json"
             upload_start = time.perf_counter()
@@ -328,7 +338,10 @@ class ZKProofWorker:
     def connect(self):
         if self.channel:
             self.channel.close()
-        self.channel = grpc.insecure_channel(self.target)
+        self.channel = grpc.insecure_channel(self.target,options=[
+            ("grpc.max_send_message_length", 64 * 1024 * 1024),    # 64 MiB
+            ("grpc.max_receive_message_length", 64 * 1024 * 1024), # 64 MiB
+        ])
         self.stub = pb_grpc.ZKJobServiceStub(self.channel)
         self.logger.info(f"✅ Connected to dispatcher at {self.target}")
     
@@ -382,7 +395,7 @@ class ZKProofWorker:
     
     def fetch_and_run_job(self):
         job_id = None
-        local_working_dir = None
+        local_tmp_dir = None
         heartbeat_proc = None
         resource_usage_proc = None
         ezkl_perf_measurements = {}
@@ -403,51 +416,56 @@ class ZKProofWorker:
             # Get all IDs and job info
             job_id = response.job_id
             model_path = response.model_path
-            input_json = json.loads(response.input_json)
+            input_path = response.input_path
             s3_bucket = response.s3_bucket
             cache_setup = response.cache_setup
-            overwrite_setup = response.overwrite_setup
-            storage_backend = response.cache_location
-            use_s3 = True if storage_backend == "s3" else False
+            overwrite_cache = response.overwrite_cache
+            cache_backend = response.cache_backend
+            share_data_via_s3 = response.share_data_via_s3
+
+            use_s3_for_cache = True if cache_backend == "s3" else False
             cache_prefix = os.path.dirname(model_path)
             worker_pid = str(os.getpid())
             s3_read_time = 0
-            disk_write_time = 0
-            local_working_dir = os.path.join('tmp', job_id)
-            os.makedirs(local_working_dir, exist_ok=True)
+            local_tmp_dir = os.path.join('tmp', job_id)
+            os.makedirs(local_tmp_dir, exist_ok=True)
 
             # --- 2. Model download/setup ---
             try:
-                if not os.path.exists(model_path):
-                    if not use_s3 and cache_setup:
-                        #download from S3 to local cache
-                        os.makedirs(cache_prefix, exist_ok=True)
+                if os.path.exists(model_path):
+                    #model_path is already local so we can use it directly
+                    local_model_path = model_path
+                else:
+                    # must be in S3, download to tmp dir if not using local disk cache 
+                    if cache_setup and not use_s3_for_cache:
                         local_model_path = os.path.join(cache_prefix, os.path.basename(model_path))
+                        os.makedirs(cache_prefix, exist_ok=True)
                     else:
-                        #download from S3 to tmp working dir
-                        local_model_path = os.path.join(local_working_dir, os.path.basename(model_path))
-
+                        # download to tmp dir that will be cleaned up later
+                        local_model_path = os.path.join(local_tmp_dir, os.path.basename(model_path))
+                    
                     download_onnx_model_start = time.perf_counter()
                     download_from_s3(s3_bucket, model_path, local_model_path)
                     s3_read_time += time.perf_counter() - download_onnx_model_start
+                
+                if os.path.exists(input_path):
+                    # already local
+                    local_input_path = input_path
                 else:
-                    local_model_path = model_path
-            except Exception as e:
-                self.logger.error(f"❌ Failed to prepare model: {e}", exc_info=True)
-                self.send_final_job_result(job_id, status="FAILED", message=f"Model prep failed: {e}")
-                return
+                    # must be in S3, download to tmp dir
+                    local_input_path = os.path.join(local_tmp_dir, "input.json")
+                    download_input_start = time.perf_counter()
+                    download_from_s3(s3_bucket, input_path, local_input_path)
+                    s3_read_time += time.perf_counter() - download_input_start
 
-            # --- 3. Local input + job info ---
-            save_input_json_start = time.perf_counter()
-   
-            local_input_path = os.path.join(local_working_dir, "input.json")
-            with open(local_input_path, "w") as f:
-                json.dump(input_json, f, indent=4)
-            disk_write_time += time.perf_counter() - save_input_json_start
+            except Exception as e:
+                self.logger.error(f"❌ Failed to prepare model/input: {e}", exc_info=True)
+                self.send_final_job_result(job_id, status="FAILED", message=f"Model prep failed: {e}")
+                return    
 
             # --- 4. Start resource logging/heartbeat processes ---
-            status_file = os.path.join(local_working_dir, "status.txt")
-            resource_usage_file = os.path.join(local_working_dir, 'resource_usage.log')
+            status_file = os.path.join(local_tmp_dir, "status.txt")
+            resource_usage_file = os.path.join(local_tmp_dir, 'resource_usage.log')
             resource_usage_proc = subprocess.Popen([
                 sys.executable, 
                 "zkInfer/resource_logger.py",
@@ -473,20 +491,22 @@ class ZKProofWorker:
             #     status_file, 
             #     worker_pid
             # ])
-            os.environ["EZKL_LOG_DIR"] = local_working_dir
+            os.environ["EZKL_LOG_DIR"] = local_tmp_dir
 
             # --- 5. Proof computation ---
             proof_stages = EZKLProofStages(
                 input_data_path=local_input_path,
                 onnx_model_path=local_model_path,
-                overwrite=overwrite_setup,
-                logger=self.logger,
-                status_file=status_file,
-                s3_bucket=s3_bucket,
-                cache_dir=cache_prefix,
                 cache_setup=cache_setup,
-                working_dir=local_working_dir,
-                use_s3=use_s3,
+                overwrite_cache=overwrite_cache,
+                cache_backend=cache_backend,
+                s3_bucket=s3_bucket,
+                status_file=status_file,
+                cache_dir=cache_prefix,
+                local_tmp_dir=local_tmp_dir,
+                share_data_via_s3= share_data_via_s3,
+                logger=self.logger,
+                # use_s3=use_s3_for_cache,
             )
             try:
                 ezkl_perf_measurements = proof_stages.run_all(setup_only=False)
@@ -511,10 +531,10 @@ class ZKProofWorker:
                 "pk_file_size(GB)": proof_stages.get_pk_file_size_gb(),
                 "vk_file_size(GB)": proof_stages.get_vk_file_size_gb(),
             }
-            circuit_info = read_csv_into_dict(os.path.join(local_working_dir, "halo2_circuit.csv"))
-            prover_info_cpu = read_csv_into_dict(os.path.join(local_working_dir, "halo2_prover_cpu.csv"))
-            fft_summary = get_fft_summary(os.path.join(local_working_dir, "halo2_ffts.csv"))
-            msm_summary = get_msm_summary(os.path.join(local_working_dir, "halo2_msms.csv"))
+            circuit_info = read_csv_into_dict(os.path.join(local_tmp_dir, "halo2_circuit.csv"))
+            prover_info_cpu = read_csv_into_dict(os.path.join(local_tmp_dir, "halo2_prover_cpu.csv"))
+            fft_summary = get_fft_summary(os.path.join(local_tmp_dir, "halo2_ffts.csv"))
+            msm_summary = get_msm_summary(os.path.join(local_tmp_dir, "halo2_msms.csv"))
             reporting_metrics = {**reporting_metrics, **circuit_info, **prover_info_cpu, **fft_summary, **msm_summary, **ezkl_perf_measurements}
 
             try:
@@ -553,8 +573,8 @@ class ZKProofWorker:
                         proc.wait(timeout=3)
                     except Exception:
                         proc.kill()
-            if local_working_dir and os.path.exists(local_working_dir):
-                shutil.rmtree(local_working_dir, ignore_errors=True)
+            if local_tmp_dir and os.path.exists(local_tmp_dir):
+                shutil.rmtree(local_tmp_dir, ignore_errors=True)
 
     def reconnect_if_needed(self):
         self.logger.info("🔁 Attempting to reconnect gRPC channel...")
