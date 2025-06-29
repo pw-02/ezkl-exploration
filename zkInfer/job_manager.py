@@ -180,7 +180,7 @@ class InferenceRequest:
             #     self.logger.warning(f"VK or PK files not found for {model_name}. This job will be prepared for ezkl setup.")
             self.proof_jobs.append(proof_job)
         # Optionally sort jobs by predicted_duration
-        self.proof_jobs.sort(key=lambda job: job.predicted_duration or 0.0, reverse=True)
+        # self.proof_jobs.sort(key=lambda job: job.predicted_duration or 0.0, reverse=True)
 
     # --- Helper: Progress ---
     def compute_progress(self):

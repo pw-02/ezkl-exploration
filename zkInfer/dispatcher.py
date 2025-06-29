@@ -167,7 +167,7 @@ def serve(cfg: DictConfig):
     overwrite_cache = cfg.overwrite_cache
     cache_backend = cfg.cache_backend
     data_exchange_backend = cfg.data_exchange_backend
-    # print("\n" + OmegaConf.to_yaml(cfg))
+    logger.info(f"Loaded Config:\n{OmegaConf.to_yaml(cfg, resolve=True)}")
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers), options=[
         ("grpc.max_send_message_length", 64 * 1024 * 1024),
