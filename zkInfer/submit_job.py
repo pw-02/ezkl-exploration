@@ -50,7 +50,8 @@ def main(cfg: DictConfig):
                 onnx_model_path=job_cfg.onnx_file,
                 input_data_path=job_cfg.input_file,
                 split_mode=job_cfg.split_mode,
-                ops_per_chunk=job_cfg.ops_per_chunk
+                ops_per_chunk=job_cfg.ops_per_chunk,
+                schedule=job_cfg.schedule if 'schedule' in job_cfg else "fifo"  # Default to fifo if not specified
             ))
 
             print(f"✅ Job submitted. Assigned ID: {response.request_id}")

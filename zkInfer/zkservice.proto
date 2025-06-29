@@ -31,6 +31,7 @@ message InferenceRequest {
   string input_data_path = 3;
   string split_mode = 4;          // "none", "auto", or "fixed"
   int32 ops_per_chunk = 5;        // Only used if split_mode == "fixed"
+  string schedule = 6;            // "lpt", "fifo", or "random"
 }
 
 message InferenceRequestAck {

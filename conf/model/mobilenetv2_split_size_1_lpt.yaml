@@ -4,3 +4,4 @@ input_file: examples/onnx/mobile_net/input.json
 # split_mode: "none"  # options: "none", "auto", or "fixed"
 split_mode: "fixed"       # options: "none", "auto", "fixed"
 ops_per_chunk: 1         # used only if split_mode == "fixed"
+schedule: "lpt"  # options: "fifo", "lpt" (longest processing time first)

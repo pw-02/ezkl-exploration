@@ -1,6 +1,7 @@
-name: mnist_gan_split_size_1
+name: mnist_gan_split_size_1_fifo
 onnx_file: examples/onnx/mnist_gan/network.onnx
 input_file: examples/onnx/mnist_gan/input.json
 # split_mode: "none"  # options: "none", "auto", or "fixed"
 split_mode: "fixed"       # options: "none", "auto", "fixed"
 ops_per_chunk: 1         # used only if split_mode == "fixed"
+schedule: "fifo"  # options: "fifo", "lpt" (longest processing time first)

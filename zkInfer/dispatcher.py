@@ -85,6 +85,7 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
                 cache_setup=self.cache_setup,
                 overwrite_cache=self.overwrite_cache ,
                 cache_backend=self.cache_backend,
+                schedule=request.schedule  # Default to fifo if not specified
             )
             return pb2.InferenceRequestAck(request_id=request_id)
         except Exception as e:

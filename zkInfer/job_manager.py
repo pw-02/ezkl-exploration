@@ -92,10 +92,11 @@ class InferenceRequest:
         cache_setup: bool,
         overwrite_cache: bool,
         cache_backend: Optional[str],
+        schedule: Optional[str]
     ):
         self.name = name
         date_time_now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
-        self.request_id = f"{self.name}_{date_time_now_str}-{num_prover_workers}w"
+        self.request_id = f"{self.name}_{date_time_now_str}_{num_prover_workers}w_{schedule}"
         self.onnx_model_path = onnx_model_path
         self.input_data_path = input_data_path
         self.split_mode = split_mode
@@ -117,6 +118,7 @@ class InferenceRequest:
         self.completed_time = None
         self.error_message = None
         self.request_status = RequestStatus.CREATED
+        self.schedule = schedule
     
     @property
     def use_s3_for_cache(self):
@@ -180,6 +182,9 @@ class InferenceRequest:
             #     self.logger.warning(f"VK or PK files not found for {model_name}. This job will be prepared for ezkl setup.")
             self.proof_jobs.append(proof_job)
         # Optionally sort jobs by predicted_duration
+        if self.schedule == "lpt":
+            # Sort by predicted duration (longest first)
+            self.proof_jobs.sort(key=lambda job: job.predicted_duration or 0.0, reverse=True)
         # self.proof_jobs.sort(key=lambda job: job.predicted_duration or 0.0, reverse=True)
 
     # --- Helper: Progress ---
@@ -227,6 +232,7 @@ class InferenceRequestManager:
                     cache_setup: bool,
                     overwrite_cache: bool,
                     cache_backend: Optional[str],
+                    schedule: Optional[str]
                     ) -> str:
 
         req = InferenceRequest(
@@ -241,7 +247,8 @@ class InferenceRequestManager:
             s3_bucket=s3_bucket,
             cache_setup=cache_setup,
             overwrite_cache=overwrite_cache,
-            cache_backend=cache_backend
+            cache_backend=cache_backend,
+            schedule=schedule
         )
         req.prepare_proof_jobs()
         req.queued_time = datetime.now(timezone.utc)

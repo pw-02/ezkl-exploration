@@ -4,7 +4,7 @@ input_file: examples/onnx/mnist_classifier/input.json
 # split_mode: "none"  # options: "none", "auto", or "fixed"
 split_mode: "none"       # options: "none", "auto", "fixed"
 ops_per_chunk: 1         # used only if split_mode == "fixed"
-
+schedule: "lpt"  # options: "fifo", "lpt" (longest processing time first)
 
 
 
