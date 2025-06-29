@@ -359,7 +359,7 @@ class InferenceRequestManager:
                     # Only now do we remove from active_jobs after permanent failure
                     del self.active_jobs[job_id]
             else:
-                self.logger.info(f"✅ Job {job.job_name} COMPLETED")
+                self.logger.info(f"✅ Job {job.job_name} COMPLETED. Remaining jobs: {len(self.job_queue)}")
                 job.zk_proof = zk_proof
                 del self.active_jobs[job_id]
         
