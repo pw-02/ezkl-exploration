@@ -177,7 +177,7 @@ class InferenceRequest:
             pk_file_path = os.path.join(cache_dir, "pk.json")
             if not os.path.exists(vk_file_path) or not os.path.exists(pk_file_path):
                 #queue this job for ezkl setup 
-                logging.warning(f"VK or PK files not found for {model_name}. This job will be prepared for ezkl setup.")
+                self.logger.warning(f"VK or PK files not found for {model_name}. This job will be prepared for ezkl setup.")
                 self.proof_jobs.append(proof_job)
         # Optionally sort jobs by predicted_duration
         self.proof_jobs.sort(key=lambda job: job.predicted_duration or 0.0, reverse=True)
