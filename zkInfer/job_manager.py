@@ -71,7 +71,7 @@ class ProofJob:
         self.completed_time: Optional[datetime] = None
         self.error_message: Optional[str] = None
         self.retry_count = 0
-        self.max_retries = 2   # Or set per-job if you want
+        self.max_retries = 0   # Or set per-job if you want
     
     def save_profiling_metrics(self, profiling_metrics: Dict, use_s3: bool = False, s3_bucket: Optional[str] = None):
         """Save profiling metrics to a JSON file in the request's cache directory."""
@@ -172,13 +172,13 @@ class InferenceRequest:
                 predicted_duration=predicted_duration,
                 profiling_file_path=profiling_file
             )
-            #check if  vk.json and pk.json files exist in the cache directory
-            vk_file_path = os.path.join(cache_dir, "vk.json")
-            pk_file_path = os.path.join(cache_dir, "pk.json")
-            if not os.path.exists(vk_file_path) or not os.path.exists(pk_file_path):
-                #queue this job for ezkl setup 
-                self.logger.warning(f"VK or PK files not found for {model_name}. This job will be prepared for ezkl setup.")
-                self.proof_jobs.append(proof_job)
+            # #check if  vk.json and pk.json files exist in the cache directory
+            # vk_file_path = os.path.join(cache_dir, "vk.json")
+            # pk_file_path = os.path.join(cache_dir, "pk.json")
+            # if not os.path.exists(vk_file_path) or not os.path.exists(pk_file_path):
+            #     #queue this job for ezkl setup 
+            #     self.logger.warning(f"VK or PK files not found for {model_name}. This job will be prepared for ezkl setup.")
+            self.proof_jobs.append(proof_job)
         # Optionally sort jobs by predicted_duration
         self.proof_jobs.sort(key=lambda job: job.predicted_duration or 0.0, reverse=True)
 
