@@ -43,6 +43,7 @@ class EZKLProofStages:
         cache_dir=None,
         cache_setup=False,
         working_dir=None,
+        use_s3=None
     ):
         import ezkl  # Only import here for multiprocess safety
         self.ezkl = ezkl
@@ -53,16 +54,26 @@ class EZKLProofStages:
         self.overwrite = overwrite
         self.s3_bucket = s3_bucket
         self.cache_dir = cache_dir
-        self.working_dir = working_dir
+        self.tmp_dir = working_dir
+        self.cache_Setup = cache_setup
+        self.use_s3 = use_s3
 
         # File paths
-        self.settings_path = os.path.join(self.cache_dir, "settings.json")
-        self.compiled_circuit_path = os.path.join(self.cache_dir, "network.compiled")
-        self.pk_path = os.path.join(self.cache_dir, "pk.json")
-        self.vk_path = os.path.join(self.cache_dir, "vk.json")
-        self.witness_path = os.path.join(self.working_dir, "witness.json")
-        self.proof_path = os.path.join(self.working_dir, "proof.pf")
-
+        if self.cache_Setup and not self.use_s3:
+            self.settings_path = os.path.join(self.cache_dir, "settings.json")
+            self.compiled_circuit_path = os.path.join(self.cache_dir, "network.compiled")
+            self.pk_path = os.path.join(self.cache_dir, "pk.json")
+            self.vk_path = os.path.join(self.cache_dir, "vk.json")
+            self.witness_path = os.path.join(self.tmp_dir, "witness.json")
+            self.proof_path = os.path.join(self.tmp_dir, "proof.pf")
+        else:
+            self.settings_path = os.path.join(self.tmp_dir, "settings.json")
+            self.compiled_circuit_path = os.path.join(self.tmp_dir, "network.compiled")
+            self.pk_path = os.path.join(self.tmp_dir, "pk.json")
+            self.vk_path = os.path.join(self.tmp_dir, "vk.json")
+            self.witness_path = os.path.join(self.tmp_dir, "witness.json")
+            self.proof_path = os.path.join(self.tmp_dir, "proof.pf")
+       
     def _update_status(self, stage):
         if self.status_file:
             with open(self.status_file, "w") as f:
@@ -70,16 +81,17 @@ class EZKLProofStages:
 
     def _try_load_from_cache(self, local_path, s3_key):
         """Helper to load from local disk or S3, returning (used_cache, s3_read_time)."""
+        read_time = 0.0
         if os.path.exists(local_path):
-            return True, 0.0
-        if self.s3_bucket:
+            return True, read_time
+        if self.use_s3:
             download_start = time.perf_counter()
             downloaded = download_if_exists_in_s3(self.s3_bucket, s3_key, local_path)
-            s3_read_time = time.perf_counter() - download_start if downloaded else 0.0
+            read_time = time.perf_counter() - download_start if downloaded else 0.0
             if downloaded:
                 assert os.path.exists(local_path)
-                return True, s3_read_time
-        return False, 0.0
+                return True, read_time
+        return False, read_time
     
     def get_pk_file_size_gb(self):
         """
@@ -115,7 +127,7 @@ class EZKLProofStages:
 
         # S3 cache
         s3_read_time = 0.0
-        if self.s3_bucket:
+        if self.use_s3:
             pk_key = f"{self.cache_dir}/pk.json"
             vk_key = f"{self.cache_dir}/vk.json"
             if file_exists_in_s3(self.s3_bucket, pk_key) and file_exists_in_s3(self.s3_bucket, vk_key):
@@ -130,7 +142,9 @@ class EZKLProofStages:
     def calibrate_settings(self):
         self._update_status("CALIBRATING")
         s3_write_time = 0.0
-        used_cache, s3_read_time = False, 0.0
+        s3_read_time = 0.0
+        used_cache = False
+
         if not self.overwrite:
             used_cache, s3_read_time = self._try_load_from_cache(self.settings_path, f"{self.cache_dir}/settings.json")
             if used_cache:
@@ -142,7 +156,7 @@ class EZKLProofStages:
         assert os.path.exists(self.settings_path)
 
         # Optionally upload to S3
-        if self.s3_bucket:
+        if self.use_s3 and self.cache_Setup:
             upload_start = time.perf_counter()
             upload_to_s3(self.settings_path, self.s3_bucket, f"{self.cache_dir}/settings.json")
             s3_write_time = time.perf_counter() - upload_start
@@ -152,12 +166,12 @@ class EZKLProofStages:
     def compile_circuit(self):
         self._update_status("COMPILING_")
         s3_write_time = 0.0
-        used_cache, s3_read_time = False, 0.0
+        s3_read_time = 0.0
+        used_cache = False
+
 
         if not self.overwrite:
-            used_cache, s3_read_time = self._try_load_from_cache(
-                self.compiled_circuit_path, f"{self.cache_dir}/network.compiled"
-            )
+            used_cache, s3_read_time = self._try_load_from_cache(self.compiled_circuit_path, f"{self.cache_dir}/network.compiled")
             if used_cache:
                 return used_cache, s3_read_time, s3_write_time
 
@@ -168,7 +182,7 @@ class EZKLProofStages:
         assert os.path.exists(self.compiled_circuit_path)
 
         # Optionally upload to S3
-        if self.s3_bucket:
+        if self.use_s3 and self.cache_Setup:
             upload_start = time.perf_counter()
             upload_to_s3(self.compiled_circuit_path, self.s3_bucket, f"{self.cache_dir}/network.compiled")
             s3_write_time = time.perf_counter() - upload_start
@@ -194,7 +208,8 @@ class EZKLProofStages:
         """
         self._update_status("SETTING_UP_KEYS")
         s3_write_time = 0.0
-        used_cache, s3_read_time, _ = False, 0.0, 0.0
+        s3_read_time = 0.0
+        used_cache = False
 
         if not self.overwrite:
             used_cache, s3_read_time, _ = self._try_load_keys_from_cache()
@@ -205,7 +220,7 @@ class EZKLProofStages:
         self.ezkl.setup(self.compiled_circuit_path, self.vk_path, self.pk_path)
 
         # Optionally upload to S3
-        if self.s3_bucket:
+        if self.use_s3 and self.cache_Setup:
             pk_key = f"{self.cache_dir}/pk.json"
             vk_key = f"{self.cache_dir}/vk.json"
             upload_start = time.perf_counter()
@@ -392,16 +407,26 @@ class ZKProofWorker:
             s3_bucket = response.s3_bucket
             cache_setup = response.cache_setup
             overwrite_setup = response.overwrite_setup
+            storage_backend = response.cache_location
+            use_s3 = True if storage_backend == "s3" else False
             cache_prefix = os.path.dirname(model_path)
             worker_pid = str(os.getpid())
             s3_read_time = 0
             disk_write_time = 0
+            local_working_dir = os.path.join('tmp', job_id)
+            os.makedirs(local_working_dir, exist_ok=True)
 
             # --- 2. Model download/setup ---
             try:
-                if not os.path.exists(model_path) and s3_bucket:
-                    os.makedirs(cache_prefix, exist_ok=True)
-                    local_model_path = os.path.join(cache_prefix, os.path.basename(model_path))
+                if not os.path.exists(model_path):
+                    if not use_s3 and cache_setup:
+                        #download from S3 to local cache
+                        os.makedirs(cache_prefix, exist_ok=True)
+                        local_model_path = os.path.join(cache_prefix, os.path.basename(model_path))
+                    else:
+                        #download from S3 to tmp working dir
+                        local_model_path = os.path.join(local_working_dir, os.path.basename(model_path))
+
                     download_onnx_model_start = time.perf_counter()
                     download_from_s3(s3_bucket, model_path, local_model_path)
                     s3_read_time += time.perf_counter() - download_onnx_model_start
@@ -414,8 +439,7 @@ class ZKProofWorker:
 
             # --- 3. Local input + job info ---
             save_input_json_start = time.perf_counter()
-            local_working_dir = os.path.join('tmp', job_id)
-            os.makedirs(local_working_dir, exist_ok=True)
+   
             local_input_path = os.path.join(local_working_dir, "input.json")
             with open(local_input_path, "w") as f:
                 json.dump(input_json, f, indent=4)
@@ -461,7 +485,8 @@ class ZKProofWorker:
                 s3_bucket=s3_bucket,
                 cache_dir=cache_prefix,
                 cache_setup=cache_setup,
-                working_dir=local_working_dir
+                working_dir=local_working_dir,
+                use_s3=use_s3,
             )
             try:
                 ezkl_perf_measurements = proof_stages.run_all(setup_only=False)

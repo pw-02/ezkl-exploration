@@ -44,7 +44,9 @@ class RequestStatus(str, Enum):
 
 
 class ProofJob:
-    def __init__(self, job_name, 
+    def __init__(self,
+                 inference_request_name: str,
+                 model_name: str,
                  inference_request_id: str, 
                  model_path, 
                  input_json,
@@ -52,9 +54,8 @@ class ProofJob:
                  model_write_time: Optional[float] = None, 
                  profiling_data: Optional[Dict] = None, 
                  predicted_duration: Optional[float] = None):
-        
-        self.job_name = job_name
-        self.job_id = f"{self.job_name}_{uuid.uuid4().hex[:8]}"
+        self.job_id = f"{uuid.uuid4().hex[:8]}"
+        self.job_name = f"{inference_request_name}_{model_name}"
         self.inference_request_id = inference_request_id
         self.model_path = model_path
         self.input_json = input_json
@@ -84,8 +85,10 @@ class InferenceRequest:
         ops_per_chunk: int,
         logger: Any,
         num_prover_workers: int,
+        cahche_setup: bool,
         overwrite_cached_setup: bool,
         s3_bucket: Optional[str],
+        storage_backend: Optional[str],  
     ):
         self.name = name
         self.onnx_model_path = onnx_model_path
@@ -95,23 +98,28 @@ class InferenceRequest:
         self.logger: logging.Logger = logger
         self.num_prover_workers = num_prover_workers
         self.overwrite_cached_setup = overwrite_cached_setup
+        self.cache_setup = cahche_setup 
         self.s3_bucket = s3_bucket
         date_time_now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
         self.request_id = f"{self.name}_{date_time_now_str}-{num_prover_workers}w"
         self.proof_jobs: List[ProofJob] = []
         self.cache_prefix = "cache"
-        self.use_s3 = s3_bucket is not None and s3_bucket != ""
+        self.storage_backend = storage_backend or "local"  # Default to local if not specified
+        self.use_s3 = True if self.storage_backend == "s3" else False
         self.created_time = datetime.now(timezone.utc)
         self.queued_time = None
         self.started_time = None
         self.completed_time = None
         self.error_message = None
         self.request_status = RequestStatus.CREATED
+        self.request_model_hash = None
+        # self.request_model_hash = compute_bytes_md5_hex(load_model_proto(self.onnx_model_path).SerializeToString())
 
         
     def prepare_proof_jobs(self):
         self.request_status = RequestStatus.PREPARING
         # 1. Split the ONNX model (if necessary)
+        
         if self.split_mode == "none":
             model_proto = load_model_proto(self.onnx_model_path)
             input_json  = load_json_file(self.input_data_path)
@@ -120,7 +128,7 @@ class InferenceRequest:
         else:
             models_with_inputs = split_onnx_model_with_inputs(self.onnx_model_path, self.input_data_path, self.ops_per_chunk)
             # submodels: list of (submodel_name, submodel_path, submodel_input_path)
-  
+        
         for model_name, model_hash, model_proto, input_json in models_with_inputs:
             cache_dir = os.path.join(self.cache_prefix, model_hash)
             model_file = os.path.join(cache_dir, "model.onnx")
@@ -145,7 +153,8 @@ class InferenceRequest:
                 predicted_duration = 0.0
 
             proof_job = ProofJob(
-                job_name=model_name,
+                inference_request_name=self.name,
+                model_name=model_name,
                 inference_request_id=self.request_id,
                 model_path=model_file,
                 input_json=input_json,
@@ -169,6 +178,11 @@ class InferenceRequest:
 
     def any_job_failed(self):
         return any(job.job_status == JobStatus.FAILED for job in self.proof_jobs)
+
+    def clean_up_saved_models(self):
+        """Remove all saved models and profiling data from the cache directory."""
+        if not self.cache_setup:
+            pass
     
 
 
@@ -193,9 +207,11 @@ class InferenceRequestManager:
                     ops_per_chunk: int,
                     logger: Any,
                     num_prover_workers: int,
+                    cache_setup: bool,
                     overwrite_cached_setup: bool,
-                    s3_bucket: Optional[str],) -> str:
-        
+                    s3_bucket: Optional[str],
+                    storage_backend: Optional[str]) -> str:
+
         req = InferenceRequest(
             name=name,
             onnx_model_path=onnx_model_path,
@@ -204,8 +220,10 @@ class InferenceRequestManager:
             ops_per_chunk=ops_per_chunk,
             logger=logger,
             num_prover_workers=num_prover_workers,
+            cahche_setup=cache_setup,
             overwrite_cached_setup=overwrite_cached_setup,
             s3_bucket=s3_bucket,
+            storage_backend=storage_backend
         )
         req.prepare_proof_jobs()
         req.queued_time = datetime.now(timezone.utc)
@@ -232,7 +250,7 @@ class InferenceRequestManager:
                     parent_req.started_time = datetime.now(timezone.utc)
                     parent_req.request_status = RequestStatus.IN_PROGRESS
 
-                self.logger.info(f"Dispatched job {job.job_id} ({job.job_name})")
+                self.logger.info(f"Dispatched job {job.job_id} |({job.job_name})")
                 return job
             else:
                 return None
@@ -241,6 +259,9 @@ class InferenceRequestManager:
     def record_heartbeat(self, worker_id, job_id=None, status=None, message=None):
         now = datetime.now(timezone.utc)
         with self.lock:
+            #get job name from job_id if provided
+            job: ProofJob = self.active_jobs.get(job_id)
+
             self.worker_heartbeats[worker_id] = now
             self.worker_status[worker_id] = {
                 "job_id": job_id,
@@ -249,7 +270,7 @@ class InferenceRequestManager:
                 "message": message,
                 "timestamp": now.isoformat(),
             }
-            self.logger.info(f"Heartbeat - Worker: {worker_id} | Job: {job_id} | Status: {status}")
+            self.logger.info(f"Heartbeat from {worker_id} | Job:{job.job_name} | Status:{status}")
 
      # --- Dead worker detection and job requeue ---
     def check_for_dead_workers(self, interval_sec=15, max_missed=3):
@@ -305,7 +326,7 @@ class InferenceRequestManager:
                 job.retry_count += 1
                 if job.retry_count <= job.max_retries:
                     self.logger.warning(
-                        f"Job {job_id} FAILED (attempt {job.retry_count}/{job.max_retries}). Retrying..."
+                        f"Job {job.job_name} FAILED (attempt {job.retry_count}/{job.max_retries}). Retrying..."
                     )
                     # Reset status and fields for retry
                     job.job_status = JobStatus.QUEUED
@@ -317,14 +338,14 @@ class InferenceRequestManager:
                 else:
                     job.job_status = JobStatus.FAILED
                     self.logger.error(
-                        f"❌ Job {job_id} FAILED after {job.retry_count} attempts: {message}"
+                        f"❌ Job {job.job_name} FAILED after {job.retry_count} attempts: {message}"
                     )
                     # Optionally: store zk_proof even for final failures
                     job.zk_proof = zk_proof
                     # Only now do we remove from active_jobs after permanent failure
                     del self.active_jobs[job_id]
             else:
-                self.logger.info(f"✅ Job {job_id} COMPLETED")
+                self.logger.info(f"✅ Job {job.job_name} COMPLETED")
                 job.zk_proof = zk_proof
                 del self.active_jobs[job_id]
         
@@ -388,8 +409,9 @@ class InferenceRequestManager:
         total_s3_write_time += job.model_write_time
 
         job_report = {
-            "request_id": job.inference_request_id,
+            # "request_id": job.inference_request_id,
             "job_id": job.job_id,
+            "job_name": job.job_name,
             "model_path": job.model_path,
             "job_status": job.job_status.value,
             "queued_time": str(job.queued_time.isoformat()),
@@ -434,7 +456,7 @@ class InferenceRequestManager:
             halo2_file = os.path.join(report_dir, "perf_metrics.csv")
             write_dict_to_csv({**metadata, **perf_metrics}, halo2_file)
 
-        self.logger.debug(f"Report for job {job.job_id} saved to {report_dir}")
+        self.logger.debug(f"Report for job {job.job_name} saved to {report_dir}")
         return job_report
 
     def write_request_report_to_disk(self, request: InferenceRequest, out_dir="reports"):
@@ -447,29 +469,32 @@ class InferenceRequestManager:
 
         #check if the job_rport.csv is available and if so, load it to aggregate some metrics
         job_report_file = os.path.join(report_dir, "job_report.csv")
-        if os.path.exists(job_report_file):
-            job_report_data = convert_csv_to_dict(job_report_file)
-            if job_report_data:
-                # # Aggregate some metrics from the job report
-                max_system_memory_usage_gb = max(job_report_data.get('max_system_memory(GB)', [])),
-                max_process_memory_usage_gb = max(job_report_data.get('max_process_memory(GB)', [])),
-                avg_system_cpu_usage = sum(job_report_data.get('avg_system_cpu(%)', [])) / num_proof_jobs,
-                avg_process_cpu_usage = sum(job_report_data.get('avg_process_cpu(%)', [])) / num_proof_jobs
-                agg_setup_time_s = sum(job_report_data.get("setup_time(s)", 0))
-                agg_prove_time_s = sum(job_report_data.get("prove_time(s)", 0))
-                agg_verify_time_s = sum(job_report_data.get("verify_time(s)", 0))
-                agg_fft_time_s = sum(job_report_data.get("total_fft_time(s)", 0))
-                agg_msm_time_s = sum(job_report_data.get("total_msm_time(s)", 0))
-                max_pk_size_gb = max(job_report_data.get("pk_size_gb", 0))
-                max_vk_size_gb = max(job_report_data.get("vk_size_gb", 0))
-                agg_circuit_size_n =sum(job_report_data.get("circuit_size(n)", 0))
-                agg_job_runtime_s = sum(job_report_data.get("job_runtime(s)", 0))
+        job_report_data = convert_csv_to_dict(job_report_file)
+        # # Aggregate some metrics from the job report
+        max_system_memory_usage_gb = max(job_report_data.get('max_system_memory(GB)', [])),
+        max_process_memory_usage_gb = max(job_report_data.get('max_process_memory(GB)', [])),
+        avg_system_cpu_usage = sum(job_report_data.get('avg_system_cpu(%)', [])) / num_proof_jobs,
+        avg_process_cpu_usage = sum(job_report_data.get('avg_process_cpu(%)', [])) / num_proof_jobs
+        agg_setup_time_s = sum(job_report_data.get("setup_time(s)", 0))
+        agg_prove_time_s = sum(job_report_data.get("prove_time(s)", 0))
+        agg_verify_time_s = sum(job_report_data.get("verify_time(s)", 0))
+        agg_fft_time_s = sum(job_report_data.get("total_fft_time(s)", 0))
+        agg_msm_time_s = sum(job_report_data.get("total_msm_time(s)", 0))
+        max_pk_size_gb = max(job_report_data.get("pk_size_gb", 0))
+        max_vk_size_gb = max(job_report_data.get("vk_size_gb", 0))
+        agg_circuit_size_n =sum(job_report_data.get("circuit_size(n)", 0))
+        agg_job_runtime_s = sum(job_report_data.get("job_runtime(s)", 0))
+        agg_s3_read_time_s = sum(job_report_data.get("total_s3_read_time(s)", 0))
+        agg_s3_write_time_s = sum(job_report_data.get("total_s3_write_time(s)", 0))
 
         request_report = {
             "request_id": request.request_id,
             "request_name": request.name,
             "onnx_model_path": request.onnx_model_path,
             "input_data_path": request.input_data_path,
+            "storage_backend": request.storage_backend,
+            "cache_setup": request.cache_setup,
+            "overwrite_cached_setup": request.overwrite_cached_setup,
             "split_mode": request.split_mode,
             "ops_per_chunk": request.ops_per_chunk,
             "num_proof_jobs": num_proof_jobs,
@@ -498,6 +523,8 @@ class InferenceRequestManager:
             "avg_process_cpu(%)": avg_process_cpu_usage if avg_process_cpu_usage else 0,
             "max_pk_size_gb": max_pk_size_gb if max_pk_size_gb else 0,
             "max_vk_size_gb": max_vk_size_gb if max_vk_size_gb else 0,
+            "agg_s3_read_time(s)": agg_s3_read_time_s if agg_s3_read_time_s else 0,
+            "agg_s3_write_time(s)": agg_s3_write_time_s if agg_s3_write_time_s else 0
         }
         report_file = os.path.join(report_dir, "request_report.csv")
         write_dict_to_csv(request_report, report_file)

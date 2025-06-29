@@ -9,7 +9,7 @@ import onnxruntime as ort
 from onnx.utils import Extractor
 # from zkInfer.s3_utils import upload_modelproto_if_not_exists, upload_json_to_s3, upload_modelproto_to_s3
 # from zkInfer.utils import compute_bytes_md5_hex
-from zkInfer.storage_utils import compute_bytes_md5_hex, upload_to_s3
+from zkInfer.storage_utils import compute_bytes_md5_hex, upload_to_s3, load_model_proto
 
 def load_json_input(file_path):
     """Load input data from a JSON file."""
@@ -117,6 +117,7 @@ def collect_split_inputs_from_inference(onnx_model_path, input_data_path, format
 
 def split_onnx_model(onnx_model_path, split_group_size):
     model = onnx.load(onnx_model_path)
+    parent_model_hash = compute_bytes_md5_hex(model.SerializeToString())
     initializers = {init.name for init in model.graph.initializer}
     exclude_operations = {'Identity', 'Constant'}
     sub_models = []
@@ -129,7 +130,7 @@ def split_onnx_model(onnx_model_path, split_group_size):
         node_outputs = [o for o in node.output if o not in initializers and 'Constant' not in o]
         sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
         sub_models.append(sub_model)
-        return sub_models
+    return sub_models, parent_model_hash
 
         # sub_model_name = f'sub_model_{counter+1}'
         # all_sub_models[f'sub_model_{counter+1}'] = sub_model
@@ -204,7 +205,9 @@ def prepare_submodel_record(sub_model, intermediate_outputs):
 
 def split_onnx_model_with_inputs(onnx_model_path, input_data_path, split_group_size=1):
     split_inputs = collect_split_inputs_from_inference(onnx_model_path, input_data_path)
-    sub_models = split_onnx_model(onnx_model_path, split_group_size)
+    sub_models, parent_model_hash = split_onnx_model(onnx_model_path, split_group_size)
+
+
     models_with_inputs = []
 
     for idx, sub_model in enumerate(sub_models):
@@ -215,7 +218,7 @@ def split_onnx_model_with_inputs(onnx_model_path, input_data_path, split_group_s
         if not flattened_inputs:
             continue #no inputs for this sub_model
         sub_mode_input ={'input_data': flattened_inputs}
-        md5_hash = compute_bytes_md5_hex(sub_model.SerializeToString())
+        md5_hash = f"{parent_model_hash}/{compute_bytes_md5_hex(sub_model.SerializeToString())}"
         sub_model_name = f'sub_model_{idx+1}'
         models_with_inputs.append((sub_model_name, md5_hash, sub_model, sub_mode_input))
     return models_with_inputs

@@ -50,7 +50,8 @@ message JobAssignment {
   string s3_bucket = 4; // Only used if storage_backend == "s3"
   bool cache_setup = 5; // Whether to keep model artifacts (model files, etc.)
   bool overwrite_setup = 6; // Whether to overwrite existing files
-  bool job_available = 7; // Indicates if the job is still available
+  string cache_location = 7; // Location to store cached files, if any
+  bool job_available = 8; // Indicates if the job is still available
 }
 
 // The result of a job proof computation.

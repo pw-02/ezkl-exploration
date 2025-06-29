@@ -7,6 +7,7 @@ import boto3
 from botocore.exceptions import ClientError
 import pandas as pd
 import onnx
+from boto3.s3.transfer import TransferConfig
 
 
 # def load_json(path):
@@ -75,9 +76,16 @@ def upload_to_s3(local_path, bucket, s3_key):
     s3 = boto3.client('s3')
     s3.upload_file(local_path, bucket, s3_path(s3_key))
 
-def download_from_s3(bucket, s3_key, local_path):
+def download_from_s3(bucket, s3_key, local_path, max_concurrency=8):
     s3 = boto3.client('s3')
-    s3.download_file(bucket, s3_path(s3_key), local_path)
+    config = TransferConfig(
+        multipart_threshold=8 * 1024 * 1024,    # Start multipart for files > 8MB
+        max_concurrency=max_concurrency,        # Number of threads
+        multipart_chunksize=8 * 1024 * 1024,    # Size per chunk (8MB)
+        use_threads=True,
+    )
+    s3.download_file(bucket, s3_key, local_path, Config=config)
+
 
 def file_exists_in_s3(bucket, s3_key):
     s3 = boto3.client('s3')
@@ -144,6 +152,38 @@ def load_json_file(path_or_key, use_s3=False, s3_bucket=None):
     else:
         with open(path_or_key, "r") as f:
             return json.load(f)
+        
+def upload_to_s3(local_path, bucket, s3_key, max_concurrency=8):
+    s3 = boto3.client('s3')
+    config = TransferConfig(
+        multipart_threshold=8 * 1024 * 1024,    # Files >8MB use multipart
+        max_concurrency=max_concurrency,        # Number of threads
+        multipart_chunksize=8 * 1024 * 1024,    # Chunk size (8MB)
+        use_threads=True,
+    )
+    s3.upload_file(local_path, bucket, s3_key, Config=config)
+
+
+# def save_large_json_to_s3(data, bucket, key, max_concurrency=8):
+#     s3 = boto3.client("s3")
+#     config = TransferConfig(
+#         multipart_threshold=8 * 1024 * 1024,
+#         max_concurrency=max_concurrency,
+#         multipart_chunksize=8 * 1024 * 1024,
+#         use_threads=True,
+#     )
+#     with tempfile.NamedTemporaryFile("w", delete=False) as f:
+#         json.dump(data, f, separators=(",", ":"))  # compact!
+#         f.flush()
+#         s3.upload_file(
+#             f.name,
+#             bucket,
+#             key,
+#             ExtraArgs={"ContentType": "application/json"},
+#             Config=config
+#         )
+
+
 
 def save_json_file(data, path_or_key, use_s3=False, s3_bucket=None):
     if use_s3:
