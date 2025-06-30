@@ -420,7 +420,7 @@ class InferenceRequestManager:
         job_runtime_s = (job.completed_time - job.started_time).total_seconds() if job.started_time and job.completed_time else None
         total_elapsed_time_s   = (job.completed_time - job.queued_time).total_seconds() if job.queued_time and job.completed_time else None
         
-        
+        worker_id = perf_metrics.get("worker_id", "unknown") if perf_metrics else "unknown"
         circuit_size = perf_metrics.get("circuit_size(n)", 0) if perf_metrics else 0
         vk_size_gb = perf_metrics.get("vk_file_size(GB)", 0) if perf_metrics else 0
         pk_size_gb = perf_metrics.get("pk_file_size(GB)", 0) if perf_metrics else 0
@@ -453,9 +453,10 @@ class InferenceRequestManager:
         total_s3_write_time += job.model_write_time
 
         job_report = {
-            # "request_id": job.inference_request_id,
+            "request_id": job.inference_request_id,
             "job_id": job.job_id,
             "job_name": job.job_name,
+            "worker_id": worker_id,
             "model_path": job.model_path,
             "job_status": job.job_status.value,
             "queued_time": str(job.queued_time.isoformat()),
@@ -493,7 +494,7 @@ class InferenceRequestManager:
         write_dict_to_csv(job_report, jobs_report_file)
         metadata ={
             "request_id": job.inference_request_id,
-            # "job_id": job.job_id,
+             "job_id": job.job_id,
         }
         #also save ezkl and halo2 performance to their own files if available
         if perf_metrics:
