@@ -157,8 +157,11 @@ class InferenceRequest:
                 profiling_data = load_json_file(profiling_file, use_s3=self.share_data_via_s3, s3_bucket=self.s3_bucket)
                 predicted_duration = profiling_data.get("job_runtime(s)", 0.0)
             else:
-                # self.logger.warning(f"Profiling data not found for {model_name} at {profiling_file}. Using default predicted_duration=0.0")
-                predicted_duration = 0.0
+                predicted_duration
+                self.logger.warning(f"Profiling data not found for {model_name} at {profiling_file}. Using default predicted_duration=0.0")
+            
+            self.logger.debug(f" {model_name} predicted duration: {predicted_duration:.2f}s")
+
             save_started = time.perf_counter()
             save_json_file(input_data, input_file_path, use_s3=self.share_data_via_s3, s3_bucket=self.s3_bucket)
             model_write_time += time.perf_counter() - save_started
@@ -184,6 +187,7 @@ class InferenceRequest:
         # Optionally sort jobs by predicted_duration
         if self.schedule == "lpt":
             # Sort by predicted duration (longest first)
+            logging.info(f"Sorting jobs by predicted duration (longest first)")
             self.proof_jobs.sort(key=lambda job: job.predicted_duration or 0.0, reverse=True)
         # self.proof_jobs.sort(key=lambda job: job.predicted_duration or 0.0, reverse=True)
 
