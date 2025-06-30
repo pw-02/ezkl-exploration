@@ -317,12 +317,12 @@ class EZKLProofStages:
 class ZKProofWorker:
     def __init__(self, cfg: DictConfig, logger=None):
 
-        if cfg.worker.worker_id is None:
-            self.worker_id = f"{base64.urlsafe_b64encode(uuid.uuid4().bytes).rstrip(b'=').decode('ascii')}"
-        else:
-            # Use the provided worker ID from the config
-            self.worker_id = cfg.worker.worker_id
-            self.worker_id = get_ip()   # or f"worker-{get_ip()}"
+        # if cfg.worker.worker_id is None:
+        #     self.worker_id = f"{base64.urlsafe_b64encode(uuid.uuid4().bytes).rstrip(b'=').decode('ascii')}"
+        # else:
+        #     # Use the provided worker ID from the config
+        #     self.worker_id = cfg.worker.worker_id
+        self.worker_id  = get_ip()   # or f"worker-{get_ip()}"
 
 
         self.cfg = cfg
