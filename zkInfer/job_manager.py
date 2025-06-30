@@ -189,6 +189,11 @@ class InferenceRequest:
             # Sort by predicted duration (longest first)
             logging.info(f"Sorting jobs by predicted duration (longest first)")
             self.proof_jobs.sort(key=lambda job: job.predicted_duration or 0.0, reverse=True)
+            predicted_slowest_job = self.proof_jobs[0] if self.proof_jobs else None
+            prediction_fastest_job = self.proof_jobs[-1] if self.proof_jobs else None
+            logging.info(f"Longest job: {predicted_slowest_job.job_name} with predicted duration {predicted_slowest_job.predicted_duration:.2f}s")
+            logging.info(f"Fastest job: {prediction_fastest_job.job_name} with predicted duration {prediction_fastest_job.predicted_duration:.2f}s")
+
         # self.proof_jobs.sort(key=lambda job: job.predicted_duration or 0.0, reverse=True)
 
     # --- Helper: Progress ---
@@ -395,7 +400,6 @@ class InferenceRequestManager:
         parent_req = self.active_requests.get(job.inference_request_id)
         if parent_req and parent_req.all_jobs_completed() and parent_req.completed_time is None:
             parent_req.completed_time = datetime.now(timezone.utc)
-            self.write_request_report_to_disk(parent_req)
             if parent_req.any_job_failed():
                 parent_req.request_status = RequestStatus.FAILED
                 parent_req.error_message = "One or more sub-jobs failed."
@@ -403,6 +407,9 @@ class InferenceRequestManager:
             else:
                 parent_req.request_status = RequestStatus.COMPLETED
                 self.logger.info(f"🏁 Request {parent_req.request_id} COMPLETED.")
+            
+            self.write_request_report_to_disk(parent_req)
+
         return True
     
 
