@@ -92,16 +92,14 @@ class EZKLProofStages:
     def _try_load_from_cache(self, local_path, s3_key):
         """Helper to load from local disk or S3, returning (used_cache, s3_read_time)."""
         read_time = 0.0
-     
+        if os.path.exists(local_path):
+            return True, read_time
         if self.share_data_via_s3:
             download_start = time.perf_counter()
             downloaded = download_if_exists_in_s3(self.s3_bucket, s3_key, local_path)
             read_time = time.perf_counter() - download_start if downloaded else 0.0
             if downloaded:
                 assert os.path.exists(local_path)
-                return True, read_time
-        else:
-            if os.path.exists(local_path):
                 return True, read_time
         return False, read_time
     

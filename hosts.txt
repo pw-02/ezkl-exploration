@@ -6,4 +6,3 @@ ec2-35-89-249-200.us-west-2.compute.amazonaws.com
 ec2-34-221-182-8.us-west-2.compute.amazonaws.com
 ec2-35-166-215-247.us-west-2.compute.amazonaws.com
 ec2-35-95-26-168.us-west-2.compute.amazonaws.com
-ec2-54-245-175-29.us-west-2.compute.amazonaws.com
