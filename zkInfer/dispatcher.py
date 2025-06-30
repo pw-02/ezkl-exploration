@@ -15,7 +15,7 @@ def setup_logger(name, log_file=None, level=logging.INFO):
     """Set up a logger that logs to both console and file (if given)."""
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    logger.propagate = True
+    logger.propagate = False
     # logger.propagate = False  
     # Prevent duplicated logs if called multiple times
     if not logger.hasHandlers():
@@ -47,7 +47,7 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
                  overwrite_cache,
                  data_exchange_backend='local',
                 num_prover_workers=1, 
-                                 logger=None, 
+                logger=None, 
 
     ):
         self.logger = logger
@@ -78,7 +78,6 @@ class ZKJobDispatcher(pb_grpc.ZKJobServiceServicer):
                 input_data_path=request.input_data_path,
                 split_mode=request.split_mode,
                 ops_per_chunk=request.ops_per_chunk,
-                logger=self.logger,
                 num_prover_workers=self.num_prover_workers,
                 data_exchange_backend=self.data_exchange_backend,
                 s3_bucket=self.s3_bucket,

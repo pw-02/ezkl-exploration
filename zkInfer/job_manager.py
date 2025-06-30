@@ -229,7 +229,6 @@ class InferenceRequestManager:
                     input_data_path: str,
                     split_mode: str,
                     ops_per_chunk: int,
-                    logger: Any,
                     num_prover_workers: int,
                     data_exchange_backend: str,
                     s3_bucket: Optional[str],
@@ -245,7 +244,7 @@ class InferenceRequestManager:
             input_data_path=input_data_path,
             split_mode=split_mode,
             ops_per_chunk=ops_per_chunk,
-            logger=logger,
+            logger=self.logger,
             num_prover_workers=num_prover_workers,
             data_exchange_backend=data_exchange_backend,
             s3_bucket=s3_bucket,
@@ -376,7 +375,7 @@ class InferenceRequestManager:
                     # Only now do we remove from active_jobs after permanent failure
                     del self.active_jobs[job_id]
             else:
-                self.logger.info(f"✅ Job {job.job_name} COMPLETED. Remaining jobs: {len(self.job_queue)}")
+                self.logger.info(f"✅ Job {job.job_name} COMPLETED.  Jobs in queue: {len(self.job_queue)}")
                 job.zk_proof = zk_proof
                 del self.active_jobs[job_id]
         
