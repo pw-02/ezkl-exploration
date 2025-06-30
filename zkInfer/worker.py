@@ -17,7 +17,7 @@ import psutil
 import zkservice_pb2 as pb, zkservice_pb2_grpc as pb_grpc
 import pandas as pd
 # from zkInfer.s3_utils import download_from_s3, upload_to_s3, file_exists_in_s3, upload_if_not_exists, download_if_exists_in_s3
-from zkInfer.utils import get_fft_summary, get_msm_summary, parse_resource_usage_file, read_csv_into_dict
+from zkInfer.utils import get_fft_summary, get_ip, get_msm_summary, parse_resource_usage_file, read_csv_into_dict
 from zkInfer.storage_utils import (
     download_from_s3, upload_to_s3, file_exists_in_s3,
     download_if_exists_in_s3, s3_path
@@ -322,6 +322,8 @@ class ZKProofWorker:
         else:
             # Use the provided worker ID from the config
             self.worker_id = cfg.worker.worker_id
+            self.worker_id = get_ip()   # or f"worker-{get_ip()}"
+
 
         self.cfg = cfg
         self.target = f"{cfg.dispatcher.host}:{cfg.dispatcher.port}"
