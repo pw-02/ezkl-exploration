@@ -303,7 +303,8 @@ class InferenceRequestManager:
                 "message": message,
                 "timestamp": now.isoformat(),
             }
-            self.logger.info(f"Heartbeat from {worker_id} | Job:{job.job_name} | Status:{status}")
+            active_job_count = len(self.active_jobs)
+            self.logger.info(f"Heartbeat from {worker_id} | Job:{job.job_name} | Status:{status} | Active Jobs:{active_job_count}")
 
      # --- Dead worker detection and job requeue ---
     def check_for_dead_workers(self, interval_sec=15, max_missed=3):
