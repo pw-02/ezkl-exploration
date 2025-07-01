@@ -62,7 +62,7 @@ tmux attach -t worker2
 
 
 
-scp -i us-west-2-kp.pem -r ubuntu@ec2-35-164-234-66.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/ "C:\Users\pw\Desktop\dzkml\m6a4xlarge"
+scp -i us-west-2-kp.pem -r ubuntu@ec2-35-87-99-93.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/ "C:\Users\pw\Desktop\dzkml\m6a4xlarge"
 
 
 
