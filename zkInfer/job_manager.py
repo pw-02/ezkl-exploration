@@ -403,9 +403,11 @@ class InferenceRequestManager:
         if parent_req and parent_req.all_jobs_completed() and parent_req.completed_time is None:
             parent_req.completed_time = datetime.now(timezone.utc)
             if parent_req.any_job_failed():
+                #coutn number of failed jobs
+                failed_jobs_count = sum(1 for j in parent_req.proof_jobs if j.job_status == JobStatus.FAILED)
                 parent_req.request_status = RequestStatus.FAILED
                 parent_req.error_message = "One or more sub-jobs failed."
-                self.logger.error(f"❌ Request {parent_req.request_id} FAILED. One or more sub-jobs failed.")
+                self.logger.error(f"❌ Request {parent_req.request_id} FAILED. {failed_jobs_count} jobs failed.")
             else:
                 parent_req.request_status = RequestStatus.COMPLETED
                 self.logger.info(f"🏁 Request {parent_req.request_id} COMPLETED.")
