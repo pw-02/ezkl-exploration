@@ -1,6 +1,10 @@
-ec2-54-244-70-99.us-west-2.compute.amazonaws.com
-ec2-44-246-224-120.us-west-2.compute.amazonaws.com
-ec2-44-251-148-159.us-west-2.compute.amazonaws.com
-ec2-54-203-89-24.us-west-2.compute.amazonaws.com
-ec2-44-252-76-131.us-west-2.compute.amazonaws.com
-ec2-35-88-146-102.us-west-2.compute.amazonaws.com
+ec2-34-209-87-118.us-west-2.compute.amazonaws.com
+ec2-54-191-47-155.us-west-2.compute.amazonaws.com
+ec2-34-212-108-50.us-west-2.compute.amazonaws.com
+ec2-52-11-6-52.us-west-2.compute.amazonaws.com
+ec2-35-93-251-200.us-west-2.compute.amazonaws.com
+ec2-44-248-216-85.us-west-2.compute.amazonaws.com
+ec2-52-13-6-178.us-west-2.compute.amazonaws.com
+ec2-35-92-134-8.us-west-2.compute.amazonaws.com
+ec2-35-87-107-234.us-west-2.compute.amazonaws.com
+ec2-34-222-147-97.us-west-2.compute.amazonaws.com
