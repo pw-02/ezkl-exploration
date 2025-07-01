@@ -183,7 +183,8 @@ class InferenceRequest:
             # if not os.path.exists(vk_file_path) or not os.path.exists(pk_file_path):
             #     #queue this job for ezkl setup 
             #     self.logger.warning(f"VK or PK files not found for {model_name}. This job will be prepared for ezkl setup.")
-            self.proof_jobs.append(proof_job)
+            if proof_job.job_name == 'mobilenetv2_split_size_1_sub_model_96'
+                self.proof_jobs.append(proof_job)
         # Optionally sort jobs by predicted_duration
         if self.schedule == "lpt":
             # Sort by predicted duration (longest first)
