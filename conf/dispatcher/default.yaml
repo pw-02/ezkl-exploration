@@ -1,5 +1,5 @@
 # Dispatcher service config
-host: "172.31.22.196" #"localhost"  # IP address of the dispatcher host
+host: "172.31.16.102" #"localhost"  # IP address of the dispatcher host
 #host: "localhost" #"localhost"  # IP address of the dispatcher host
 
 port: 50051
