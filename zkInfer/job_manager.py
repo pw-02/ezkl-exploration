@@ -389,7 +389,7 @@ class InferenceRequestManager:
         if job.job_status != JobStatus.QUEUED:  # Only if it's a true completion or final failure
             parent_req = self.active_requests.get(job.inference_request_id)
             #remove input file from cache location
-            remove_file(job.input_path, use_s3=parent_req.share_data_via_s3, s3_bucket=parent_req.s3_bucket)
+            # remove_file(job.input_path, use_s3=parent_req.share_data_via_s3, s3_bucket=parent_req.s3_bucket)
 
             # Write per-job report (optional)
             job_report = self.write_job_report_to_disk(job, out_dir="reports", perf_metrics=perf_metrics)
