@@ -142,7 +142,7 @@ class InferenceRequest:
             model_file_path = os.path.join(cache_dir, "model.onnx")
             input_file_path = os.path.join(cache_dir, "input.json")
             profiling_file = os.path.join(cache_dir, "profiling.json")
-            profiling_exists = file_exists(profiling_file, use_s3=False, s3_bucket=self.s3_bucket)
+            profiling_exists = file_exists(profiling_file, use_s3=self.share_data_via_s3, s3_bucket=self.s3_bucket)
             model_exists = file_exists(model_file_path, use_s3=self.share_data_via_s3, s3_bucket=self.s3_bucket)
             profiling_data = {}
             predicted_duration = 0.0
