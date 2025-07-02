@@ -434,32 +434,38 @@ class ZKProofWorker:
 
             # --- 2. Model download/setup ---
             try:
-                if os.path.exists(model_path):
-                    #model_path is already local so we can use it directly
-                    local_model_path = model_path
-                else:
-                    # must be in S3, download to tmp dir if not using local disk cache 
+                if share_data_via_s3:
+                    #try downloading model and input from S3
                     if cache_setup and not use_s3_for_cache:
                         local_model_path = os.path.join(cache_prefix, os.path.basename(model_path))
                         os.makedirs(cache_prefix, exist_ok=True)
                     else:
                         # download to tmp dir that will be cleaned up later
                         local_model_path = os.path.join(local_tmp_dir, os.path.basename(model_path))
-                    
                     download_onnx_model_start = time.perf_counter()
                     download_from_s3(s3_bucket, model_path, local_model_path)
                     s3_read_time += time.perf_counter() - download_onnx_model_start
-                
-                if os.path.exists(input_path):
-                    # already local
-                    local_input_path = input_path
-                else:
-                    # must be in S3, download to tmp dir
+
+                     # must be in S3, download to tmp dir
                     local_input_path = os.path.join(local_tmp_dir, "input.json")
                     download_input_start = time.perf_counter()
                     download_from_s3(s3_bucket, input_path, local_input_path)
                     s3_read_time += time.perf_counter() - download_input_start
 
+                else:
+                    if os.path.exists(model_path):
+                        # model_path is already local so we can use it directly
+                        local_model_path = model_path
+                    else:
+                        #raise an error if model is not found
+                        raise FileNotFoundError(f"Model path {model_path} does not exist locally or in S3.")
+                    if os.path.exists(input_path):
+                        # input_path is already local so we can use it directly
+                        local_input_path = input_path
+                    else:
+                        #raise an error if input is not found
+                        raise FileNotFoundError(f"Input path {input_path} does not exist locally or in S3.")
+                    
             except Exception as e:
                 self.logger.error(f"❌ Failed to prepare model/input: {e}", exc_info=True)
                 self.send_final_job_result(job_id, status="FAILED", message=f"Model prep failed: {e}")
@@ -484,15 +490,6 @@ class ZKProofWorker:
                 "--parent_pid", worker_pid
             ])
 
-            # heartbeat_proc = subprocess.Popen([
-            #     sys.executable, 
-            #     "zkInfer/heartbeat.py",
-            #     self.target, 
-            #     self.worker_id,
-            #     job_id, 
-            #     status_file, 
-            #     worker_pid
-            # ])
             os.environ["EZKL_LOG_DIR"] = local_tmp_dir
 
             # --- 5. Proof computation ---
