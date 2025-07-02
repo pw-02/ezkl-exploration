@@ -2,7 +2,7 @@ defaults:
   - _self_
   - dispatcher: default
   - worker: default
-  - model: mobilenetv2_split_size_1_lpt  
+  - model: gpt_4_lay_64_emb_split_size_1_fifo  
 
     #mobilenetv2_split_size_1_lpt
     #mobilenetv2_split_size_1_fifo
