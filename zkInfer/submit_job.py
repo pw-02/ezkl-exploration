@@ -61,7 +61,7 @@ def main(cfg: DictConfig):
             # tracking_thread.start()
 
             # Launch a local worker for debugging
-            # run_worker(cfg)
+            run_worker(cfg)
 
     except grpc.RpcError as e:
         print(f"❌ gRPC error: {e.details()} (code={e.code()})")
