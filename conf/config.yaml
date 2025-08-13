@@ -2,7 +2,7 @@ defaults:
   - _self_
   - dispatcher: default
   - worker: default
-  - model: gpt_4_lay_64_emb_split_size_1_lpt  
+  - model: mnist_gan  
 
     #mobilenetv2_split_size_1_lpt
     #mobilenetv2_split_size_1_fifo
@@ -13,11 +13,11 @@ defaults:
   - override hydra/job_logging: disabled
 
 # Global control flags
-data_exchange_backend: s3  # s3 or local. S3 needed for distributed mode. 
+data_exchange_backend: local  # s3 or local. S3 needed for distributed mode. 
 s3_bucket: dzkml   # S3 bucket for distributed data exchange/caching; set to null for single-machine/local cache.
 
 # Cache control
-cache_backend: s3       # 'local' = disk cache (single machine), 's3' = object store (for distributed workers).
+cache_backend: local       # 'local' = disk cache (single machine), 's3' = object store (for distributed workers).
 cache_setup: true          # If true, preserve cache files created during setup after the run. If false, remove cache files after the run.
 overwrite_cache: false     # If true, always overwrite (regenerate) cached files. If false, reuse any existing cache files if present.
 

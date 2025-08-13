@@ -81,7 +81,15 @@ def extract_num_workers(report_path):
         return 1  # Default to 1 if not found
 
 
-
+def get_run_time_from_log(report_dir):
+    request_report_file = glob.glob(os.path.join(report_dir, "request_report.csv"))[0]
+    report_metrics = convert_csv_to_dict(request_report_file)
+    # if 'request_runtime(s)' in report_metrics:
+        # return report_metrics['request_runtime(s)'][0]
+    non_list_values  ={}
+    for key, value in report_metrics.items():
+        non_list_values[key] = value[0]
+    return non_list_values
 
 
 def create_summary_report(report_dir):
@@ -178,15 +186,27 @@ if __name__ == "__main__":
         os.remove("report_summary.csv")
     
     folders=[
-        r"C:\Users\pw\Desktop\dzkml\c5a4xlarge\nano_gpt_4_layers_64_embd_split_size_1\*",
-        r"C:\Users\pw\Desktop\dzkml\r6a32xlarge\nano_gpt_4_layers_64_embd_split_size_1\*",
+        r"C:\Users\pw\Desktop\dzkml\m6a4xlarge\dist-local-disk\*",
+        # r"C:\Users\pw\Desktop\dzkml\r6a32xlarge\nano_gpt_4_layers_64_embd_split_size_1\*",
     ]
+    runtimes = []
     for folder in folders:
         for subfolder in glob.glob(folder):
             if os.path.isdir(subfolder):
                 print(f"Processing folder: {subfolder}")
-                create_summary_report(subfolder)
+                runtime = get_run_time_from_log(subfolder)
+                report_summary = {
+
+                    "reports_path": os.path.basename(subfolder)}
+                report_summary.update(runtime)
+                save_dict_to_csv(report_summary, "report_summary.csv")
+                
+
+                # create_summary_report(subfolder)
     print("Summary report created: report_summary.csv")
+
+
+    # save_dict_to_csv(runtimes, "report_summary.csv")
 
     # folder = r"C:\Users\pw\Desktop\reports\mnist_gan_split_size_1\2025-06-24_19-35-37-4w"  # Change this to your folder
     # process_reports(folder)
