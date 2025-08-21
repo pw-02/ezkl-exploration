@@ -572,8 +572,8 @@ class ZKProofWorker:
                         proc.wait(timeout=3)
                     except Exception:
                         proc.kill()
-            if local_tmp_dir and os.path.exists(local_tmp_dir):
-                shutil.rmtree(local_tmp_dir, ignore_errors=True)
+            # if local_tmp_dir and os.path.exists(local_tmp_dir):
+            #     shutil.rmtree(local_tmp_dir, ignore_errors=True)
 
     def reconnect_if_needed(self):
         self.logger.info("🔁 Attempting to reconnect gRPC channel...")
