@@ -1,4 +1,4 @@
-# tiny_mnist_cnn_export.py
+# tiny_mnist_cnn_export_fixed_flat.py
 import torch, torch.nn as nn, torch.nn.functional as F
 import json
 
@@ -23,20 +23,18 @@ model = TinyMNIST().eval()
 # Dummy input (batch=1, channels=1, 28x28)
 dummy_input = torch.randn(1, 1, 28, 28)
 
-# Export ONNX
+# Export ONNX with *fixed* shape
 torch.onnx.export(
-    model, dummy_input, "tiny_mnist.onnx",
+    model, dummy_input, "tiny_mnist_fixed.onnx",
     input_names=["input"], output_names=["logits"],
-    opset_version=13,
-    dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}}
+    opset_version=13
 )
+print("Exported tiny_mnist_fixed.onnx")
 
-print("Exported tiny_mnist.onnx")
-
-# Save valid JSON input
-# Flatten to a nested list: [batch, channels, height, width]
-input_list = dummy_input.tolist()
+# Save valid JSON input in flat structure
+# Shape = [1,1,28,28] -> flatten to [784] inside a list
+flat_input = dummy_input.flatten().tolist()
 with open("tiny_mnist_input.json", "w") as f:
-    json.dump({"input": input_list}, f)
+    json.dump({"input_data": [flat_input]}, f)
 
-print("Exported tiny_mnist_input.json")
+print("Exported tiny_mnist_input.json (flat)")

@@ -59,9 +59,9 @@ def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, gr
     clean_directory(tmp_cache_directory)
 
 if __name__ == "__main__":
-    name = "mobilenet_large"
-    input_file = r"examples/onnx/mobilenet_large/input.json"
-    onnx_file = r"examples/onnx/mobilenet_large/network.onnx"
+    name = "mnist_classifier"
+    input_file = r"examples\onnx\mnist_classifier\input.json"
+    onnx_file = r"examples\onnx\mnist_classifier\network.onnx"
 
     # input_file = r"examples\onnx\resnet18\input.json"
     # onnx_file = r"examples\onnx\resnet18\resnet18_cifar10.onnx"
