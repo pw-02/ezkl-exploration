@@ -1,0 +1,7 @@
+name: gpt_4_lay_64_emb_no_split
+onnx_file: examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx
+input_file: examples/onnx/nanoGPT/input.json
+# split_mode: "none"  # options: "none", "auto", or "fixed"
+split_mode: "none"       # options: "none", "auto", "fixed"
+ops_per_chunk: 1         # used only if split_mode == "fixed"
+schedule: "fifo"  # options: "fifo", "lpt" (longest processing time first)
