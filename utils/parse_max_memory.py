@@ -40,7 +40,7 @@ else:
 
 
 # Path to your log file
-log_file = r"C:\Users\pw\Desktop\dzkml\split_v_no_split_r6a32xlarge - Copy\nano_gpt_4_layers_64_embd_mono\2025-06-12_20-06-37-1w\nano_gpt_4_layers_64_embd\system_usage.log"
+log_file = r"C:\Users\pw\Desktop\dzkml\split_v_no_split_r6a32xlarge - Copy\nano_gpt_10_layers_64_embd\2025-02-13_00-11-58\system_usage.log"
 
 memory_values = []
 cpu_values = []
