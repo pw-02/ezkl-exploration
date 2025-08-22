@@ -3,7 +3,7 @@
 # Example: ./yourscript.sh 4 resnet50 10.0.0.8
 
 NUM_WORKERS=${1:-1}                                     # default 1
-MODEL_NAME=${2:-gpt_10_lay_64_embd_splt_size_1}   # default model
+MODEL_NAME=${2:-mnist_gan_split_size_1}   # default model
 DISPATCHER_HOST=${3:-localhost}                         # default host
 
 SESSION=zkexp
