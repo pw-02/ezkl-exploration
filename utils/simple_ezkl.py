@@ -21,14 +21,16 @@ async def run_ezkl(fn, *args, **kwargs):
 
 async def calibrate_settings(onnx_model_path, input_data_path, settings_path):
     print("CALIBRATING")
-    await run_ezkl(ezkl.gen_settings, onnx_model_path, settings_path)
-    await run_ezkl(ezkl.calibrate_settings, input_data_path, onnx_model_path, settings_path, "resources")
+    if not os.path.exists(settings_path):
+        await run_ezkl(ezkl.gen_settings, onnx_model_path, settings_path)
+        await run_ezkl(ezkl.calibrate_settings, input_data_path, onnx_model_path, settings_path, "resources")
     assert os.path.exists(settings_path)
 
 
 async def compile_circuit(onnx_model_path, compiled_circuit_path, settings_path):
     print("COMPILING")
-    await run_ezkl(ezkl.compile_circuit, onnx_model_path, compiled_circuit_path, settings_path)
+    if not os.path.exists(compiled_circuit_path):
+        await run_ezkl(ezkl.compile_circuit, onnx_model_path, compiled_circuit_path, settings_path)
     assert os.path.exists(compiled_circuit_path)
 
 
@@ -39,13 +41,15 @@ async def get_srs(settings_path):
 
 async def gen_witness(input_data_path, compiled_circuit_path, witness_path):
     print("GENERATING_WITNESS")
-    await run_ezkl(ezkl.gen_witness, input_data_path, compiled_circuit_path, witness_path)
+    if not os.path.exists(witness_path):
+        await run_ezkl(ezkl.gen_witness, input_data_path, compiled_circuit_path, witness_path)
     assert os.path.exists(witness_path)
 
 
 async def gen_keys(compiled_circuit_path, vk_path, pk_path):
     print("GENERATING_KEYS")
-    await run_ezkl(ezkl.setup, compiled_circuit_path, vk_path, pk_path)
+    if not os.path.exists(vk_path) or not os.path.exists(pk_path):
+        await run_ezkl(ezkl.setup, compiled_circuit_path, vk_path, pk_path)
 
 
 async def compute_proof(witness_path, compiled_circuit_path, pk_path, proof_path):
