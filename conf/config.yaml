@@ -13,7 +13,7 @@ defaults:
   - override hydra/job_logging: disabled
 
 # Global control flags
-data_exchange_backend: local  # s3 or local. S3 needed for distributed mode. 
+data_exchange_backend: s3  # s3 or local. S3 needed for distributed mode. 
 s3_bucket: dzkml   # S3 bucket for distributed data exchange/caching; set to null for single-machine/local cache.
 
 # Cache control
