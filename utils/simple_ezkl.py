@@ -111,8 +111,8 @@ if __name__ == "__main__":
     base_path = "ezkl_tmp"
     os.makedirs(base_path, exist_ok=True)
 
-    input_data_path = "examples/onnx/mnist_classifier/input.json"
-    onnx_model_path = "examples/onnx/mnist_classifier/network.onnx"
+    input_data_path = "examples/onnx/mnist_gan/input.json"
+    onnx_model_path = "examples/onnx/mnist_gan/network.onnx"
     settings_path = os.path.join(base_path, "settings.json")
     compiled_circuit_path = os.path.join(base_path, "circuit.json")
     witness_path = os.path.join(base_path, "witness.json")
