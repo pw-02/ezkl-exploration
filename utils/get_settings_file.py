@@ -62,8 +62,8 @@ def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, gr
 
 if __name__ == "__main__":
     name = "bert"
-    input_file = r"examples\onnx\bert\input.json"
-    onnx_file = r"examples\onnx\bert\bert_large_squad.onnx"
+    input_file = r"examples/onnx/bert/input.json"
+    onnx_file = r"examples/onnx/bert/bert_large_squad.onnx"
 
     # input_file = r"examples\onnx\resnet18\input.json"
     # onnx_file = r"examples\onnx\resnet18\resnet18_cifar10.onnx"
