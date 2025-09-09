@@ -2,7 +2,7 @@ defaults:
   - _self_
   - dispatcher: default
   - worker: default
-  - model: mnist_classifier  
+  - model: bert  
 
     #mobilenetv2_split_size_1_lpt
     #mobilenetv2_split_size_1_fifo
