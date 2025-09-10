@@ -53,7 +53,7 @@ with torch.no_grad():
 
 input_dict = {
     "input_ids": dummy_input["input_ids"].tolist(),
-    "attention_mask": dummy_input["attention_mask"].tolist(),
+    # "attention_mask": dummy_input["attention_mask"].tolist(),
     "token_type_ids": dummy_input["token_type_ids"].tolist(),
 }
 
