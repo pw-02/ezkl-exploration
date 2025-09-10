@@ -128,7 +128,7 @@ if __name__ == "__main__":
     os.makedirs(base_path, exist_ok=True)
     try:
         input_data_path = "examples/onnx/rnn/input.json"
-        onnx_model_path = "examples/onnx/rnn/network.json"
+        onnx_model_path = "examples/onnx/rnn/network.onnx"
         settings_path = os.path.join(base_path, "settings.json")
         compiled_circuit_path = os.path.join(base_path, "circuit.json")
         witness_path = os.path.join(base_path, "witness.json")
