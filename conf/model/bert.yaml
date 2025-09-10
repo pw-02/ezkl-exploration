@@ -1,6 +1,6 @@
 name: bert
-onnx_file: examples/onnx/bert/bert_large_squad.onnx
-input_file: examples/onnx/bert/input.json
+onnx_file: examples/onnx/bert/bert_tiny_squad.onnx
+input_file: examples/onnx/bert/bert_tiny_squad_data.json
 # split_mode: "none"  # options: "none", "auto", or "fixed"
 split_mode: "none"       # options: "none", "auto", "fixed"
 ops_per_chunk: 1         # used only if split_mode == "fixed"

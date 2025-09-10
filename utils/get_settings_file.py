@@ -45,7 +45,7 @@ def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, gr
     report_file = os.path.join("ezkl_settings_report.csv")
     tmp_settings_file = os.path.join(tmp_cache_directory, 'settings.json')
     info = gen_and_merge_settings(onnx_model_path, input_data_path, model_name, tmp_settings_file)
-
+    write_info_to_csv(report_file, info)
     # write_info_to_csv(report_file, info)
     # if group_size is None:
     #     info = gen_and_merge_settings(onnx_model_path, input_data_path, model_name, tmp_settings_file)
@@ -63,7 +63,8 @@ def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, gr
 if __name__ == "__main__":
     name = "bert"
     input_file = r"examples/onnx/bert/input.json"
-    onnx_file = r"examples/onnx/bert/bert_large_squad.onnx"
+    onnx_file = r"examples/onnx/bert/bert_tiny_squad.onnx"
+    # onnx_file = r"examples/onnx/mnist_classifier/network.onnx"
 
     # input_file = r"examples\onnx\resnet18\input.json"
     # onnx_file = r"examples\onnx\resnet18\resnet18_cifar10.onnx"
