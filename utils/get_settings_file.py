@@ -27,33 +27,27 @@ def write_info_to_csv(report_file, info):
             writer.writeheader()
         writer.writerow(info)
 
-def gen_and_merge_settings(onnx_model_path, input_data_path, model_name, tmp_settings_file):
-    info = {
-        'name': model_name,
-        'onnx_model_path': onnx_model_path,
-        'input_data_path': input_data_path,
-    }
-    args = ezkl.PyRunArgs()
-    args.input_scale = 2
-    args.param_scale = 2
-    args.scale_rebase_multiplier = 10  # give more slack
-
-
-    info.update(get_model_info(onnx_model_path))
-    ezkl.gen_settings(onnx_model_path, tmp_settings_file,args)
-    ezkl.calibrate_settings(input_data_path, onnx_model_path, tmp_settings_file, "resources")
-
-    with open(tmp_settings_file, 'r') as f:
-        ezkl_settings = json.load(f)
-        info.update(ezkl_settings)
-    return info
 
 def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, group_size: int) -> str:
     tmp_cache_directory = os.path.join("cache", "tmp")
     os.makedirs(tmp_cache_directory, exist_ok=True)
     report_file = os.path.join("ezkl_settings_report.csv")
     tmp_settings_file = os.path.join(tmp_cache_directory, 'settings.json')
-    info = gen_and_merge_settings(onnx_model_path, input_data_path, model_name, tmp_settings_file)
+    
+    info = {
+        'name': model_name,
+        'onnx_model_path': onnx_model_path,
+        'input_data_path': input_data_path,
+    }
+  
+    info.update(get_model_info(onnx_model_path))
+    ezkl.gen_settings(onnx_model_path, tmp_settings_file)
+    # ezkl.calibrate_settings(input_data_path, onnx_model_path, tmp_settings_file, "resources")
+
+    with open(tmp_settings_file, 'r') as f:
+        ezkl_settings = json.load(f)
+        info.update(ezkl_settings)
+    
     write_info_to_csv(report_file, info)
     # write_info_to_csv(report_file, info)
     # if group_size is None:
@@ -67,7 +61,7 @@ def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, gr
     #         info = gen_and_merge_settings(model_path, input_path, model_name, tmp_settings_file)
     #         write_info_to_csv(report_file, info)
 
-    clean_directory(tmp_cache_directory)
+    # clean_directory(tmp_cache_directory)
 
 if __name__ == "__main__":
 
@@ -75,15 +69,36 @@ if __name__ == "__main__":
     print(dir(ezkl.PyRunArgs()))
 
     #set debuglogging
-    logging.basicConfig(level=logging.DEBUG)
-    name = "bert"
-    input_data_path = "examples/onnx/bert/bert_tiny_input.json"
-    onnx_model_path = "examples/onnx/bert/bert_tiny.onnx"
+    logging.basicConfig(level=logging.INFO)
 
-    # onnx_file = r"examples/onnx/mnist_classifier/network.onnx"
+    path = "cache/7f189c9fa1fd4e40ab190fdda15d70fd"
+    error_count = 0
+    for folder in os.listdir(path):
+        try:
+            basename = os.path.basename(folder)
+            name = basename.split("_")[0]
+            onnx_model_path = os.path.join(path, folder, "model.onnx")
+            input_data_path = os.path.join(path, folder, "input.json")
+            group_size = None  # Adjust as needed
+            get_settings_file(name, onnx_model_path, input_data_path, group_size)
 
-    # input_file = r"examples\onnx\resnet18\input.json"
-    # onnx_file = r"examples\onnx\resnet18\resnet18_cifar10.onnx"
-    group_size = None  # Adjust as needed
-    get_settings_file(name, onnx_model_path, input_data_path, group_size)
-    print("Settings file generated successfully.")
+        except Exception as e:
+            error_count += 1
+            print(f"Error processing {folder}: {e}")
+
+    print(f"Total errors encountered: {error_count}")
+
+
+
+
+    # name = "bert"
+    # input_data_path = "examples/onnx/bert/bert_tiny_input.json"
+    # onnx_model_path = "examples/onnx/bert/bert_tiny.onnx"
+
+    # # onnx_file = r"examples/onnx/mnist_classifier/network.onnx"
+
+    # # input_file = r"examples\onnx\resnet18\input.json"
+    # # onnx_file = r"examples\onnx\resnet18\resnet18_cifar10.onnx"
+    # group_size = None  # Adjust as needed
+    # get_settings_file(name, onnx_model_path, input_data_path, group_size)
+    # print("Settings file generated successfully.")

@@ -39,62 +39,45 @@ class BertWrapper(torch.nn.Module):
 model_name = "google/bert_uncased_L-2_H-128_A-2"  # Tiny BERT
 tokenizer = BertTokenizer.from_pretrained(model_name)
 model = BertForQuestionAnswering.from_pretrained(model_name, attn_implementation="eager")
-model = BertWrapper(model)
-model.eval()
 
-# -------------------------------
-# 2. Dummy input
-# -------------------------------
 sequence_length = 32  # keep small for EZKL
-# dummy_input = tokenizer(
-#     ["What is MLPerf?"], 
-#     ["MLPerf is a benchmark suite for ML models."],
-#     padding="max_length",
-#     truncation=True,
-#     max_length=sequence_length,
-#     return_tensors="pt"
-# )
-
 input_ids = torch.randint(0, 100, (1, sequence_length))      # fake vocab IDs
 attention_mask = torch.ones((1, sequence_length), dtype=torch.int64)
 token_type_ids = torch.zeros((1, sequence_length), dtype=torch.int64)
-
 # Concatenate into one input
-flat_input = torch.cat(
-    [
-        input_ids,
-        attention_mask,
-        token_type_ids
-    ],
-    dim=1
-)
+save_input_path = "examples/onnx/bert/bert_tiny_input.json"
+save_onnx_path = "examples/onnx/bert/bert_tiny.onnx"
 
+if use_wrapper := True:
+    inputs = torch.cat([input_ids,attention_mask,token_type_ids],dim=1)
+    model = BertWrapper(model)
+    input_list = inputs.flatten().tolist()
+    with open(save_input_path, "w") as f:
+        json.dump({"input_data": [input_list]}, f, indent=2)
+else:
+    inputs = (input_ids, attention_mask, token_type_ids)
+    input_list = [input_ids.flatten().tolist(), attention_mask.flatten().tolist(), token_type_ids.flatten().tolist()]
+    with open(save_input_path, "w") as f:
+        json.dump({"input_data": input_list}, f, indent=2)
 
+model.eval()
 # ------------------------------
 # 3. Export to ONNX
 # -------------------------------
-onnx_path = "examples/onnx/bert/bert_tiny.onnx"
 torch.onnx.export(
     model,
-    flat_input,
-    onnx_path,
+    inputs,
+    save_onnx_path,
     export_params=True,        # store the trained parameter weights inside the model file
     input_names=["input"],
     output_names=["start_logits", "end_logits"],
-    opset_version=11,         # EZKL supports 9–18
+    opset_version=14,         # EZKL supports 9–18
     do_constant_folding=True,
     dynamic_axes={'input': {0: 'batch_size'},    # variable length axes
-                                'output': {0: 'batch_size'}})       
+                  'output': {0: 'batch_size'}})       
 
-print(f"✅ Exported ONNX model: {onnx_path}")
+print(f"✅ Exported ONNX model: {save_onnx_path}")
 
 # -------------------------------
 # 4. Save inputs + outputs to JSON
 # -------------------------------
-
-input_list = flat_input.flatten().tolist()
-with open("examples/onnx/bert/bert_tiny_input.json", "w") as f:
-    json.dump({"input_data": [input_list]}, f, indent=2)
-
-print("✅ Saved EZKL input JSON")
-
