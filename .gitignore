@@ -47,3 +47,4 @@ utils/proofs_to_aggregate/sub_model_3_nano_gpt_4_layers_64_embd_split_size_1_202
 utils/proofs_to_aggregate/sub_model_4_nano_gpt_4_layers_64_embd_split_size_1_2025-06-26_20-26-41_proof.json
 us-west-2-kp.pem
 examples/onnx/bert/bert_large_squad.onnx
+examples/onnx/bert/distilbert_squad.onnx
