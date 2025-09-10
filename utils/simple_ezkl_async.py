@@ -24,7 +24,7 @@ async def calibrate_settings(onnx_model_path, input_data_path, settings_path):
     print("CALIBRATING")
     if not os.path.exists(settings_path):
         await run_ezkl(ezkl.gen_settings, onnx_model_path, settings_path)
-        # await run_ezkl(ezkl.bert_tiny_input, input_data_path, onnx_model_path, settings_path, "resources")
+        await run_ezkl(ezkl.calibrate_settings, input_data_path, onnx_model_path, settings_path, "resources")
     assert os.path.exists(settings_path)
 
 
