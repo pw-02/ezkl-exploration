@@ -117,30 +117,36 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.DEBUG)
 
-
+    
     base_path = "ezkl_tmp"
     os.makedirs(base_path, exist_ok=True)
+    try:
+        input_data_path = "examples/onnx/bert/bert_tiny_squad_data.json"
+        onnx_model_path = "examples/onnx/bert/bert_tiny_squad.onnx"
+        settings_path = os.path.join(base_path, "settings.json")
+        compiled_circuit_path = os.path.join(base_path, "circuit.json")
+        witness_path = os.path.join(base_path, "witness.json")
+        vk_path = os.path.join(base_path, "vk.json")
+        pk_path = os.path.join(base_path, "pk.json")
+        proof_path = os.path.join(base_path, "proof.json")
 
-    input_data_path = "examples/onnx/bert/bert_tiny_squad_data.json"
-    onnx_model_path = "examples/onnx/bert/bert_tiny_squad.onnx"
-    settings_path = os.path.join(base_path, "settings.json")
-    compiled_circuit_path = os.path.join(base_path, "circuit.json")
-    witness_path = os.path.join(base_path, "witness.json")
-    vk_path = os.path.join(base_path, "vk.json")
-    pk_path = os.path.join(base_path, "pk.json")
-    proof_path = os.path.join(base_path, "proof.json")
-
-    metrics = asyncio.run(
-        run_proof(
-            onnx_model_path,
-            input_data_path,
-            settings_path,
-            compiled_circuit_path,
-            witness_path,
-            vk_path,
-            pk_path,
-            proof_path,
+        metrics = asyncio.run(
+            run_proof(
+                onnx_model_path,
+                input_data_path,
+                settings_path,
+                compiled_circuit_path,
+                witness_path,
+                vk_path,
+                pk_path,
+                proof_path,
+            )
         )
-    )
 
-    print("Perf measurements:", metrics)
+        print("Perf measurements:", metrics)
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+    finally:
+        #deletebase base_path folder and all its contents
+        import shutil
+        shutil.rmtree(base_path)
