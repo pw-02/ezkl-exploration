@@ -121,7 +121,7 @@ async def run_proof(
 if __name__ == "__main__":
     #set debug logger
 
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
 
     
     base_path = "ezkl_tmp"
