@@ -46,20 +46,25 @@ model.eval()
 # 2. Dummy input
 # -------------------------------
 sequence_length = 32  # keep small for EZKL
-dummy_input = tokenizer(
-    ["What is MLPerf?"], 
-    ["MLPerf is a benchmark suite for ML models."],
-    padding="max_length",
-    truncation=True,
-    max_length=sequence_length,
-    return_tensors="pt"
-)
+# dummy_input = tokenizer(
+#     ["What is MLPerf?"], 
+#     ["MLPerf is a benchmark suite for ML models."],
+#     padding="max_length",
+#     truncation=True,
+#     max_length=sequence_length,
+#     return_tensors="pt"
+# )
+
+input_ids = torch.randint(0, 100, (1, sequence_length))      # fake vocab IDs
+attention_mask = torch.ones((1, sequence_length), dtype=torch.int64)
+token_type_ids = torch.zeros((1, sequence_length), dtype=torch.int64)
+
 # Concatenate into one input
 flat_input = torch.cat(
     [
-        dummy_input["input_ids"],
-        dummy_input["attention_mask"],
-        dummy_input["token_type_ids"]
+        input_ids,
+        attention_mask,
+        token_type_ids
     ],
     dim=1
 )
