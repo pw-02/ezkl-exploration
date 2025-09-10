@@ -15,40 +15,63 @@ def load_json_input(file_path):
     """Load input data from a JSON file."""
     with open(file_path, "r") as f:
         return json.load(f)
-
-
-def format_model_input(input_data_path, expected_shape, input_type, idx=0):
-    """Format input tensor from JSON to match ONNX model expectations."""
-    expected_shape = [-1 if dim == 'batch_size' else dim for dim in expected_shape]
-    input_data = load_json_input(input_data_path)['input_data']
-    if 'yolo' in str(input_data_path).lower():
-        expected_shape = [1, 3, 416, 416]  # Example for YOLO models
-    if input_type == 'tensor(float)':
-        reshaped_input = np.array(input_data, dtype=np.float32).reshape(expected_shape)
-    elif input_type == 'tensor(int64)':
-        reshaped_input = np.array(input_data[idx] if expected_shape else input_data[0][0], dtype=np.int64)
-    else:
-        raise ValueError(f"Unsupported input type: {input_type}")
-
-    if 'gpt' in str(input_data_path).lower():
-        reshaped_input = np.reshape(input_data, (1, 64))
     
-    if 'bert' in str(input_data_path).lower():
-        reshaped_input = reshaped_input.reshape(1, -1)  # restore shape [1, 3*seq_len]
+
+def format_model_input(input_data_path, session):
+    """Format input(s) from JSON to match ONNX model expectations."""
+    input_data = load_json_input(input_data_path)["input_data"]
+    feed_dict = {}
+
+    for i, inp in enumerate(session.get_inputs()):
+        name = inp.name
+        dtype = np.float32 if "float" in inp.type else np.int64
+        shape = [1 if (dim is None or dim == "batch_size") else dim for dim in inp.shape]
+
+        arr = np.array(input_data[i], dtype=dtype).reshape(shape)
+        feed_dict[name] = arr
+
+    return feed_dict
 
 
-    return reshaped_input
+# def format_model_input(input_data_path, expected_shape, input_type, idx=0):
+#     """Format input tensor from JSON to match ONNX model expectations."""
+#     expected_shape = [-1 if dim == 'batch_size' else dim for dim in expected_shape]
+#     input_data = load_json_input(input_data_path)['input_data']
+#     if 'yolo' in str(input_data_path).lower():
+#         expected_shape = [1, 3, 416, 416]  # Example for YOLO models
+#     if input_type == 'tensor(float)':
+#         reshaped_input = np.array(input_data, dtype=np.float32).reshape(expected_shape)
+#     elif input_type == 'tensor(int64)':
+#         reshaped_input = np.array(input_data[idx] if expected_shape else input_data[0][0], dtype=np.int64)
+#     else:
+#         raise ValueError(f"Unsupported input type: {input_type}")
 
+#     if 'gpt' in str(input_data_path).lower():
+#         reshaped_input = np.reshape(input_data, (1, 64))
+    
+#     if 'bert' in str(input_data_path).lower():
+#         reshaped_input = reshaped_input.reshape(1, -1)  # restore shape [1, 3*seq_len]
+
+
+#     return reshaped_input
 
 def run_model_inference(onnx_model_path, input_data_path):
     """Run inference with ONNX Runtime using formatted input."""
     session = ort.InferenceSession(onnx_model_path)
-    input_name = session.get_inputs()[0].name
-    input_shape = session.get_inputs()[0].shape
-    input_type = session.get_inputs()[0].type
-    input_tensor = format_model_input(input_data_path, input_shape, input_type)
-    outputs = session.run(None, {input_name: input_tensor})
+    feed_dict = format_model_input(input_data_path, session)
+    outputs = session.run(None, feed_dict)
     return outputs
+
+
+# def run_model_inference(onnx_model_path, input_data_path):
+#     """Run inference with ONNX Runtime using formatted input."""
+#     session = ort.InferenceSession(onnx_model_path)
+#     input_name = session.get_inputs()[0].name
+#     input_shape = session.get_inputs()[0].shape
+#     input_type = session.get_inputs()[0].type
+#     input_tensor = format_model_input(input_data_path, input_shape, input_type)
+#     outputs = session.run(None, {input_name: input_tensor})
+#     return outputs
 
 
 def extract_model(onnx_model_path, node_inputs, node_outputs):
@@ -94,7 +117,7 @@ def merge_onnx_models(sub_models: OrderedDict):
     return merged_model
 
 
-def collect_split_inputs_from_inference(onnx_model_path, input_data_path, format_model_input_fn = None):
+def collect_split_inputs_from_inference(onnx_model_path, input_data_path):
     model = onnx.load(onnx_model_path)
     model.graph.ClearField('output')
     shape_info = onnx.shape_inference.infer_shapes(model)
@@ -107,113 +130,165 @@ def collect_split_inputs_from_inference(onnx_model_path, input_data_path, format
                 model.graph.output.append(output_info)
 
     session = ort.InferenceSession(model.SerializeToString())
-    input_name = session.get_inputs()[0].name
-    input_shape = session.get_inputs()[0].shape
-    input_type = session.get_inputs()[0].type
-    print(f"Input name: {input_name}, shape: {input_shape}, type: {input_type}")
-    input_data = format_model_input(input_data_path, input_shape, input_type)
+    feed_dict = format_model_input(input_data_path, session)
+    outputs = session.run(None, feed_dict)
 
-    outputs = session.run(None, {input_name: input_data})
-    result_dict = {input_name: input_data}
-    for out, value in zip(session.get_outputs(), outputs):
-        result_dict[out.name] = value
+    # input_name = session.get_inputs()[0].name
+    # input_shape = session.get_inputs()[0].shape
+    # input_type = session.get_inputs()[0].type
+    # print(f"Input name: {input_name}, shape: {input_shape}, type: {input_type}")
+    # input_data = format_model_input(input_data_path, input_shape, input_type)
+    # outputs = session.run(None, {input_name: input_data})
+     # 5. Collect results
+    result_dict = {}
+    result_dict.update(feed_dict)  # include inputs
+    for out, val in zip(session.get_outputs(), outputs):
+        result_dict[out.name] = val
+
+    # result_dict = {input_name: input_data}
+    # for out, value in zip(session.get_outputs(), outputs):
+    #     result_dict[out.name] = value
     return result_dict
 
-def split_onnx_model(onnx_model_path, split_group_size):
+
+# def split_onnx_model(onnx_model_path, split_group_size=1):
+#     model = onnx.load(onnx_model_path)
+#     parent_model_hash = compute_bytes_md5_hex(model.SerializeToString())
+#     initializers = {init.name for init in model.graph.initializer}
+
+#     # Ops that should never be standalone submodels
+#     skip_as_root = {'Identity', 'Constant', 'Cast', 'Unsqueeze', 'Shape', 'Concat', 'Div', 'Gather', 'Slice'}
+
+#     sub_models = []
+#     e = Extractor(model)
+
+#     for idx, node in enumerate(model.graph.node):
+#         if node.op_type in skip_as_root:
+#             # ⛔ skip making a submodel here,
+#             # ✅ but still allow this node to be included downstream
+#             continue
+
+#         # don’t filter away excluded ops here! keep the chain intact
+#         node_inputs = [i for i in node.input if i not in initializers]
+#         node_outputs = [o for o in node.output if o not in initializers]
+
+#         if not node_outputs:
+#             continue
+
+#         # Extract this sub-model (will include Cast/Unsqueeze/etc. if needed)
+#         sub_model = e.extract_model(node_inputs, node_outputs)
+#         sub_models.append(sub_model)
+
+#     return sub_models, parent_model_hash
+
+
+
+
+# def split_onnx_model(onnx_model_path, split_group_size=1):
+#     model = onnx.load(onnx_model_path)
+#     parent_model_hash = compute_bytes_md5_hex(model.SerializeToString())
+#     initializers = {init.name for init in model.graph.initializer}
+#     exclude_operations = {'Identity', 'Constant',  'Unsqueeze'}
+#     # exclude_operations=  {'Identity', 'Constant', 'Cast', 'Unsqueeze', 'Shape', 'Concat', 'Div', 'Gather', 'Slice', 'Concat'}
+
+#     sub_models = []
+#     e = Extractor(model)
+#     counter = 0
+#     for idx, node in enumerate(model.graph.node):
+#         if node.op_type in exclude_operations:
+#             continue
+#         # keep only non-initializer inputs/outputss
+#         node_inputs = [i for i in node.input if i not in initializers and 'Constant' not in i]
+#         node_outputs = [o for o in node.output if o not in initializers and 'Constant' not in o]
+        
+#         if not node_outputs:
+#             continue
+        
+#         # Extract this sub-model
+#         sub_model = e.extract_model(node_inputs, node_outputs)
+#         sub_models.append(sub_model)
+#         counter += 1
+#     return sub_models, parent_model_hash
+
+def build_producer_map(model):
+    producer_map = {}
+    for node in model.graph.node:
+        for output in node.output:
+            producer_map[output] = node
+    return producer_map
+
+def trace_sources(tensor_names, producer_map, passthrough_ops, graph_inputs, initializers):
+    sources = set()
+    visited = set()
+
+    def dfs(tensor_name):
+        if tensor_name in visited:
+            return
+        visited.add(tensor_name)
+
+        # If it's a graph input → keep
+        if tensor_name in graph_inputs:
+            sources.add(tensor_name)
+            return
+
+        # If it's an initializer (weight) → stop
+        if tensor_name in initializers:
+            return
+
+        node = producer_map.get(tensor_name, None)
+        if node is None:
+            sources.add(tensor_name)
+            return
+
+        if node.op_type in passthrough_ops:
+            # these ops don't "count", trace further back
+            for inp in node.input:
+                dfs(inp)
+        else:
+            # real op: stop here, this tensor is a true dependency
+            sources.add(tensor_name)
+
+    for t in tensor_names:
+        dfs(t)
+
+    return list(sources)
+
+
+def split_onnx_model(onnx_model_path, split_group_size=1):
     model = onnx.load(onnx_model_path)
     parent_model_hash = compute_bytes_md5_hex(model.SerializeToString())
+    e = Extractor(model)
+
+    # boundaries
     initializers = {init.name for init in model.graph.initializer}
-    exclude_operations = {'Identity', 'Constant'}
+    graph_inputs = {inp.name for inp in model.graph.input}
+    producer_map = build_producer_map(model)
+    passthrough_ops = {"Identity", "Constant", 'Cast', 'Unsqueeze',}  # don’t split here
+
     sub_models = []
-    all_sub_models = OrderedDict()
     counter = 0
-    for idx, node in enumerate(model.graph.node):
-        if node.op_type in exclude_operations or node.name in initializers:
+    for node in model.graph.node:
+        if node.op_type in passthrough_ops:
             continue
-        node_inputs = [i for i in node.input if i not in initializers and 'Constant' not in i]
-        node_outputs = [o for o in node.output if o not in initializers and 'Constant' not in o]
-        sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
+
+        # walk upstream to find real sources
+        true_inputs = trace_sources(node.input, producer_map, passthrough_ops, graph_inputs, initializers)
+        node_outputs = [o for o in node.output]
+        
+        if not node_outputs:
+            continue
+
+        sub_model = e.extract_model(true_inputs, node_outputs)
         sub_models.append(sub_model)
+
     return sub_models, parent_model_hash
 
-        # sub_model_name = f'sub_model_{counter+1}'
-        # all_sub_models[f'sub_model_{counter+1}'] = sub_model
-        # counter += 1
-    # if split_group_size > 1:
-    #     grouped = [dict(list(all_sub_models.items())[i:i + split_group_size])
-    #                for i in range(0, len(all_sub_models), split_group_size)]
-    #     return [(f"split_group_{i+1}", merge_onnx_models(group)) for i, group in enumerate(grouped)]
-    # else:
-    #     return list(all_sub_models.items())  # [(name, sub_model), ...]
-
-
-
-def prepare_submodel_record(sub_model, intermediate_outputs):
-    """Returns (flattened_inputs, raw_bytes, md5_hash, model_metadata) or None if no inputs."""
-    flattened_inputs = []
-    for inp in sub_model.graph.input:
-        if inp.name in intermediate_outputs:
-            flattened_inputs.append(intermediate_outputs[inp.name].flatten().tolist())
-    if not flattened_inputs:
-        return
-    
-    json_input ={'input_data': flattened_inputs}
-    # with open(f"input_data_{sub_model.name}.json", "w") as f:
-    #     json.dump(input_dict, f, indent=4)
-
-    
-    raw_bytes = sub_model.SerializeToString()
-    md5_hash = compute_bytes_md5_hex(raw_bytes)
-    model_metadata = {
-        'name': getattr(sub_model, 'name', 'submodel'),
-        'num_ops': len(sub_model.graph.node),
-        'num_params': sum(onnx.numpy_helper.to_array(i).size for i in sub_model.graph.initializer),
-        'model_ops': [node.op_type for node in sub_model.graph.node]
-    }
-    return (json_input, raw_bytes, md5_hash, model_metadata)
-
-# def save_split_models_disk(submodels, intermediate_outputs, prefix, overwrite=False):
-    
-#     models_with_inputs = OrderedDict()
-#     for name, sub_model in submodels:
-#         record = prepare_submodel_record(sub_model, intermediate_outputs)
-#         if record is None:
-#             continue
-#         json_input, raw_bytes, md5_hash, model_metadata = record
-
-#         model_dir = os.path.join(prefix, md5_hash)
-#         os.makedirs(model_dir, exist_ok=True)
-#         model_path = os.path.join(model_dir, 'model.onnx')
-#         if overwrite or not os.path.exists(model_path):
-#             onnx.save(sub_model, model_path)
-#         models_with_inputs[name] = (md5_hash, model_path, json_input, model_metadata)
-#     return models_with_inputs
-
-# def save_split_models_s3(submodels, intermediate_outputs, s3_bucket, prefix, overwrite=False):
-
-#     models_with_inputs = OrderedDict()
-#     for name, sub_model in submodels:
-#         record = prepare_submodel_record(sub_model, intermediate_outputs)
-#         if record is None:
-#             continue
-#         json_input, raw_bytes, md5_hash, model_metadata = record
-#         model_dir = os.path.join(prefix, md5_hash)
-#         s3_model_key = os.path.join(model_dir, 'model.onnx')
-#         if overwrite:
-#             upload_modelproto_to_s3(raw_bytes, s3_bucket, s3_model_key)
-#         else:
-#             upload_modelproto_if_not_exists(raw_bytes, s3_bucket, s3_model_key)
-#         models_with_inputs[name] = (md5_hash, s3_model_key, json_input, model_metadata)
-#     return models_with_inputs
 
 
 def split_onnx_model_with_inputs(onnx_model_path, input_data_path, split_group_size=1):
     split_inputs = collect_split_inputs_from_inference(onnx_model_path, input_data_path)
     sub_models, parent_model_hash = split_onnx_model(onnx_model_path, split_group_size)
-
-
     models_with_inputs = []
-
     for idx, sub_model in enumerate(sub_models):
         flattened_inputs = []
         for inp in sub_model.graph.input:
@@ -227,85 +302,6 @@ def split_onnx_model_with_inputs(onnx_model_path, input_data_path, split_group_s
         models_with_inputs.append((sub_model_name, md5_hash, sub_model, sub_mode_input))
     return models_with_inputs
 
-
-
-
-
-
-
-
-
-
-
-
-
-# def save_split_models_disk(submodels, intermediate_outputs, prefix, overwrite=False):
-#     models_with_inputs = OrderedDict()
-
-#     for name, sub_model in submodels:
-#         flattened_inputs = []
-#         for inp in sub_model.graph.input:
-#             if inp.name in intermediate_outputs:
-#                 flattened_inputs.append(intermediate_outputs[inp.name].flatten().tolist())
-
-#         if not flattened_inputs:
-#             continue
-
-#         md5_hash = compute_bytes_md5(sub_model.SerializeToString())
-#         model_dir = os.path.join(prefix, md5_hash)
-#         os.makedirs(model_dir, exist_ok=True)
-#         model_path = os.path.join(model_dir, 'model.onnx')
-#         # input_path = os.path.join(model_dir, 'input.json')
-#         onnx.save(sub_model, model_path)
-#         # with open(input_path, 'w') as f:
-#         #     json.dump({'input_data': flattened_inputs}, f, indent=4)
-
-#         model_metadata = {
-#                 'name': name,
-#                 'num_ops': len(sub_model.graph.node),
-#                 'num_params': sum(onnx.numpy_helper.to_array(i).size for i in sub_model.graph.initializer),
-#                 'model_ops': [node.op_type for node in sub_model.graph.node]
-#             }
-
-#         models_with_inputs[name] = (md5_hash, model_path, flattened_inputs, model_metadata)
-
-#     return models_with_inputs
-
-# def save_split_models_s3(submodels, intermediate_outputs, s3_bucket, prefix, overwrite=False):
-#         models_with_inputs = OrderedDict()
-
-#         for name, sub_model in submodels:
-#             flattened_inputs = []
-#             for inp in sub_model.graph.input:
-#                 if inp.name in intermediate_outputs:
-#                     flattened_inputs.append(intermediate_outputs[inp.name].flatten().tolist())
-
-#             if not flattened_inputs:
-#                 continue
-
-#             raw_bytes = sub_model.SerializeToString()
-#             md5_hash = compute_bytes_md5(raw_bytes)
-#             s3_model_key = f"{prefix}/{md5_hash}/model.onnx"
-
-#             if overwrite:
-#                 upload_modelproto_to_s3(raw_bytes, s3_bucket, s3_model_key)
-#             else:
-#                 upload_modelproto_if_not_exists(raw_bytes, s3_bucket, s3_model_key)
-
-#             model_metadata = {
-#                 'name': name,
-#                 'num_ops': len(sub_model.graph.node),
-#                 'num_params': sum(onnx.numpy_helper.to_array(i).size for i in sub_model.graph.initializer),
-#                 'model_ops': [node.op_type for node in sub_model.graph.node]
-#             }
-
-#             models_with_inputs[name] = (md5_hash, s3_model_key, flattened_inputs, model_metadata)
-
-#         return models_with_inputs
-    
-
-
-
 def get_model_info(onnx_model_path):
     model = onnx.load(onnx_model_path)
     model_info = {
@@ -315,61 +311,31 @@ def get_model_info(onnx_model_path):
         }
     return model_info
 
-# def split_model(onnx_model_path, intermediate_outputs, split_group_size, cache_dir):
-#     model = onnx.load(onnx_model_path)
-#     initializers = {init.name for init in model.graph.initializer}
-#     exclude_operations = {'Identity', 'Constant'}
 
-#     all_sub_models = OrderedDict()
-#     for idx, node in enumerate(model.graph.node):
-#         if node.op_type in exclude_operations or node.name in initializers:
-#             continue
-
-#         node_inputs = [i for i in node.input if i not in initializers and 'Constant' not in i]
-#         node_outputs = [o for o in node.output if o not in initializers and 'Constant' not in o]
-#         sub_model = extract_model(onnx_model_path, node_inputs, node_outputs)
-#         all_sub_models[f'split_model_{idx+1}'] = sub_model
-
-#     if split_group_size > 1:
-#         grouped = [dict(list(all_sub_models.items())[i:i + split_group_size])
-#                    for i in range(0, len(all_sub_models), split_group_size)]
-#         all_sub_models = [merge_onnx_models(group) for group in grouped]
-#     else:
-#         all_sub_models = list(all_sub_models.values())
-
-#     models_with_inputs = OrderedDict()
-#     for idx, sub_model in enumerate(all_sub_models):
-#         flattened_inputs = []
-#         for inp in sub_model.graph.input:
-#             flattened_inputs.append(intermediate_outputs[inp.name].flatten().tolist())
-
-#         if not flattened_inputs:
-#             continue
-
-#         model_name = f'split_model_{idx+1}'
-#         model_dir = os.path.join(cache_dir, model_name)
-#         os.makedirs(model_dir, exist_ok=True)
-
-#         model_path = os.path.join(model_dir, 'model.onnx')
-#         input_path = os.path.join(model_dir, 'input.json')
-
-#         onnx.save(sub_model, model_path)
-#         with open(input_path, 'w') as f:
-#             json.dump({'input_data': flattened_inputs}, f, indent=4)
-
-#         models_with_inputs[model_name] = (input_path, model_path)
-
-#     return models_with_inputs
 
 if __name__ == "__main__":
-    onnx_model_path = "models/bert-base-uncased.onnx"
-    input_data_path = "models/bert-base-uncased_input.json"
+    onnx_model_path = "examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx"
+    input_data_path = "examples/onnx/nanoGPT/input.json"
     split_group_size = 1
+    cache_dir = "cache"
+    os.makedirs(cache_dir, exist_ok=True)
 
     split_models = split_onnx_model_with_inputs(onnx_model_path, input_data_path, split_group_size)
     for name, md5_hash, model, input_data in split_models:
-        print(f"Model Name: {name}")
-        print(f"MD5 Hash: {md5_hash}")
-        print(f"Model Ops: {[node.op_type for node in model.graph.node]}")
-        print(f"Input Data Sample: {input_data['input_data'][:1]}")
-        print("-" * 40)
+            savepath = os.path.join(cache_dir, "nanoGPT", name)
+            model_file_path = os.path.join(savepath, "model.onnx")
+            input_file_path = os.path.join(savepath, "input.json")
+   
+            os.makedirs(os.path.dirname(model_file_path), exist_ok=True)
+            with open(model_file_path, "wb") as f:
+                f.write(model.SerializeToString())
+
+            os.makedirs(os.path.dirname(input_file_path), exist_ok=True)
+            with open(input_file_path, "w") as f:
+                json.dump(input_data, f, indent=4)
+            print(f"Saved {name}")
+    #save global model as well
+    parent_model = onnx.load(onnx_model_path)
+    parent_model_file_path = os.path.join(cache_dir, "model.onnx")
+    with open(parent_model_file_path, "wb") as f:
+        f.write(parent_model.SerializeToString())

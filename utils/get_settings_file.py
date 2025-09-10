@@ -65,22 +65,24 @@ def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, gr
 
 if __name__ == "__main__":
 
-    import ezkl
-    print(dir(ezkl.PyRunArgs()))
+    # import ezkl
+    # print(dir(ezkl.PyRunArgs()))
 
     #set debuglogging
     logging.basicConfig(level=logging.INFO)
 
-    path = "cache/7f189c9fa1fd4e40ab190fdda15d70fd"
+    path = "cache/nanoGPT"
     error_count = 0
     for folder in os.listdir(path):
         try:
+            #check if folder is a directory
             basename = os.path.basename(folder)
             name = basename.split("_")[0]
             onnx_model_path = os.path.join(path, folder, "model.onnx")
             input_data_path = os.path.join(path, folder, "input.json")
             group_size = None  # Adjust as needed
             get_settings_file(name, onnx_model_path, input_data_path, group_size)
+            print(f"Settings file generated successfully for {folder}.")
 
         except Exception as e:
             error_count += 1
