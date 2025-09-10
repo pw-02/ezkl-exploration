@@ -59,7 +59,7 @@ output_dict = {
 }
 
 # Save both to JSON
-all_data = {"input_data": [dummy_input["input_ids"].tolist()], "output_data": output_dict}
+all_data = {"input_data": dummy_input["input_ids"].tolist(), "output_data": output_dict}
 
 json_path = "examples/onnx/bert/bert_tiny_squad_data.json"
 with open(json_path, "w") as f:
