@@ -57,15 +57,15 @@ input_dict = {
     "token_type_ids": dummy_input["token_type_ids"].tolist(),
 }
 
-output_dict = {
-    "start_logits": outputs.start_logits.tolist(),
-    "end_logits": outputs.end_logits.tolist()
-}
+input_list = [
+    dummy_input["input_ids"].tolist(),       # [1, seq_len]
+    dummy_input["attention_mask"].tolist(),  # [1, seq_len]
+    dummy_input["token_type_ids"].tolist()   # [1, seq_len]
+]
 
-all_data = {"input_data": input_dict}
 
 json_path = "examples/onnx/bert/bert_tiny_squad_data.json"
 with open(json_path, "w") as f:
-    json.dump(all_data, f, indent=2)
+     json.dump({"input_data": input_list}, f, indent=2)
 
 print(f"✅ Exported test vectors: {json_path}")
