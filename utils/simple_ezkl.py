@@ -115,7 +115,7 @@ async def run_proof(
 if __name__ == "__main__":
     #set debug logger
 
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
 
     
     base_path = "ezkl_tmp"
@@ -148,5 +148,6 @@ if __name__ == "__main__":
         logging.error(f"An error occurred: {e}")
     finally:
         #deletebase base_path folder and all its contents
-        import shutil
-        shutil.rmtree(base_path)
+        # import shutil
+        # shutil.rmtree(base_path)
+        pass
