@@ -34,8 +34,8 @@ def gen_and_merge_settings(onnx_model_path, input_data_path, model_name, tmp_set
         'input_data_path': input_data_path,
     }
     args = ezkl.PyRunArgs()
-    # args.input_scale = 2
-    args.param_scale = 2
+    args.input_scale = 2
+    # args.param_scale = 2
 
 
     info.update(get_model_info(onnx_model_path))
