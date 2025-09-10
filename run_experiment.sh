@@ -4,7 +4,7 @@
 
 NUM_WORKERS=${1:-1}                                     # default 1
 MODEL_NAME=${2:-bert}   # default model
-DISPATCHER_HOST=${3:-localhost}                         # default host
+DISPATCHER_HOST=${3:-localhost}                         # default host, disbert_split_size_1
 
 SESSION=zkexp
 

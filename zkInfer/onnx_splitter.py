@@ -32,6 +32,10 @@ def format_model_input(input_data_path, expected_shape, input_type, idx=0):
 
     if 'gpt' in str(input_data_path).lower():
         reshaped_input = np.reshape(input_data, (1, 64))
+    
+    if 'bert' in str(input_data_path).lower():
+        reshaped_input = reshaped_input.reshape(1, -1)  # restore shape [1, 3*seq_len]
+
 
     return reshaped_input
 
@@ -356,3 +360,16 @@ def get_model_info(onnx_model_path):
 #         models_with_inputs[model_name] = (input_path, model_path)
 
 #     return models_with_inputs
+
+if __name__ == "__main__":
+    onnx_model_path = "models/bert-base-uncased.onnx"
+    input_data_path = "models/bert-base-uncased_input.json"
+    split_group_size = 1
+
+    split_models = split_onnx_model_with_inputs(onnx_model_path, input_data_path, split_group_size)
+    for name, md5_hash, model, input_data in split_models:
+        print(f"Model Name: {name}")
+        print(f"MD5 Hash: {md5_hash}")
+        print(f"Model Ops: {[node.op_type for node in model.graph.node]}")
+        print(f"Input Data Sample: {input_data['input_data'][:1]}")
+        print("-" * 40)
