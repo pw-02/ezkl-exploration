@@ -1,13 +1,13 @@
 import torch
 import json
 from transformers import BertForQuestionAnswering, BertTokenizer
-
+import onnx
 # -------------------------------
 # 1. Load model + tokenizer
 # -------------------------------
 model_name = "prajjwal1/bert-tiny"
 tokenizer = BertTokenizer.from_pretrained(model_name)
-model = BertForQuestionAnswering.from_pretrained(model_name, attn_implementation="eager")
+model = BertForQuestionAnswering.from_pretrained(model_name)
 model.eval()
 
 # -------------------------------
@@ -39,11 +39,28 @@ torch.onnx.export(
     onnx_path,
     input_names=["input_ids", "attention_mask", "token_type_ids"],
     output_names=["start_logits", "end_logits"],
-    opset_version=11,         # EZKL supports 9–18
+    opset_version=14,         # EZKL supports 9–18
     do_constant_folding=True,
     dynamic_axes=None         # fixed shapes for zk
 )
 print(f"✅ Exported ONNX model: {onnx_path}")
+
+# -------------------------------
+# 4. Patch ONNX: replace -FLT_MAX
+# -------------------------------
+model_onnx = onnx.load(onnx_path)
+for tensor in model_onnx.graph.initializer:
+    if tensor.data_type == onnx.TensorProto.FLOAT:
+        arr = onnx.numpy_helper.to_array(tensor)
+        if (arr < -1e20).any():  # detect huge negative mask values
+            print(f"⚠️  Found -inf-like values in {tensor.name}, patching...")
+            arr[arr < -1e20] = -1e4
+            new_tensor = onnx.numpy_helper.from_array(arr, tensor.name)
+            tensor.CopyFrom(new_tensor)
+
+onnx.save(model_onnx, onnx_path)
+print("✅ Patched ONNX to avoid -FLT_MAX issues")
+
 
 # -------------------------------
 # 4. Save inputs to JSON (EZKL format)
