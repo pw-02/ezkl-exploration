@@ -38,7 +38,7 @@ class BertWrapper(torch.nn.Module):
 #
 model_name = "google/bert_uncased_L-2_H-128_A-2"  # Tiny BERT
 tokenizer = BertTokenizer.from_pretrained(model_name)
-model = BertForQuestionAnswering.from_pretrained(model_name)
+model = BertForQuestionAnswering.from_pretrained(model_name, attn_implementation="eager")
 model = BertWrapper(model)
 model.eval()
 
@@ -73,12 +73,14 @@ torch.onnx.export(
     model,
     flat_input,
     onnx_path,
+    export_params=True,        # store the trained parameter weights inside the model file
     input_names=["input"],
     output_names=["start_logits", "end_logits"],
-    opset_version=14,         # EZKL supports 9–18
+    opset_version=11,         # EZKL supports 9–18
     do_constant_folding=True,
-    dynamic_axes=None         # EZKL needs fixed shapes
-)
+    dynamic_axes={'input': {0: 'batch_size'},    # variable length axes
+                                'output': {0: 'batch_size'}})       
+
 print(f"✅ Exported ONNX model: {onnx_path}")
 
 # -------------------------------
