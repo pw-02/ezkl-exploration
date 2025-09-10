@@ -62,7 +62,7 @@ output_dict = {
     "end_logits": outputs.end_logits.tolist()
 }
 
-all_data = {"inputs": input_dict, "outputs": output_dict}
+all_data = {"input_data": input_dict, "outputs": output_dict}
 
 json_path = "examples/onnx/bert/bert_tiny_squad_data.json"
 with open(json_path, "w") as f:
