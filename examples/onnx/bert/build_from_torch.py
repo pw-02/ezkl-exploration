@@ -7,7 +7,7 @@ model_name = "google/bert_uncased_L-2_H-128_A-2"
 
 # Load pretrained model + tokenizer
 tokenizer = BertTokenizer.from_pretrained(model_name)
-model = BertForQuestionAnswering.from_pretrained(model_name)
+model = BertForQuestionAnswering.from_pretrained(model_name, attn_implementation="eager")
 model.eval()
 
 # Fixed MLPerf-style input: seq_len=384, batch_size=1
@@ -35,8 +35,8 @@ torch.onnx.export(
     onnx_path,
     input_names=["input_ids", "attention_mask", "token_type_ids"],
     output_names=["start_logits", "end_logits"],
-    opset_version=14,
-    do_constant_folding=True,  # optimize for inference
+    opset_version=11,
+    # do_constant_folding=True,  # optimize for inference
     dynamic_axes=None  # fixed shape [1,384]
 )
 
