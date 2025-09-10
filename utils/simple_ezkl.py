@@ -79,21 +79,25 @@ async def run_proof(
 
     start = time.perf_counter()
     await calibrate_settings(onnx_model_path, input_data_path, settings_path)
+    print("CALIBRATED took", time.perf_counter() - start)
     perf_measurements["calibrate_settings_time(s)"] = time.perf_counter() - start
 
     start = time.perf_counter()
     await compile_circuit(onnx_model_path, compiled_circuit_path, settings_path)
+    print("COMPILED took", time.perf_counter() - start)
     perf_measurements["ezkl_compile_circuit_time(s)"] = time.perf_counter() - start
 
     start = time.perf_counter()
     await get_srs(settings_path)
     t = time.perf_counter() - start
+    print("GET_SRS took", t)
     perf_measurements["ezkl_get_srs_time(s)"] = t
     total_setup_time += t
 
     start = time.perf_counter()
     await gen_witness(input_data_path, compiled_circuit_path, witness_path)
     t = time.perf_counter() - start
+    print("GEN_WITNESS took", t)
     perf_measurements["ezkl_gen_witness_time(s)"] = t
     total_setup_time += t
 
@@ -102,11 +106,13 @@ async def run_proof(
     t = time.perf_counter() - start
     perf_measurements["ezkl_key_gen_time(s)"] = t
     total_setup_time += t
+    print("GEN_KEYS took", t)
     perf_measurements["ezkl_setup_time(s)"] = total_setup_time
 
     if not setup_only:
         start = time.perf_counter()
         await compute_proof(witness_path, compiled_circuit_path, pk_path, proof_path)
+        print("PROVED took", time.perf_counter() - start)
         perf_measurements["ezkl_proof_time(s)"] = time.perf_counter() - start
 
     return perf_measurements
