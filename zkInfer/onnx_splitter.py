@@ -33,46 +33,12 @@ def format_model_input(input_data_path, session):
     return feed_dict
 
 
-# def format_model_input(input_data_path, expected_shape, input_type, idx=0):
-#     """Format input tensor from JSON to match ONNX model expectations."""
-#     expected_shape = [-1 if dim == 'batch_size' else dim for dim in expected_shape]
-#     input_data = load_json_input(input_data_path)['input_data']
-#     if 'yolo' in str(input_data_path).lower():
-#         expected_shape = [1, 3, 416, 416]  # Example for YOLO models
-#     if input_type == 'tensor(float)':
-#         reshaped_input = np.array(input_data, dtype=np.float32).reshape(expected_shape)
-#     elif input_type == 'tensor(int64)':
-#         reshaped_input = np.array(input_data[idx] if expected_shape else input_data[0][0], dtype=np.int64)
-#     else:
-#         raise ValueError(f"Unsupported input type: {input_type}")
-
-#     if 'gpt' in str(input_data_path).lower():
-#         reshaped_input = np.reshape(input_data, (1, 64))
-    
-#     if 'bert' in str(input_data_path).lower():
-#         reshaped_input = reshaped_input.reshape(1, -1)  # restore shape [1, 3*seq_len]
-
-
-#     return reshaped_input
-
 def run_model_inference(onnx_model_path, input_data_path):
     """Run inference with ONNX Runtime using formatted input."""
     session = ort.InferenceSession(onnx_model_path)
     feed_dict = format_model_input(input_data_path, session)
     outputs = session.run(None, feed_dict)
     return outputs
-
-
-# def run_model_inference(onnx_model_path, input_data_path):
-#     """Run inference with ONNX Runtime using formatted input."""
-#     session = ort.InferenceSession(onnx_model_path)
-#     input_name = session.get_inputs()[0].name
-#     input_shape = session.get_inputs()[0].shape
-#     input_type = session.get_inputs()[0].type
-#     input_tensor = format_model_input(input_data_path, input_shape, input_type)
-#     outputs = session.run(None, {input_name: input_tensor})
-#     return outputs
-
 
 def extract_model(onnx_model_path, node_inputs, node_outputs):
     if not os.path.exists(onnx_model_path):
@@ -133,12 +99,6 @@ def collect_split_inputs_from_inference(onnx_model_path, input_data_path):
     feed_dict = format_model_input(input_data_path, session)
     outputs = session.run(None, feed_dict)
 
-    # input_name = session.get_inputs()[0].name
-    # input_shape = session.get_inputs()[0].shape
-    # input_type = session.get_inputs()[0].type
-    # print(f"Input name: {input_name}, shape: {input_shape}, type: {input_type}")
-    # input_data = format_model_input(input_data_path, input_shape, input_type)
-    # outputs = session.run(None, {input_name: input_data})
      # 5. Collect results
     result_dict = {}
     result_dict.update(feed_dict)  # include inputs
@@ -150,65 +110,6 @@ def collect_split_inputs_from_inference(onnx_model_path, input_data_path):
     #     result_dict[out.name] = value
     return result_dict
 
-
-# def split_onnx_model(onnx_model_path, split_group_size=1):
-#     model = onnx.load(onnx_model_path)
-#     parent_model_hash = compute_bytes_md5_hex(model.SerializeToString())
-#     initializers = {init.name for init in model.graph.initializer}
-
-#     # Ops that should never be standalone submodels
-#     skip_as_root = {'Identity', 'Constant', 'Cast', 'Unsqueeze', 'Shape', 'Concat', 'Div', 'Gather', 'Slice'}
-
-#     sub_models = []
-#     e = Extractor(model)
-
-#     for idx, node in enumerate(model.graph.node):
-#         if node.op_type in skip_as_root:
-#             # ⛔ skip making a submodel here,
-#             # ✅ but still allow this node to be included downstream
-#             continue
-
-#         # don’t filter away excluded ops here! keep the chain intact
-#         node_inputs = [i for i in node.input if i not in initializers]
-#         node_outputs = [o for o in node.output if o not in initializers]
-
-#         if not node_outputs:
-#             continue
-
-#         # Extract this sub-model (will include Cast/Unsqueeze/etc. if needed)
-#         sub_model = e.extract_model(node_inputs, node_outputs)
-#         sub_models.append(sub_model)
-
-#     return sub_models, parent_model_hash
-
-
-
-
-# def split_onnx_model(onnx_model_path, split_group_size=1):
-#     model = onnx.load(onnx_model_path)
-#     parent_model_hash = compute_bytes_md5_hex(model.SerializeToString())
-#     initializers = {init.name for init in model.graph.initializer}
-#     exclude_operations = {'Identity', 'Constant',  'Unsqueeze'}
-#     # exclude_operations=  {'Identity', 'Constant', 'Cast', 'Unsqueeze', 'Shape', 'Concat', 'Div', 'Gather', 'Slice', 'Concat'}
-
-#     sub_models = []
-#     e = Extractor(model)
-#     counter = 0
-#     for idx, node in enumerate(model.graph.node):
-#         if node.op_type in exclude_operations:
-#             continue
-#         # keep only non-initializer inputs/outputss
-#         node_inputs = [i for i in node.input if i not in initializers and 'Constant' not in i]
-#         node_outputs = [o for o in node.output if o not in initializers and 'Constant' not in o]
-        
-#         if not node_outputs:
-#             continue
-        
-#         # Extract this sub-model
-#         sub_model = e.extract_model(node_inputs, node_outputs)
-#         sub_models.append(sub_model)
-#         counter += 1
-#     return sub_models, parent_model_hash
 
 def build_producer_map(model):
     producer_map = {}
@@ -274,7 +175,7 @@ def split_onnx_model(onnx_model_path, split_group_size=1):
         # walk upstream to find real sources
         true_inputs = trace_sources(node.input, producer_map, passthrough_ops, graph_inputs, initializers)
         node_outputs = [o for o in node.output]
-        
+
         if not node_outputs:
             continue
 
