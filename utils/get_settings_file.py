@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import json
@@ -62,6 +63,8 @@ def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, gr
     clean_directory(tmp_cache_directory)
 
 if __name__ == "__main__":
+    #set debugblogging
+    logging.basicConfig(level=logging.DEBUG)
     name = "bert"
     input_file = r"examples/onnx/bert/input.json"
     onnx_file = r"examples/onnx/bert/bert_tiny_squad.onnx"
