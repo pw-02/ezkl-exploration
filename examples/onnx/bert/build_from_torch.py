@@ -48,14 +48,6 @@ print(f"✅ Exported ONNX model: {onnx_path}")
 # -------------------------------
 # 4. Save inputs + outputs to JSON
 # -------------------------------
-with torch.no_grad():
-    outputs = model(**dummy_input)
-
-input_dict = {
-    "input_ids": dummy_input["input_ids"].tolist(),
-    "attention_mask": dummy_input["attention_mask"].tolist(),
-    "token_type_ids": dummy_input["token_type_ids"].tolist(),
-}
 
 input_list = [
     dummy_input["input_ids"].flatten().tolist(),
@@ -66,10 +58,3 @@ input_list = [
 with open("bert_input.json", "w") as f:
     json.dump({"input_data": input_list}, f, indent=2)
 
-
-
-json_path = "examples/onnx/bert/bert_tiny_squad_data.json"
-with open(json_path, "w") as f:
-     json.dump({"input_data": input_list}, f, indent=2)
-
-print(f"✅ Exported test vectors: {json_path}")
