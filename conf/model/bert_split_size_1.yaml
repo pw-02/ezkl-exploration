@@ -1,4 +1,4 @@
-name: disbert_split_size_1
+name: bert_split_size_1
 onnx_file: examples/onnx/bert/bert_tiny.onnx
 input_file: examples/onnx/bert/bert_tiny_input.json
 # split_mode: "none"  # options: "none", "auto", or "fixed"
