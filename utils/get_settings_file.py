@@ -67,7 +67,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     name = "bert"
     input_file = r"examples/onnx/bert/distilbert_input.json"
-    onnx_file = r"examples/onnx/bert/distilbert_large_squad.onnx"
+    onnx_file = r"examples/onnx/bert/distilbert_squad.onnx"
     # onnx_file = r"examples/onnx/mnist_classifier/network.onnx"
 
     # input_file = r"examples\onnx\resnet18\input.json"
