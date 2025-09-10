@@ -107,7 +107,7 @@ def run_proof(
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
 
     base_path = "ezkl_tmp"
     os.makedirs(base_path, exist_ok=True)
