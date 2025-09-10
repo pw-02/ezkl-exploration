@@ -2,7 +2,7 @@ defaults:
   - _self_
   - dispatcher: default
   - worker: default
-  - model: disbert_split_size_1  
+  - model: bert_split_size_1  
 
     #mobilenetv2_split_size_1_lpt
     #mobilenetv2_split_size_1_fifo
