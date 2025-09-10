@@ -33,7 +33,7 @@ inputs = (
 # -------------------------------
 # 3. Export to ONNX
 # -------------------------------
-onnx_path = "examples/onnx/bert/bert_tiny_squad.onnx"
+onnx_path = "examples/onnx/bert/bert_tiny.onnx"
 torch.onnx.export(
     model,
     inputs,
@@ -56,6 +56,6 @@ input_list = [
     dummy_input["token_type_ids"].flatten().tolist()
 ]
 
-with open("bert_input.json", "w") as f:
+with open("bert_tiny_input.json", "w") as f:
     json.dump({"input_data": input_list}, f, indent=2)
 
