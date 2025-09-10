@@ -54,12 +54,12 @@ input_dict = {
 }
 
 output_dict = {
-    "start_logits": [outputs.start_logits.tolist()],
-    "end_logits": [outputs.end_logits.tolist()],
+    "start_logits": outputs.start_logits.tolist(),
+    "end_logits": outputs.end_logits.tolist(),
 }
 
 # Save both to JSON
-all_data = {"input_data": input_dict, "output_data": output_dict}
+all_data = {"input_data": [dummy_input["input_ids"].tolist()], "output_data": output_dict}
 
 json_path = "examples/onnx/bert/bert_tiny_squad_data.json"
 with open(json_path, "w") as f:
