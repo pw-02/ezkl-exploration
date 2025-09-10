@@ -154,7 +154,6 @@ class EZKLProofStages:
         s3_write_time = 0.0
         s3_read_time = 0.0
         used_cache = False
-        return used_cache, s3_read_time, s3_write_time
 
         if not self.overwrite_cache:
             used_cache, s3_read_time = self._try_load_from_cache(self.settings_path, f"{self.cache_dir}/settings.json")

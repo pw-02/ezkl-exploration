@@ -10,7 +10,7 @@ tokenizer = BertTokenizer.from_pretrained(model_name)
 model = BertForQuestionAnswering.from_pretrained(model_name, attn_implementation="eager")
 model.eval()
 
-# Fixed MLPerf-style input: seq_len=384, batch_size=1
+# Example input: seq_len=384, batch_size=1
 sequence_length = 384
 dummy_input = tokenizer(
     ["What is MLPerf?"], ["MLPerf is a benchmark suite for ML models."],
@@ -27,7 +27,7 @@ inputs = (
     dummy_input["token_type_ids"]
 )
 
-# Export to ONNX
+# Export to ONNX with dynamic axes
 onnx_path = "examples/onnx/bert/bert_tiny_squad.onnx"
 torch.onnx.export(
     model,
@@ -35,12 +35,18 @@ torch.onnx.export(
     onnx_path,
     input_names=["input_ids", "attention_mask", "token_type_ids"],
     output_names=["start_logits", "end_logits"],
-    opset_version=11,
-    do_constant_folding=True,  # optimize for inference
-    dynamic_axes=None  # fixed shape [1,384]
+    opset_version=13,               # safer than 11 for dynamic shapes
+    do_constant_folding=True,
+    dynamic_axes={
+        "input_ids": {0: "batch_size", 1: "sequence_length"},
+        "attention_mask": {0: "batch_size", 1: "sequence_length"},
+        "token_type_ids": {0: "batch_size", 1: "sequence_length"},
+        "start_logits": {0: "batch_size", 1: "sequence_length"},
+        "end_logits": {0: "batch_size", 1: "sequence_length"},
+    }
 )
 
-print(f"Exported ONNX model: {onnx_path}")
+print(f"Exported ONNX model with dynamic axes: {onnx_path}")
 
 # 🔥 Run model once to capture outputs
 with torch.no_grad():
