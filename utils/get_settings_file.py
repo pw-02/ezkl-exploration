@@ -42,7 +42,7 @@ def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, gr
   
     info.update(get_model_info(onnx_model_path))
     ezkl.gen_settings(onnx_model_path, tmp_settings_file)
-    # ezkl.calibrate_settings(input_data_path, onnx_model_path, tmp_settings_file, "resources")
+    ezkl.calibrate_settings(input_data_path, onnx_model_path, tmp_settings_file, "resources")
 
     with open(tmp_settings_file, 'r') as f:
         ezkl_settings = json.load(f)
@@ -71,36 +71,34 @@ if __name__ == "__main__":
     #set debuglogging
     logging.basicConfig(level=logging.INFO)
 
-    path = "cache/nanoGPT"
-    error_count = 0
-    for folder in os.listdir(path):
-        try:
-            #check if folder is a directory
-            basename = os.path.basename(folder)
-            name = basename.split("_")[0]
-            onnx_model_path = os.path.join(path, folder, "model.onnx")
-            input_data_path = os.path.join(path, folder, "input.json")
-            group_size = None  # Adjust as needed
-            get_settings_file(name, onnx_model_path, input_data_path, group_size)
-            print(f"Settings file generated successfully for {folder}.")
+    # path = "cache/nanoGPT"
+    # error_count = 0
+    # for folder in os.listdir(path):
+    #     try:
+    #         #check if folder is a directory
+    #         basename = os.path.basename(folder)
+    #         name = basename.split("_")[0]
+    #         onnx_model_path = os.path.join(path, folder, "model.onnx")
+    #         input_data_path = os.path.join(path, folder, "input.json")
+    #         group_size = None  # Adjust as needed
+    #         get_settings_file(name, onnx_model_path, input_data_path, group_size)
+    #         print(f"Settings file generated successfully for {folder}.")
 
-        except Exception as e:
-            error_count += 1
-            print(f"Error processing {folder}: {e}")
+    #     except Exception as e:
+    #         error_count += 1
+    #         print(f"Error processing {folder}: {e}")
 
-    print(f"Total errors encountered: {error_count}")
-
-
+    # print(f"Total errors encountered: {error_count}")
 
 
-    # name = "bert"
-    # input_data_path = "examples/onnx/bert/bert_tiny_input.json"
-    # onnx_model_path = "examples/onnx/bert/bert_tiny.onnx"
+    name = "bert"
+    input_data_path = "examples/onnx/bert/bert_tiny_input.json"
+    onnx_model_path = "examples/onnx/bert/bert_tiny.onnx"
 
-    # # onnx_file = r"examples/onnx/mnist_classifier/network.onnx"
+    # onnx_file = r"examples/onnx/mnist_classifier/network.onnx"
 
-    # # input_file = r"examples\onnx\resnet18\input.json"
-    # # onnx_file = r"examples\onnx\resnet18\resnet18_cifar10.onnx"
-    # group_size = None  # Adjust as needed
-    # get_settings_file(name, onnx_model_path, input_data_path, group_size)
-    # print("Settings file generated successfully.")
+    # input_file = r"examples\onnx\resnet18\input.json"
+    # onnx_file = r"examples\onnx\resnet18\resnet18_cifar10.onnx"
+    group_size = None  # Adjust as needed
+    get_settings_file(name, onnx_model_path, input_data_path, group_size)
+    print("Settings file generated successfully.")
