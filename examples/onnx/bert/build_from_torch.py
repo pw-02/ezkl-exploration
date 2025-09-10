@@ -58,10 +58,14 @@ input_dict = {
 }
 
 input_list = [
-    dummy_input["input_ids"].tolist(),       # [1, seq_len]
-    dummy_input["attention_mask"].tolist(),  # [1, seq_len]
-    dummy_input["token_type_ids"].tolist()   # [1, seq_len]
+    dummy_input["input_ids"].flatten().tolist(),
+    dummy_input["attention_mask"].flatten().tolist(),
+    dummy_input["token_type_ids"].flatten().tolist()
 ]
+
+with open("bert_input.json", "w") as f:
+    json.dump({"input_data": input_list}, f, indent=2)
+
 
 
 json_path = "examples/onnx/bert/bert_tiny_squad_data.json"
