@@ -74,7 +74,7 @@ if __name__ == "__main__":
     import ezkl
     print(dir(ezkl.PyRunArgs()))
 
-    #set debugblogging
+    #set debuglogging
     logging.basicConfig(level=logging.DEBUG)
     name = "bert"
     input_data_path = "examples/onnx/bert/bert_tiny_input.json"
