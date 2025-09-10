@@ -34,7 +34,7 @@ def gen_and_merge_settings(onnx_model_path, input_data_path, model_name, tmp_set
         'input_data_path': input_data_path,
     }
     info.update(get_model_info(onnx_model_path))
-    ezkl.gen_settings(onnx_model_path, tmp_settings_file)
+    ezkl.gen_settings(onnx_model_path, tmp_settings_file, scale=2)
     
     with open(tmp_settings_file, 'r') as f:
         ezkl_settings = json.load(f)
