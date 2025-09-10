@@ -7,7 +7,7 @@ from transformers import BertForQuestionAnswering, BertTokenizer
 # -------------------------------
 model_name = "prajjwal1/bert-tiny"
 tokenizer = BertTokenizer.from_pretrained(model_name)
-model = BertForQuestionAnswering.from_pretrained(model_name)
+model = BertForQuestionAnswering.from_pretrained(model_name, attn_implementation="eager")
 model.eval()
 
 # -------------------------------
@@ -39,7 +39,7 @@ torch.onnx.export(
     onnx_path,
     input_names=["input_ids", "attention_mask", "token_type_ids"],
     output_names=["start_logits", "end_logits"],
-    opset_version=14,         # EZKL supports 9–18
+    opset_version=11,         # EZKL supports 9–18
     do_constant_folding=True,
     dynamic_axes=None         # fixed shapes for zk
 )
