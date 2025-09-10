@@ -127,8 +127,8 @@ if __name__ == "__main__":
     base_path = "ezkl_tmp"
     os.makedirs(base_path, exist_ok=True)
     try:
-        input_data_path = "examples/onnx/bert/bert_tiny.json"
-        onnx_model_path = "examples/onnx/bert/bert_tiny_input.onnx"
+        input_data_path = "examples/onnx/bert/bert_tiny_input.json"
+        onnx_model_path = "examples/onnx/bert/bert_tiny.onnx"
         settings_path = os.path.join(base_path, "settings.json")
         compiled_circuit_path = os.path.join(base_path, "circuit.json")
         witness_path = os.path.join(base_path, "witness.json")
