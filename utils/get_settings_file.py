@@ -34,7 +34,8 @@ def gen_and_merge_settings(onnx_model_path, input_data_path, model_name, tmp_set
         'input_data_path': input_data_path,
     }
     args = ezkl.PyRunArgs()
-    args.scale = 2   # <-- this is the knob you want
+    args.input_scale = 2
+    args.param_scale = 2
 
     info.update(get_model_info(onnx_model_path))
     ezkl.gen_settings(onnx_model_path, tmp_settings_file,args)
@@ -66,6 +67,10 @@ def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, gr
     clean_directory(tmp_cache_directory)
 
 if __name__ == "__main__":
+
+    import ezkl
+    print(dir(ezkl.PyRunArgs()))
+
     #set debugblogging
     logging.basicConfig(level=logging.DEBUG)
     name = "bert"
