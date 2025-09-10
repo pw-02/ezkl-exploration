@@ -36,6 +36,7 @@ torch.onnx.export(
     input_names=["input_ids", "attention_mask", "token_type_ids"],
     output_names=["start_logits", "end_logits"],
     opset_version=14,
+    do_constant_folding=True,  # optimize for inference
     dynamic_axes=None  # fixed shape [1,384]
 )
 
