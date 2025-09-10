@@ -76,12 +76,13 @@ if __name__ == "__main__":
     #set debugblogging
     logging.basicConfig(level=logging.DEBUG)
     name = "bert"
-    input_file = r"examples/onnx/bert/bert_tiny_input.json"
-    onnx_file = r"examples/onnx/bert/bert_tiny.onnx"
+    input_data_path = "examples/onnx/bert/bert_tiny_input.json"
+    onnx_model_path = "examples/onnx/bert/bert_tiny.onnx"
+
     # onnx_file = r"examples/onnx/mnist_classifier/network.onnx"
 
     # input_file = r"examples\onnx\resnet18\input.json"
     # onnx_file = r"examples\onnx\resnet18\resnet18_cifar10.onnx"
     group_size = None  # Adjust as needed
-    get_settings_file(name, onnx_file, input_file, group_size)
+    get_settings_file(name, onnx_model_path, input_data_path, group_size)
     print("Settings file generated successfully.")
