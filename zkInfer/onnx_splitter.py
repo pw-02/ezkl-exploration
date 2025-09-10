@@ -164,7 +164,7 @@ def split_onnx_model(onnx_model_path, split_group_size=1):
     initializers = {init.name for init in model.graph.initializer}
     graph_inputs = {inp.name for inp in model.graph.input}
     producer_map = build_producer_map(model)
-    passthrough_ops = {"Identity", "Constant", 'Cast', 'Unsqueeze',}  # don’t split here
+    passthrough_ops = {"Identity", "Constant", 'Cast', 'Unsqueeze', 'Slice'}  # don’t split here
 
     sub_models = []
     counter = 0
@@ -215,15 +215,15 @@ def get_model_info(onnx_model_path):
 
 
 if __name__ == "__main__":
-    onnx_model_path = "examples/onnx/nanoGPT/nano_gpt_4_layers_64_embd.onnx"
-    input_data_path = "examples/onnx/nanoGPT/input.json"
+    onnx_model_path = "examples/onnx/bert/bert_tiny.onnx"
+    input_data_path = "examples/onnx/bert/bert_tiny_input.json"
     split_group_size = 1
     cache_dir = "cache"
     os.makedirs(cache_dir, exist_ok=True)
 
     split_models = split_onnx_model_with_inputs(onnx_model_path, input_data_path, split_group_size)
     for name, md5_hash, model, input_data in split_models:
-            savepath = os.path.join(cache_dir, "nanoGPT", name)
+            savepath = os.path.join(cache_dir, "bert", name)
             model_file_path = os.path.join(savepath, "model.onnx")
             input_file_path = os.path.join(savepath, "input.json")
    

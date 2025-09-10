@@ -42,7 +42,7 @@ def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, gr
   
     info.update(get_model_info(onnx_model_path))
     ezkl.gen_settings(onnx_model_path, tmp_settings_file)
-    ezkl.calibrate_settings(input_data_path, onnx_model_path, tmp_settings_file, "resources")
+    # ezkl.calibrate_settings(input_data_path, onnx_model_path, tmp_settings_file, "resources")
 
     with open(tmp_settings_file, 'r') as f:
         ezkl_settings = json.load(f)
@@ -61,7 +61,7 @@ def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, gr
     #         info = gen_and_merge_settings(model_path, input_path, model_name, tmp_settings_file)
     #         write_info_to_csv(report_file, info)
 
-    # clean_directory(tmp_cache_directory)
+    clean_directory(tmp_cache_directory)
 
 if __name__ == "__main__":
 
@@ -71,24 +71,24 @@ if __name__ == "__main__":
     #set debuglogging
     logging.basicConfig(level=logging.INFO)
 
-    # path = "cache/nanoGPT"
-    # error_count = 0
-    # for folder in os.listdir(path):
-    #     try:
-    #         #check if folder is a directory
-    #         basename = os.path.basename(folder)
-    #         name = basename.split("_")[0]
-    #         onnx_model_path = os.path.join(path, folder, "model.onnx")
-    #         input_data_path = os.path.join(path, folder, "input.json")
-    #         group_size = None  # Adjust as needed
-    #         get_settings_file(name, onnx_model_path, input_data_path, group_size)
-    #         print(f"Settings file generated successfully for {folder}.")
+    path = "cache/bert"
+    error_count = 0
+    for folder in os.listdir(path):
+        try:
+            #check if folder is a directory
+            basename = os.path.basename(folder)
+            name = basename.split("_")[0]
+            onnx_model_path = os.path.join(path, folder, "model.onnx")
+            input_data_path = os.path.join(path, folder, "input.json")
+            group_size = None  # Adjust as needed
+            get_settings_file(name, onnx_model_path, input_data_path, group_size)
+            print(f"Settings file generated successfully for {folder}.")
 
-    #     except Exception as e:
-    #         error_count += 1
-    #         print(f"Error processing {folder}: {e}")
+        except Exception as e:
+            error_count += 1
+            print(f"Error processing {folder}: {e}")
 
-    # print(f"Total errors encountered: {error_count}")
+    print(f"Total errors encountered: {error_count}")
 
 
     name = "bert"
