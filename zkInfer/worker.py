@@ -64,10 +64,7 @@ class EZKLProofStages:
         self.s3_bucket = s3_bucket
         self.share_data_via_s3 = share_data_via_s3
         # self.cache_on_s3 = True if cache_backend == "s3" else False
-        run_args = self.ezkl.PyRunArgs()
-        run_args.input_visibility = "public"
-        run_args.param_visibility = "fixed"
-        run_args.output_visibility = "public"
+      
 
 
         # self.use_s3 = use_s3
@@ -87,6 +84,13 @@ class EZKLProofStages:
             self.vk_path = os.path.join(self.tmp_dir, "vk.json")
             self.witness_path = os.path.join(self.tmp_dir, "witness.json")
             self.proof_path = os.path.join(self.tmp_dir, "proof.pf")
+    
+    def get_run_args(self):
+        run_args = self.ezkl.RunArgs()
+        run_args.input_visibility = "public"
+        run_args.param_visibility = "fixed"
+        run_args.output_visibility = "public"
+        return run_args
        
     def _update_status(self, stage):
         if self.status_file:
@@ -165,7 +169,7 @@ class EZKLProofStages:
                 return used_cache, s3_read_time, s3_write_time
 
         # Generate and calibrate settings (no cache hit)
-        self.ezkl.gen_settings(self.onnx_model_path, self.settings_path)
+        self.ezkl.gen_settings(self.onnx_model_path, self.settings_path, py_run_args=self.get_run_args())
         self.ezkl.calibrate_settings(self.input_data_path, self.onnx_model_path, self.settings_path, "resources")
         assert os.path.exists(self.settings_path)
 
