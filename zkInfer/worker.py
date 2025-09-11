@@ -86,7 +86,7 @@ class EZKLProofStages:
             self.proof_path = os.path.join(self.tmp_dir, "proof.pf")
     
     def get_run_args(self):
-        run_args = self.ezkl.RunArgs()
+        run_args = self.ezkl.PyRunArgs()
         run_args.input_visibility = "public"
         run_args.param_visibility = "fixed"
         run_args.output_visibility = "public"
