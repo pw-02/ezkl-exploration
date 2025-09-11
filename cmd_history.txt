@@ -30,7 +30,7 @@ zkInfer/worker.py
 python zkInfer/submit_job.py 
 
 
-scp -i us-west-2-kp.pem -r  ubuntu@ec2-44-243-57-59.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/ "C:\Users\pw\Desktop\"
+scp -i us-west-2-kp.pem -r  ubuntu@ec2-35-95-241-206.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/ "C:\Users\pw\Desktop\"
 
 cd ezkl-exploration
 tmux new -s dispatcher
