@@ -48,7 +48,7 @@ token_type_ids = torch.zeros((1, sequence_length), dtype=torch.int64)
 save_input_path = "examples/onnx/bert/bert_tiny_input.json"
 save_onnx_path = "examples/onnx/bert/bert_tiny.onnx"
 
-if use_wrapper := False:
+if use_wrapper := True:
     inputs = torch.cat([input_ids,attention_mask,token_type_ids],dim=1)
     model = BertWrapper(model)
     input_list = inputs.flatten().tolist()
@@ -71,7 +71,7 @@ torch.onnx.export(
     export_params=True,        # store the trained parameter weights inside the model file
     input_names=["input"],
     output_names=["start_logits", "end_logits"],
-    opset_version=11,         # EZKL supports 9–18
+    opset_version=14,         # EZKL supports 9–18
     do_constant_folding=True,
     # dynamic_axes={'input': {0: 'batch_size'},    # variable length axes
     #               'output': {0: 'batch_size'}})

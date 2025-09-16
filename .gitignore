@@ -11,7 +11,7 @@ worker_data/
 dispatcher.log
 gen_proof.log
 *.log
-
+ezkl_tmp
 # Data and generated files
 data/
 model_to_circuit_relationship/
