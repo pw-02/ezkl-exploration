@@ -113,8 +113,8 @@ if __name__ == "__main__":
     os.makedirs(base_path, exist_ok=True)
 
     try:
-        input_data_path = "cache/bert/sub_model_7/input.json"
-        onnx_model_path = "cache/bert/sub_model_7/model.onnx"
+        input_data_path = "cache/bert/sub_model_8/input.json"
+        onnx_model_path = "cache/bert/sub_model_8/model.onnx"
 
         settings_path = os.path.join(base_path, "settings.json")
         compiled_circuit_path = os.path.join(base_path, "circuit.json")

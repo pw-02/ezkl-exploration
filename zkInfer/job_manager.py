@@ -138,7 +138,7 @@ class InferenceRequest:
             # submodels: list of (submodel_name, submodel_path, submodel_input_path)
 
         for model_name, model_hash, model_proto, input_data in models_with_inputs:
-            cache_dir = os.path.join(self.cache_prefix, model_hash)
+            cache_dir = os.path.join(self.cache_prefix, model_name)
             model_file_path = os.path.join(cache_dir, "model.onnx")
             input_file_path = os.path.join(cache_dir, "input.json")
             profiling_file = os.path.join(cache_dir, "profiling.json")
