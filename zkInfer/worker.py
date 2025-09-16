@@ -64,7 +64,6 @@ class EZKLProofStages:
         self.s3_bucket = s3_bucket
         self.share_data_via_s3 = share_data_via_s3
         # self.cache_on_s3 = True if cache_backend == "s3" else False
-      
 
 
         # self.use_s3 = use_s3
@@ -84,13 +83,6 @@ class EZKLProofStages:
             self.vk_path = os.path.join(self.tmp_dir, "vk.json")
             self.witness_path = os.path.join(self.tmp_dir, "witness.json")
             self.proof_path = os.path.join(self.tmp_dir, "proof.pf")
-    
-    # def get_run_args(self):
-    #     run_args = self.ezkl.PyRunArgs()
-    #     run_args.input_visibility = "public"
-    #     run_args.param_visibility = "fixed"
-    #     run_args.output_visibility = "public"
-    #     return run_args
        
     def _update_status(self, stage):
         if self.status_file:
