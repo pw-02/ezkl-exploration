@@ -1,6 +1,6 @@
-name: bert_split_size_1
-onnx_file: examples/onnx/bert/bert_tiny_test.onnx
-input_file: examples/onnx/bert/bert_tiny_input_test.json
+name: small_bert_split_size_1
+onnx_file: examples/onnx/bert/bert_uncased_L-4_H-256_A-4.onnx
+input_file: examples/onnx/bert/bert_uncased_L-4_H-256_A-4_input.json
 # split_mode: "none"  # options: "none", "auto", or "fixed"
 split_mode: "fixed"       # options: "none", "auto", "fixed"
 ops_per_chunk: 1         # used only if split_mode == "fixed"
