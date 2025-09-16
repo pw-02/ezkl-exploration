@@ -85,12 +85,12 @@ class EZKLProofStages:
             self.witness_path = os.path.join(self.tmp_dir, "witness.json")
             self.proof_path = os.path.join(self.tmp_dir, "proof.pf")
     
-    def get_run_args(self):
-        run_args = self.ezkl.PyRunArgs()
-        run_args.input_visibility = "public"
-        run_args.param_visibility = "fixed"
-        run_args.output_visibility = "public"
-        return run_args
+    # def get_run_args(self):
+    #     run_args = self.ezkl.PyRunArgs()
+    #     run_args.input_visibility = "public"
+    #     run_args.param_visibility = "fixed"
+    #     run_args.output_visibility = "public"
+    #     return run_args
        
     def _update_status(self, stage):
         if self.status_file:
@@ -169,7 +169,7 @@ class EZKLProofStages:
                 return used_cache, s3_read_time, s3_write_time
 
         # Generate and calibrate settings (no cache hit)
-        self.ezkl.gen_settings(self.onnx_model_path, self.settings_path, py_run_args=self.get_run_args())
+        self.ezkl.gen_settings(self.onnx_model_path, self.settings_path)
         self.ezkl.calibrate_settings(self.input_data_path, self.onnx_model_path, self.settings_path, "resources")
         assert os.path.exists(self.settings_path)
 
