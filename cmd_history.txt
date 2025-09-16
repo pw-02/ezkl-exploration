@@ -67,7 +67,7 @@ scp -i us-west-2-kp.pem -r ubuntu@ec2-35-87-99-93.us-west-2.compute.amazonaws.co
 
 
 
-scp -i us-west-2-kp.pem -r ubuntu@ec2-35-87-186-17.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/* "C:\Users\pw\Desktop\dzkml\r6a32xlarge"
+scp -i us-west-2-kp.pem -r ubuntu@ec2-35-94-137-102.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/* "C:\Users\pw\Desktop\dzkml-t"
 
 aws s3 cp s3://dzkml/onnxmodels/bert_large_squad.onnx .
 

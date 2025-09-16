@@ -71,7 +71,7 @@ if __name__ == "__main__":
     #set debuglogging
     logging.basicConfig(level=logging.INFO)
 
-    path = "cache/bert"
+    path = "cache/bert/36fe248847ce804a15456d4b5903da71"
     error_count = 0
     for idx, folder in enumerate(os.listdir(path)):
         try:
