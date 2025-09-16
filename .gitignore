@@ -48,3 +48,4 @@ utils/proofs_to_aggregate/sub_model_4_nano_gpt_4_layers_64_embd_split_size_1_202
 us-west-2-kp.pem
 examples/onnx/bert/bert_large_squad.onnx
 examples/onnx/bert/distilbert_squad.onnx
+ezkl_settings_report.csv

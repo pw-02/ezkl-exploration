@@ -223,7 +223,7 @@ if __name__ == "__main__":
 
     split_models = split_onnx_model_with_inputs(onnx_model_path, input_data_path, split_group_size)
     for name, md5_hash, model, input_data in split_models:
-            savepath = os.path.join(cache_dir, "bert", name)
+            savepath = os.path.join(cache_dir, "bert", md5_hash)
             model_file_path = os.path.join(savepath, "model.onnx")
             input_file_path = os.path.join(savepath, "input.json")
    
