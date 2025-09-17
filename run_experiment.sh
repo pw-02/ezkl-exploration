@@ -3,7 +3,7 @@
 # Example: ./yourscript.sh 4 resnet50 10.0.0.8
 
 NUM_WORKERS=${1:-1}                                     # default 1
-MODEL_NAME=${2:-bert_split_size_1}   # default model
+MODEL_NAME=${2:-bert_split_size_1_test}   # default model
 DISPATCHER_HOST=${3:-localhost}                         # default host, disbert_split_size_1
 
 SESSION=zkexp

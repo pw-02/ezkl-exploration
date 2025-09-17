@@ -42,7 +42,7 @@ def get_settings_file(model_name, onnx_model_path: str, input_data_path: str, gr
   
     info.update(get_model_info(onnx_model_path))
     ezkl.gen_settings(onnx_model_path, tmp_settings_file)
-    ezkl.calibrate_settings(input_data_path, onnx_model_path, tmp_settings_file, "resources")
+    # ezkl.calibrate_settings(input_data_path, onnx_model_path, tmp_settings_file, "resources")
 
     with open(tmp_settings_file, 'r') as f:
         ezkl_settings = json.load(f)
@@ -71,7 +71,7 @@ if __name__ == "__main__":
     #set debuglogging
     logging.basicConfig(level=logging.INFO)
 
-    path = "cache/bert/1362889a2b7f040ecd8f693240a25c4f"
+    path = "cache/bert"
     error_count = 0
     for idx, folder in enumerate(os.listdir(path)):
         try:
