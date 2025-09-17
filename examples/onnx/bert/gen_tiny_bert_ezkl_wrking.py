@@ -41,6 +41,8 @@ tokenizer = BertTokenizer.from_pretrained(model_name)
 model = BertForQuestionAnswering.from_pretrained(model_name, attn_implementation="eager")
 
 sequence_length = 32  # keep small for EZKL
+#seed seed for reproducibility
+torch.manual_seed(42)
 input_ids = torch.randint(0, 100, (1, sequence_length))      # fake vocab IDs
 attention_mask = torch.ones((1, sequence_length), dtype=torch.int64)
 token_type_ids = torch.zeros((1, sequence_length), dtype=torch.int64)
