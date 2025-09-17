@@ -50,7 +50,7 @@ token_type_ids = torch.zeros((1, sequence_length), dtype=torch.int64)
 # save_input_path = "examples/onnx/bert/bert_tiny_input.json"
 # save_onnx_path = "examples/onnx/bert/bert_tiny.onnx"
 
-if use_wrapper := False: #set to True to for working with ezkl
+if use_wrapper := True: #set to True to for working with ezkl
     save_input_path = "examples/onnx/bert/bert_tiny_input.json"
     save_onnx_path = "examples/onnx/bert/bert_tiny.onnx"
     inputs = torch.cat([input_ids,attention_mask,token_type_ids],dim=1)
