@@ -222,10 +222,12 @@ if __name__ == "__main__":
     os.makedirs(cache_dir, exist_ok=True)
 
     split_models = split_onnx_model_with_inputs(onnx_model_path, input_data_path, split_group_size)
+    counter = 0
     for name, md5_hash, model, input_data in split_models:
-            savepath = os.path.join(cache_dir, "bert",md5_hash )
-            model_file_path = os.path.join(savepath, "model.onnx")
-            input_file_path = os.path.join(savepath, "input.json")
+            counter += 1
+            savepath = os.path.join(cache_dir, "bert" )
+            model_file_path = os.path.join(savepath, f"model_{counter}.onnx")
+            input_file_path = os.path.join(savepath, f"input_{counter}.json")
    
             os.makedirs(os.path.dirname(model_file_path), exist_ok=True)
             with open(model_file_path, "wb") as f:
