@@ -215,8 +215,8 @@ def get_model_info(onnx_model_path):
 
 
 if __name__ == "__main__":
-    onnx_model_path = "examples/onnx/bert/bert_uncased_L-4_H-256_A-4.onnx"
-    input_data_path = "examples/onnx/bert/bert_uncased_L-4_H-256_A-4_input.json"
+    onnx_model_path = "examples/onnx/bert/bert_tiny.onnx"
+    input_data_path = "examples/onnx/bert/bert_tiny_input.json"
     split_group_size = 1
     cache_dir = "cache"
     os.makedirs(cache_dir, exist_ok=True)
