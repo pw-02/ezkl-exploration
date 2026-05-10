@@ -7,12 +7,12 @@ SESSION=zkexp
 # Create a new tmux session
 tmux new-session -d -s $SESSION
 
-# Dispatcher in window 0
-tmux rename-window -t $SESSION:0 'dispatcher'
-tmux send-keys -t $SESSION:dispatcher 'conda activate dzkml' C-m
-tmux send-keys -t $SESSION:dispatcher 'cd ezkl-exploration' C-m
-tmux send-keys -t $SESSION:dispatcher 'export PYTHONPATH=.:$PYTHONPATH' C-m
-tmux send-keys -t $SESSION:dispatcher "python zkInfer/dispatcher.py dispatcher.num_prover_workers=${NUM_WORKERS}" C-m
+# Coordinator in window 0
+tmux rename-window -t $SESSION:0 'coordinator'
+tmux send-keys -t $SESSION:coordinator 'conda activate dzkml' C-m
+tmux send-keys -t $SESSION:coordinator 'cd ezkl-exploration' C-m
+tmux send-keys -t $SESSION:coordinator 'export PYTHONPATH=.:$PYTHONPATH' C-m
+tmux send-keys -t $SESSION:coordinator "python zkInfer/coordinator.py coordinator.num_prover_workers=${NUM_WORKERS}" C-m
 
 # # Start workers in their own windows
 # for i in $(seq 1 $NUM_WORKERS); do

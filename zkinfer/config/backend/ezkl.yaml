@@ -1,0 +1,27 @@
+# Zero-knowledge proving backend configuration.
+name: ezkl
+
+proving_cache:
+  # Reuse previously generated EZKL proving artifacts across runs.
+  # Includes files such as:
+  #   - settings.json
+  #   - network.compiled
+  #   - pk.json
+  #   - vk.json
+  enabled: false
+
+  # Storage location for proving artifacts.
+  # Options:
+  #   - filesystem : shared/local filesystem
+  #   - s3         : Amazon S3 object storage
+  type: filesystem
+
+  # If true, regenerate proving artifacts even if cached versions exist.
+  overwrite: false
+
+  # Root cache directory when using filesystem storage.
+  root_dir: cache/ezkl
+
+  # S3 configuration (used only when type=s3).
+  s3_bucket: null
+  s3_prefix: zkinfer/cache/ezkl

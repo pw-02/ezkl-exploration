@@ -21,19 +21,19 @@ tmux new-session -d -s "$SESSION"
 # Common setup command
 SETUP_CMD="export PYTHONPATH=.:\"\$PYTHONPATH\""
 
-# Dispatcher window
-tmux rename-window -t "$SESSION:0" "dispatcher"
-tmux send-keys -t "$SESSION:dispatcher" "$SETUP_CMD && conda activate zk && python zkInfer/dispatcher.py dispatcher.host=${DISPATCHER_HOST} dispatcher.num_prover_workers=${NUM_WORKERS}" C-m
+# Coordinator window
+tmux rename-window -t "$SESSION:0" "coordinator"
+tmux send-keys -t "$SESSION:coordinator" "$SETUP_CMD && conda activate zk && python zkInfer/coordinator.py coordinator.host=${DISPATCHER_HOST} coordinator.num_prover_workers=${NUM_WORKERS}" C-m
 
 # Worker windows
 for i in $(seq 1 "$NUM_WORKERS"); do
     tmux new-window -t "$SESSION" -n "worker$i"
-    tmux send-keys -t "$SESSION:worker$i" "$SETUP_CMD && conda activate zk && python zkInfer/worker.py dispatcher.host=${DISPATCHER_HOST}" C-m
+    tmux send-keys -t "$SESSION:worker$i" "$SETUP_CMD && conda activate zk && python zkInfer/worker.py coordinator.host=${DISPATCHER_HOST}" C-m
 done
 
 # Submit job window
 tmux new-window -t "$SESSION" -n "submit_job"
-tmux send-keys -t "$SESSION:submit_job" "$SETUP_CMD && conda activate zk && python zkInfer/submit_job.py model=${MODEL_NAME} dispatcher.host=${DISPATCHER_HOST}" C-m
+tmux send-keys -t "$SESSION:submit_job" "$SETUP_CMD && conda activate zk && python zkInfer/submit_job.py model=${MODEL_NAME} coordinator.host=${DISPATCHER_HOST}" C-m
 
 # Attach to tmux session
 tmux attach -t "$SESSION"

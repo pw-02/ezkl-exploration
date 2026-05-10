@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - dispatcher: default
+  - coordinator: default
   - worker: default
   - model: small_bert_split_size_1  
     #mobilenetv2_split_size_1_lpt
@@ -20,8 +20,8 @@ cache_backend: local       # 'local' = disk cache (single machine), 's3' = objec
 cache_setup: false          # If true, preserve cache files created during setup after the run. If false, remove cache files after the run.
 overwrite_cache: false     # If true, always overwrite (regenerate) cached files. If false, reuse any existing cache files if present.
 
-# Dispatcher or worker launch mode (set in CLI)
-run_mode: null  # Options: dispatcher, worker, submit
+# Coordinator or worker launch mode (set in CLI)
+run_mode: null  # Options: coordinator, worker, submit
 
 # Hydra output control
 hydra:
@@ -35,11 +35,11 @@ hydra:
   hydra_logging:
     level: DISABLE  # Disable Hydra-specific logging
 
-#Launch Dispatcher
-#python grpc_api/dispatcher_server.py --config-name=config run_mode=dispatcher
+#Launch Coordinator
+#python grpc_api/coordinator_server.py --config-name=config run_mode=coordinator
 
 # Launch Worker:
 #python grpc_api/worker_client.py --config-name=config run_mode=worker
 
-#submit job to dispatcher
+#submit job to coordinator
 # python grpc_api/submit_job.py --config-name=config run_mode=submit

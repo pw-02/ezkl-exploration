@@ -1,0 +1,47 @@
+defaults:
+  - _self_
+  - backend: ezkl
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+coordinator:
+  host: localhost
+  port: 50051
+  grpc_thread_pool_size: 4
+  grpc_max_message_mb: 64
+
+worker:
+  worker_id: null
+  job_poll_interval_sec: 5
+  resource_monitor_interval_sec: 3
+  send_proofs_to_coordinator: false
+
+jobs:
+  scheduler: fifo
+  max_retries: 0
+
+heartbeat:
+  interval_sec: 5
+  timeout_sec: 45
+
+file_transfer:
+  type: filesystem
+  root_dir: shared
+  s3_bucket: null
+  s3_prefix: zkinfer/jobs
+
+paths:
+  tmp_dir: tmp
+  reports_dir: reports
+  logs_dir: logs
+
+hydra:
+  run:
+    dir: .
+  sweep:
+    dir: .
+  output_subdir: null
+  job_logging:
+    level: DISABLE
+  hydra_logging:
+    level: DISABLE

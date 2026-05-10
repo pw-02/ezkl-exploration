@@ -8,7 +8,7 @@ logs/
 lightning_logs/
 tmp/
 worker_data/
-dispatcher.log
+coordinator.log
 gen_proof.log
 *.log
 ezkl_tmp

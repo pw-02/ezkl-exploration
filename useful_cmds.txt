@@ -14,17 +14,17 @@
     4  ls
     5  pip install -r requirements.txt
     6  ls
-    7  python grpc_api/dispatcher_server.py
+    7  python grpc_api/coordinator_server.py
     8  import sys
     9  print(sys.path)
    10  export PYTHONPATH=.:$PYTHONPATH
-   11  python grpc_api/dispatcher_server.py
+   11  python grpc_api/coordinator_server.py
    12  git pull
-   13  python grpc_api/dispatcher_server.py
+   13  python grpc_api/coordinator_server.py
    14  history
 
 export PYTHONPATH=.:$PYTHONPATH
-nohup python zkInfer/dispatcher.py | tee dispatcher.log &
+nohup python zkInfer/coordinator.py | tee coordinator.log &
 nohup python zkInfer/submit_job.py | tee worker.log &
 zkInfer/worker.py
 python zkInfer/submit_job.py 
@@ -33,10 +33,10 @@ python zkInfer/submit_job.py
 scp -i us-west-2-kp.pem -r  ubuntu@ec2-35-95-241-206.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/ "C:\Users\pw\Desktop\"
 
 cd ezkl-exploration
-tmux new -s dispatcher
+tmux new -s coordinator
 conda activate dzkml
 export PYTHONPATH=.:$PYTHONPATH
-python zkInfer/dispatcher.py
+python zkInfer/coordinator.py
 
 cd ezkl-exploration
 tmux new -s worker1
@@ -56,7 +56,7 @@ export PYTHONPATH=.:$PYTHONPATH
 python zkInfer/submit_job.py 
 
 
-tmux attach -t dispatcher
+tmux attach -t coordinator
 tmux attach -t worker1
 tmux attach -t worker2
 

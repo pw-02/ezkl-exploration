@@ -10,16 +10,7 @@ from pyparsing import Dict
 # from s3_utils import *
 import os
 import boto3
-from botocore.exceptions import ClientError
 import socket
-
-class JobStatus(str, Enum):
-    PREPARING = "PREPARING"
-    QUEUED = "QUEUED"
-    IN_PROGRESS = "IN_PROGRESS"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-    UNKNOWN = "UNKNOWN"
 
 
 
@@ -35,11 +26,6 @@ def get_ip():
     finally:
         s.close()
     return ip
-
-
-
-
-
 
 def compute_bytes_md5(raw_bytes: bytes) -> str:
     """

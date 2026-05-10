@@ -31,12 +31,12 @@ from zkInfer.worker import main as run_worker
 def main(cfg: DictConfig):
     time.sleep(2)  # Allow time for Hydra to initialize
     job_cfg = cfg.model
-    host = cfg.dispatcher.host
-    port = cfg.dispatcher.port
+    host = cfg.coordinator.host
+    port = cfg.coordinator.port
     target = f"{host}:{port}"
     
  
-    print(f"Connecting to dispatcher at {target}")
+    print(f"Connecting to coordinator at {target}")
     print("🔁 Submitting job with config:")
     print("\n" + OmegaConf.to_yaml(job_cfg))
 

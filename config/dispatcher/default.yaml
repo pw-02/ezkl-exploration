@@ -1,0 +1,8 @@
+# Coordinator service config
+
+#host: "172.31.22.196" #"localhost"  # IP address of the coordinator host
+host: "localhost" #"localhost"  # IP address of the coordinator host
+
+port: 50051
+max_workers: 1
+num_prover_workers: 1 # Number of workers for the prover - used for logging only
