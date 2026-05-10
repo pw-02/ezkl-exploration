@@ -15,7 +15,7 @@ from omegaconf import DictConfig
 
 import zkinfer.proto.zkservice_pb2 as pb
 import zkinfer.proto.zkservice_pb2_grpc as pb_grpc
-from zkinfer.backends.ezkl.metrics import (
+from zkinfer.profiling.msm_fft_parser import (
     read_csv_first_row,
     summarize_fft_report,
     summarize_msm_report,
@@ -31,7 +31,6 @@ class LocalJobPaths:
     model_path: str
     input_path: str
     tmp_dir: str
-    report_dir: str
     artifact_dir: str
     cache_prefix: str
     s3_read_time: float = 0.0
@@ -140,29 +139,15 @@ class ZKProofWorker:
 
     def prepare_local_paths(self, assignment) -> LocalJobPaths:
         job_id = assignment.job_id
-        request_id = assignment.request_id
-
         model_path = assignment.model_path
         input_path = assignment.input_path
 
         tmp_dir = os.path.join(self.cfg.paths.tmp_dir, job_id)
+        artifact_dir = os.path.join(self.cfg.paths.artifacts_dir, "jobs", job_id)
+        cache_prefix = os.path.dirname(model_path)
 
-        report_dir = os.path.join(
-            self.cfg.paths.reports_dir,
-            request_id,
-            "jobs",
-            job_id,
-        )
-        artifact_dir = os.path.join(
-            self.cfg.paths.artifacts_dir,
-            "jobs",
-            job_id,
-        )
         os.makedirs(tmp_dir, exist_ok=True)
         os.makedirs(artifact_dir, exist_ok=True)
-
-        cache_prefix = os.path.dirname(model_path)
-        s3_read_time = 0.0
 
         if self.cfg.file_transfer.type != "s3":
             if not os.path.exists(model_path):
@@ -174,19 +159,18 @@ class ZKProofWorker:
                 model_path=model_path,
                 input_path=input_path,
                 tmp_dir=tmp_dir,
-                report_dir=report_dir,
                 artifact_dir=artifact_dir,
                 cache_prefix=cache_prefix,
-                s3_read_time=0.0,
             )
 
         if not self.cfg.file_transfer.s3_bucket:
             raise ValueError("file_transfer.s3_bucket must be set when file_transfer.type=s3")
 
-        s3_bucket = self.cfg.file_transfer.s3_bucket
-
         local_model_path = os.path.join(tmp_dir, os.path.basename(model_path))
         local_input_path = os.path.join(tmp_dir, "input.json")
+
+        s3_bucket = self.cfg.file_transfer.s3_bucket
+        s3_read_time = 0.0
 
         start = time.perf_counter()
         download_file(s3_bucket, model_path, local_model_path)
@@ -200,7 +184,6 @@ class ZKProofWorker:
             model_path=local_model_path,
             input_path=local_input_path,
             tmp_dir=tmp_dir,
-            report_dir=report_dir,
             artifact_dir=artifact_dir,
             cache_prefix=cache_prefix,
             s3_read_time=s3_read_time,
@@ -213,14 +196,14 @@ class ZKProofWorker:
         status_file: str,
     ):
         worker_pid = str(os.getpid())
-        resource_usage_file = os.path.join(artifact_dir, "resource_usage.log")
+        resource_usage_file = os.path.join(artifact_dir, "resource_usage.csv")
 
         resource_proc = subprocess.Popen(
             [
                 sys.executable,
                 "-m",
                 "zkinfer.profiling.resource_logger",
-                "--log_file",
+                "--output_file",
                 resource_usage_file,
                 "--pid",
                 worker_pid,
@@ -270,41 +253,30 @@ class ZKProofWorker:
         ezkl_metrics: Dict[str, Any],
     ) -> Dict[str, Any]:
         try:
-            max_process_mem, max_system_mem, avg_process_cpu, avg_system_cpu = (
-                parse_resource_usage_file(resource_usage_file)
-            )
+            resource_metrics = parse_resource_usage_file(resource_usage_file)
         except Exception as exc:
             self.logger.error(
                 "Failed to parse resource usage file: %s",
                 exc,
                 exc_info=True,
             )
-            max_process_mem = None
-            max_system_mem = None
-            avg_process_cpu = None
-            avg_system_cpu = None
-
-        metrics = {
-            "worker_id": self.worker_id,
-            "max_process_memory(GB)": max_process_mem,
-            "max_system_memory(GB)": max_system_mem,
-            "avg_process_cpu(%)": avg_process_cpu,
-            "avg_system_cpu(%)": avg_system_cpu,
-            "pk_file_size(GB)": proof_stages.get_pk_file_size_gb(),
-            "vk_file_size(GB)": proof_stages.get_vk_file_size_gb(),
-        }
-
-        circuit_info = read_csv_first_row(os.path.join(artifact_dir, "halo2_circuit.csv"))
-        prover_info_cpu = read_csv_first_row(os.path.join(artifact_dir, "halo2_prover_cpu.csv"))
-        fft_summary = summarize_fft_report(os.path.join(artifact_dir, "halo2_ffts.csv"))
-        msm_summary = summarize_msm_report(os.path.join(artifact_dir, "halo2_msms.csv"))
+            resource_metrics = {
+                "max_process_memory(GB)": None,
+                "max_system_memory(GB)": None,
+                "avg_process_cpu_raw(%)": None,
+                "avg_process_cpu_machine(%)": None,
+                "avg_system_cpu(%)": None,
+            }
 
         return {
-            **metrics,
-            **circuit_info,
-            **prover_info_cpu,
-            **fft_summary,
-            **msm_summary,
+            "worker_id": self.worker_id,
+            **resource_metrics,
+            "pk_file_size(GB)": proof_stages.get_pk_file_size_gb(),
+            "vk_file_size(GB)": proof_stages.get_vk_file_size_gb(),
+            **read_csv_first_row(os.path.join(artifact_dir, "halo2_circuit.csv")),
+            **read_csv_first_row(os.path.join(artifact_dir, "halo2_prover_cpu.csv")),
+            **summarize_fft_report(os.path.join(artifact_dir, "halo2_ffts.csv")),
+            **summarize_msm_report(os.path.join(artifact_dir, "halo2_msms.csv")),
             **ezkl_metrics,
         }
 
@@ -318,6 +290,25 @@ class ZKProofWorker:
         with open(proof_path, "rb") as file:
             return file.read()
 
+    def build_proof_stages(
+        self,
+        local_paths: LocalJobPaths,
+        status_file: str,
+    ) -> EZKLProofStages:
+        return EZKLProofStages(
+            input_data_path=local_paths.input_path,
+            onnx_model_path=local_paths.model_path,
+            proving_cache_enabled=self.cfg.backend.proving_cache.enabled,
+            proving_cache_overwrite=self.cfg.backend.proving_cache.overwrite,
+            proving_cache_type=self.cfg.backend.proving_cache.type,
+            proving_cache_root_dir=self.cfg.backend.proving_cache.root_dir,
+            proving_cache_s3_bucket=self.cfg.backend.proving_cache.s3_bucket,
+            proving_cache_s3_prefix=self.cfg.backend.proving_cache.s3_prefix,
+            status_file=status_file,
+            local_tmp_dir=local_paths.tmp_dir,
+            logger=self.logger,
+        )
+
     def run_assignment(self, assignment) -> None:
         job_id = assignment.job_id
         local_paths = None
@@ -326,7 +317,6 @@ class ZKProofWorker:
 
         try:
             local_paths = self.prepare_local_paths(assignment)
-
             status_file = os.path.join(local_paths.artifact_dir, "status.txt")
 
             heartbeat_proc, resource_proc, resource_usage_file = (
@@ -339,35 +329,12 @@ class ZKProofWorker:
 
             os.environ["EZKL_LOG_DIR"] = local_paths.artifact_dir
 
-            proof_stages = EZKLProofStages(
-                input_data_path=local_paths.input_path,
-                onnx_model_path=local_paths.model_path,
-                proving_cache_enabled=self.cfg.backend.proving_cache.enabled,
-                proving_cache_overwrite=self.cfg.backend.proving_cache.overwrite,
-                proving_cache_type=self.cfg.backend.proving_cache.type,
-                proving_cache_root_dir=self.cfg.backend.proving_cache.root_dir,
-                proving_cache_s3_bucket=self.cfg.backend.proving_cache.s3_bucket,
-                proving_cache_s3_prefix=self.cfg.backend.proving_cache.s3_prefix,
+            proof_stages = self.build_proof_stages(
+                local_paths=local_paths,
                 status_file=status_file,
-                local_tmp_dir=local_paths.tmp_dir,
-                logger=self.logger,
             )
 
-            try:
-                ezkl_metrics = proof_stages.run_all(setup_only=False)
-            except Exception as exc:
-                self.logger.error(
-                    "Proof stages failed for job %s: %s",
-                    job_id,
-                    exc,
-                    exc_info=True,
-                )
-                self.submit_job_result(
-                    job_id=job_id,
-                    status="FAILED",
-                    message=f"Proof stages failed: {exc}",
-                )
-                return
+            ezkl_metrics = proof_stages.run_all(setup_only=False)
 
             metrics = self.collect_metrics(
                 artifact_dir=local_paths.artifact_dir,
@@ -376,12 +343,10 @@ class ZKProofWorker:
                 ezkl_metrics=ezkl_metrics,
             )
 
-            proof_bytes = self.read_proof_bytes(proof_stages.proof_path)
-
             self.submit_job_result(
                 job_id=job_id,
                 status="COMPLETED",
-                proof=proof_bytes,
+                proof=self.read_proof_bytes(proof_stages.proof_path),
                 perf_metrics=metrics,
                 message="Proof computation completed successfully",
             )
@@ -390,11 +355,7 @@ class ZKProofWorker:
 
         except Exception as exc:
             self.logger.error("Job %s failed: %s", job_id, exc, exc_info=True)
-            self.submit_job_result(
-                job_id=job_id,
-                status="FAILED",
-                message=str(exc),
-            )
+            self.submit_job_result(job_id=job_id, status="FAILED", message=str(exc))
 
         finally:
             self.stop_processes(heartbeat_proc, resource_proc)

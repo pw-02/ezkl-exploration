@@ -46,10 +46,8 @@ def write_job_report(
     out_dir: str = "reports",
 ) -> Dict[str, Any]:
     perf_metrics = perf_metrics or {}
-    report_dir = out_dir
-    os.makedirs(report_dir, exist_ok=True)
-    # report_dir = os.path.join(out_dir, job.inference_request_id)
-    # os.makedirs(report_dir, exist_ok=True)
+
+    os.makedirs(out_dir, exist_ok=True)
 
     queue_wait_time_s = _duration_seconds(job.queued_time, job.started_time)
     job_runtime_s = _duration_seconds(job.started_time, job.completed_time)
@@ -96,7 +94,7 @@ def write_job_report(
         "ezkl_key_gen_time(s)": perf_metrics.get("ezkl_key_gen_time(s)", 0.0),
         "ezkl_proof_time(s)": perf_metrics.get("ezkl_proof_time(s)", 0.0),
 
-        # Cache/storage
+        # Storage/cache
         "ezkl_setup_s3_read_time(s)": perf_metrics.get(
             "ezkl_setup_s3_read_time(s)", 0.0
         ),
@@ -110,11 +108,14 @@ def write_job_report(
         "pk_file_size(GB)": perf_metrics.get("pk_file_size(GB)", 0.0),
         "vk_file_size(GB)": perf_metrics.get("vk_file_size(GB)", 0.0),
 
-        # System resources
+        # Resource metrics
         "max_system_memory(GB)": perf_metrics.get("max_system_memory(GB)", 0.0),
         "max_process_memory(GB)": perf_metrics.get("max_process_memory(GB)", 0.0),
         "avg_system_cpu(%)": perf_metrics.get("avg_system_cpu(%)", 0.0),
-        "avg_process_cpu(%)": perf_metrics.get("avg_process_cpu(%)", 0.0),
+        "avg_process_cpu_raw(%)": perf_metrics.get("avg_process_cpu_raw(%)", 0.0),
+        "avg_process_cpu_machine(%)": perf_metrics.get(
+            "avg_process_cpu_machine(%)", 0.0
+        ),
 
         # Halo2/EZKL backend metrics
         "fft_count": perf_metrics.get("fft_count", 0),
@@ -130,7 +131,7 @@ def write_job_report(
         "msm_device": perf_metrics.get("msm_device", "unknown"),
     }
 
-    write_dict_to_csv(report, os.path.join(report_dir, "job_report.csv"))
+    write_dict_to_csv(report, os.path.join(out_dir, "job_report.csv"))
 
     if perf_metrics:
         write_dict_to_csv(
@@ -139,7 +140,7 @@ def write_job_report(
                 "job_id": job.job_id,
                 **perf_metrics,
             },
-            os.path.join(report_dir, "perf_metrics.csv"),
+            os.path.join(out_dir, "perf_metrics.csv"),
         )
 
     return report
@@ -149,13 +150,9 @@ def write_request_report(
     request,
     out_dir: str = "reports",
 ) -> Dict[str, Any]:
-    
-    report_dir = out_dir
-    os.makedirs(report_dir, exist_ok=True)
-    # report_dir = os.path.join(out_dir, request.request_id)
-    # os.makedirs(report_dir, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
 
-    job_report_file = os.path.join(report_dir, "job_report.csv")
+    job_report_file = os.path.join(out_dir, "job_report.csv")
     job_data = read_csv_as_dict(job_report_file)
 
     queue_wait_time_s = _duration_seconds(request.queued_time, request.started_time)
@@ -174,18 +171,26 @@ def write_request_report(
 
         "num_proof_jobs": len(request.proof_jobs),
 
-        "created_time": request.created_time.isoformat()
-        if request.created_time
-        else None,
-        "queued_time": request.queued_time.isoformat()
-        if request.queued_time
-        else None,
-        "started_time": request.started_time.isoformat()
-        if request.started_time
-        else None,
-        "completed_time": request.completed_time.isoformat()
-        if request.completed_time
-        else None,
+        "created_time": (
+            request.created_time.isoformat()
+            if request.created_time
+            else None
+        ),
+        "queued_time": (
+            request.queued_time.isoformat()
+            if request.queued_time
+            else None
+        ),
+        "started_time": (
+            request.started_time.isoformat()
+            if request.started_time
+            else None
+        ),
+        "completed_time": (
+            request.completed_time.isoformat()
+            if request.completed_time
+            else None
+        ),
 
         "request_status": request.request_status.value,
         "error_message": request.error_message,
@@ -219,7 +224,11 @@ def write_request_report(
         "max_system_memory(GB)": _safe_max(job_data, "max_system_memory(GB)"),
         "max_process_memory(GB)": _safe_max(job_data, "max_process_memory(GB)"),
         "avg_system_cpu(%)": _safe_avg(job_data, "avg_system_cpu(%)"),
-        "avg_process_cpu(%)": _safe_avg(job_data, "avg_process_cpu(%)"),
+        "avg_process_cpu_raw(%)": _safe_avg(job_data, "avg_process_cpu_raw(%)"),
+        "avg_process_cpu_machine(%)": _safe_avg(
+            job_data,
+            "avg_process_cpu_machine(%)",
+        ),
 
         # Artifact sizes
         "max_pk_file_size(GB)": _safe_max(job_data, "pk_file_size(GB)"),
@@ -230,5 +239,5 @@ def write_request_report(
         "agg_s3_write_time(s)": _safe_sum(job_data, "total_s3_write_time(s)"),
     }
 
-    write_dict_to_csv(report, os.path.join(report_dir, "request_report.csv"))
+    write_dict_to_csv(report, os.path.join(out_dir, "request_report.csv"))
     return report

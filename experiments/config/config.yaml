@@ -5,7 +5,7 @@ defaults:
   - override hydra/job_logging: disabled
 
 execution:
-  split_mode: fixed #none
+  split_mode: none #none, fixed, auto
   ops_per_chunk: 1
 
 jobs:
