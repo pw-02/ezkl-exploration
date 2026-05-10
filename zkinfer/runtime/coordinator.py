@@ -48,6 +48,8 @@ class Coordinator:
         split_mode: str,
         ops_per_chunk: int,
         scheduler: Optional[str],
+        simplify_model: bool = False,
+        simplify_input_shapes: Optional[Dict] = None,
     ) -> str:
         requested_policy = (scheduler or self.scheduler_policy).lower()
 
@@ -58,9 +60,12 @@ class Coordinator:
             split_mode=split_mode,
             ops_per_chunk=ops_per_chunk,
             scheduler=requested_policy,
+            simplify_model=simplify_model,
+            simplify_input_shapes=simplify_input_shapes,
         )
 
         req.request_status = RequestStatus.PREPARING
+
         req.proof_jobs = self.request_builder.build_jobs(
             request=req,
             file_transfer=self.file_transfer,
@@ -75,6 +80,7 @@ class Coordinator:
             req.request_id,
             len(req.proof_jobs),
         )
+
         return req.request_id
 
     def get_next_job(self) -> Optional[ProofJob]:

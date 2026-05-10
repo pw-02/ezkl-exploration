@@ -1,7 +1,8 @@
 import json
 import os
 from collections import OrderedDict
-from typing import Dict, List, Sequence, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import onnx
@@ -14,14 +15,25 @@ from zkinfer.storage.io import compute_bytes_md5_hex
 PASSTHROUGH_OPS = {"Identity", "Constant", "Cast", "Unsqueeze", "Slice"}
 
 
-def load_json_input(file_path: str) -> Dict:
+@dataclass
+class ModelPartition:
+    name: str
+    input_names: List[str]
+    output_names: List[str]
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+def load_json_input(file_path: str) -> Dict[str, Any]:
     with open(file_path, "r", encoding="utf-8") as file:
         return json.load(file)
 
 
-def format_model_input(input_data_path: str, session: ort.InferenceSession) -> Dict[str, np.ndarray]:
+def format_model_input(
+    input_data_path: str,
+    session: ort.InferenceSession,
+) -> Dict[str, np.ndarray]:
     input_data = load_json_input(input_data_path)["input_data"]
-    feed_dict = {}
+    feed_dict: Dict[str, np.ndarray] = {}
 
     for idx, model_input in enumerate(session.get_inputs()):
         dtype = np.float32 if "float" in model_input.type else np.int64
@@ -30,15 +42,75 @@ def format_model_input(input_data_path: str, session: ort.InferenceSession) -> D
             for dim in model_input.shape
         ]
 
-        feed_dict[model_input.name] = np.array(input_data[idx], dtype=dtype).reshape(shape)
+        feed_dict[model_input.name] = np.array(
+            input_data[idx],
+            dtype=dtype,
+        ).reshape(shape)
 
     return feed_dict
 
 
-def run_model_inference(onnx_model_path: str, input_data_path: str):
+def run_model_inference(
+    onnx_model_path: str,
+    input_data_path: str,
+):
     session = ort.InferenceSession(onnx_model_path)
     feed_dict = format_model_input(input_data_path, session)
     return session.run(None, feed_dict)
+
+
+def simplify_onnx_model(
+    onnx_model_path: str,
+    output_path: str,
+    input_shapes: Optional[Dict[str, List[int]]] = None,
+) -> Tuple[str, bool]:
+    try:
+        from onnxsim import simplify
+    except ImportError as exc:
+        raise ImportError(
+            "onnxsim is required for simplify_model=True. "
+            "Install with `pip install onnxsim`."
+        ) from exc
+
+    model = onnx.load(onnx_model_path)
+
+    if input_shapes:
+        simplified_model, check = simplify(
+            model,
+            overwrite_input_shapes=input_shapes,
+        )
+    else:
+        simplified_model, check = simplify(model)
+
+    if not check:
+        raise RuntimeError(f"ONNX simplification failed validation for {onnx_model_path}")
+
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    onnx.save(simplified_model, output_path)
+
+    return output_path, check
+
+
+def maybe_simplify_onnx_model(
+    onnx_model_path: str,
+    simplify_model: bool = False,
+    simplified_model_path: Optional[str] = None,
+    input_shapes: Optional[Dict[str, List[int]]] = None,
+) -> str:
+    if not simplify_model:
+        return onnx_model_path
+
+    if simplified_model_path is None:
+        root, ext = os.path.splitext(onnx_model_path)
+        simplified_model_path = f"{root}_simplified{ext}"
+
+    simplified_path, _ = simplify_onnx_model(
+        onnx_model_path=onnx_model_path,
+        output_path=simplified_model_path,
+        input_shapes=input_shapes,
+    )
+
+    return simplified_path
 
 
 def extract_model(
@@ -49,12 +121,15 @@ def extract_model(
     if not os.path.exists(onnx_model_path):
         raise FileNotFoundError(f"Invalid ONNX model path: {onnx_model_path}")
 
+    if not node_inputs:
+        raise ValueError("node_inputs must not be empty")
+
     if not node_outputs:
         raise ValueError("node_outputs must not be empty")
 
     model = onnx.load(onnx_model_path)
     extractor = Extractor(model)
-    return extractor.extract_model(node_inputs, node_outputs)
+    return extractor.extract_model(list(node_inputs), list(node_outputs))
 
 
 def merge_onnx_models(sub_models: OrderedDict):
@@ -76,6 +151,7 @@ def merge_onnx_models(sub_models: OrderedDict):
 
         inputs_seen = set()
         deduped_inputs = []
+
         for graph_input in merged_model.graph.input:
             if graph_input.name not in inputs_seen:
                 inputs_seen.add(graph_input.name)
@@ -124,7 +200,7 @@ def collect_tensor_values_from_inference(
     return tensor_values
 
 
-def build_producer_map(model) -> Dict[str, onnx.NodeProto]:
+def build_producer_map(model: onnx.ModelProto) -> Dict[str, onnx.NodeProto]:
     producer_map = {}
 
     for node in model.graph.node:
@@ -158,6 +234,7 @@ def trace_sources(
             return
 
         producer = producer_map.get(tensor_name)
+
         if producer is None:
             sources.add(tensor_name)
             return
@@ -171,68 +248,209 @@ def trace_sources(
     for tensor_name in tensor_names:
         dfs(tensor_name)
 
-    return list(sources)
+    return sorted(sources)
 
 
-def split_onnx_model(
-    onnx_model_path: str,
-    split_group_size: int = 1,
-):
-    model = onnx.load(onnx_model_path)
-    parent_model_hash = compute_bytes_md5_hex(model.SerializeToString())
-    extractor = Extractor(model)
+def get_partition_io(
+    nodes: Sequence[onnx.NodeProto],
+    producer_map: Dict[str, onnx.NodeProto],
+    graph_inputs: set,
+    initializers: set,
+    passthrough_ops: set,
+) -> Tuple[List[str], List[str]]:
+    node_outputs = set()
+    raw_inputs = []
+
+    for node in nodes:
+        node_outputs.update(node.output)
+        raw_inputs.extend(node.input)
+
+    true_inputs = trace_sources(
+        tensor_names=raw_inputs,
+        producer_map=producer_map,
+        passthrough_ops=passthrough_ops,
+        graph_inputs=graph_inputs,
+        initializers=initializers,
+    )
+
+    outputs = []
+    for node in nodes:
+        for output_name in node.output:
+            if output_name:
+                outputs.append(output_name)
+
+    return sorted(set(true_inputs)), outputs
+
+
+def split_by_single_ops(
+    model: onnx.ModelProto,
+    passthrough_ops: Optional[set] = None,
+) -> List[ModelPartition]:
+    passthrough_ops = passthrough_ops or PASSTHROUGH_OPS
 
     initializers = {initializer.name for initializer in model.graph.initializer}
     graph_inputs = {graph_input.name for graph_input in model.graph.input}
     producer_map = build_producer_map(model)
 
-    sub_models = []
+    partitions: List[ModelPartition] = []
 
-    for node in model.graph.node:
-        if node.op_type in PASSTHROUGH_OPS:
+    for node_idx, node in enumerate(model.graph.node):
+        if node.op_type in passthrough_ops:
             continue
 
-        true_inputs = trace_sources(
-            tensor_names=node.input,
+        input_names, output_names = get_partition_io(
+            nodes=[node],
             producer_map=producer_map,
-            passthrough_ops=PASSTHROUGH_OPS,
             graph_inputs=graph_inputs,
             initializers=initializers,
+            passthrough_ops=passthrough_ops,
         )
 
-        node_outputs = list(node.output)
-        if not node_outputs:
+        if not input_names or not output_names:
             continue
 
-        sub_model = extractor.extract_model(true_inputs, node_outputs)
-        sub_models.append(sub_model)
+        partitions.append(
+            ModelPartition(
+                name=f"sub_model_{len(partitions) + 1}",
+                input_names=input_names,
+                output_names=output_names,
+                metadata={
+                    "split_strategy": "single_ops",
+                    "node_index": node_idx,
+                    "node_name": node.name,
+                    "op_type": node.op_type,
+                    "num_nodes": 1,
+                },
+            )
+        )
 
-    return sub_models, parent_model_hash
+    return partitions
 
 
-def split_onnx_model_with_inputs(
+def split_by_fixed_groups(
+    model: onnx.ModelProto,
+    group_size: int,
+    passthrough_ops: Optional[set] = None,
+) -> List[ModelPartition]:
+    if group_size <= 0:
+        raise ValueError("group_size must be > 0")
+
+    passthrough_ops = passthrough_ops or PASSTHROUGH_OPS
+
+    initializers = {initializer.name for initializer in model.graph.initializer}
+    graph_inputs = {graph_input.name for graph_input in model.graph.input}
+    producer_map = build_producer_map(model)
+
+    meaningful_nodes = [
+        node for node in model.graph.node
+        if node.op_type not in passthrough_ops
+    ]
+
+    partitions: List[ModelPartition] = []
+
+    for group_start in range(0, len(meaningful_nodes), group_size):
+        group_nodes = meaningful_nodes[group_start: group_start + group_size]
+
+        input_names, output_names = get_partition_io(
+            nodes=group_nodes,
+            producer_map=producer_map,
+            graph_inputs=graph_inputs,
+            initializers=initializers,
+            passthrough_ops=passthrough_ops,
+        )
+
+        if not input_names or not output_names:
+            continue
+
+        partitions.append(
+            ModelPartition(
+                name=f"sub_model_{len(partitions) + 1}",
+                input_names=input_names,
+                output_names=output_names,
+                metadata={
+                    "split_strategy": "fixed_groups",
+                    "group_size": group_size,
+                    "group_start": group_start,
+                    "num_nodes": len(group_nodes),
+                    "op_types": [node.op_type for node in group_nodes],
+                    "node_names": [node.name for node in group_nodes],
+                },
+            )
+        )
+
+    return partitions
+
+
+def split_onnx_model(
     onnx_model_path: str,
-    input_data_path: str,
+    split_mode: str = "single_ops",
     split_group_size: int = 1,
+    simplify_model: bool = False,
+    simplified_model_path: Optional[str] = None,
+    simplify_input_shapes: Optional[Dict[str, List[int]]] = None,
 ):
-    tensor_values = collect_tensor_values_from_inference(
+    model_path_for_splitting = maybe_simplify_onnx_model(
         onnx_model_path=onnx_model_path,
-        input_data_path=input_data_path,
+        simplify_model=simplify_model,
+        simplified_model_path=simplified_model_path,
+        input_shapes=simplify_input_shapes,
     )
 
-    sub_models, parent_model_hash = split_onnx_model(
-        onnx_model_path=onnx_model_path,
-        split_group_size=split_group_size,
-    )
+    model = onnx.load(model_path_for_splitting)
+    parent_model_hash = compute_bytes_md5_hex(model.SerializeToString())
+    extractor = Extractor(model)
 
+    if split_mode in ("single", "single_op", "single_ops"):
+        partitions = split_by_single_ops(model)
+
+    elif split_mode in ("fixed", "fixed_groups"):
+        partitions = split_by_fixed_groups(
+            model=model,
+            group_size=split_group_size,
+        )
+
+    else:
+        raise ValueError(
+            f"Unsupported split_mode={split_mode!r}. "
+            "Expected one of: single_ops, fixed."
+        )
+
+    sub_models = []
+
+    for partition in partitions:
+        sub_model = extractor.extract_model(
+            partition.input_names,
+            partition.output_names,
+        )
+        sub_models.append((partition, sub_model))
+
+    metadata = {
+        "source_model_path": onnx_model_path,
+        "model_path_for_splitting": model_path_for_splitting,
+        "simplify_model": simplify_model,
+        "split_mode": split_mode,
+        "split_group_size": split_group_size,
+        "num_partitions": len(sub_models),
+    }
+
+    return sub_models, parent_model_hash, metadata
+
+
+def materialize_submodels_with_inputs(
+    sub_models: Sequence[Tuple[ModelPartition, onnx.ModelProto]],
+    tensor_values: Dict[str, np.ndarray],
+    parent_model_hash: str,
+):
     models_with_inputs = []
 
-    for idx, sub_model in enumerate(sub_models):
+    for idx, (partition, sub_model) in enumerate(sub_models):
         flattened_inputs = []
 
         for graph_input in sub_model.graph.input:
             if graph_input.name in tensor_values:
-                flattened_inputs.append(tensor_values[graph_input.name].flatten().tolist())
+                flattened_inputs.append(
+                    tensor_values[graph_input.name].flatten().tolist()
+                )
 
         if not flattened_inputs:
             continue
@@ -240,16 +458,55 @@ def split_onnx_model_with_inputs(
         input_data = {"input_data": flattened_inputs}
         sub_model_hash = compute_bytes_md5_hex(sub_model.SerializeToString())
         cache_key = f"{parent_model_hash}/{sub_model_hash}"
-        sub_model_name = f"sub_model_{idx + 1}"
 
         models_with_inputs.append(
-            (sub_model_name, cache_key, sub_model, input_data)
+            (
+                partition.name or f"sub_model_{idx + 1}",
+                cache_key,
+                sub_model,
+                input_data,
+            )
         )
 
     return models_with_inputs
 
 
-def get_model_info(onnx_model_path: str) -> Dict:
+def split_onnx_model_with_inputs(
+    onnx_model_path: str,
+    input_data_path: str,
+    split_group_size: int = 1,
+    split_mode: str = "single_ops",
+    simplify_model: bool = False,
+    simplified_model_path: Optional[str] = None,
+    simplify_input_shapes: Optional[Dict[str, List[int]]] = None,
+):
+    model_path_for_splitting = maybe_simplify_onnx_model(
+        onnx_model_path=onnx_model_path,
+        simplify_model=simplify_model,
+        simplified_model_path=simplified_model_path,
+        input_shapes=simplify_input_shapes,
+    )
+
+    tensor_values = collect_tensor_values_from_inference(
+        onnx_model_path=model_path_for_splitting,
+        input_data_path=input_data_path,
+    )
+
+    sub_models, parent_model_hash, _ = split_onnx_model(
+        onnx_model_path=model_path_for_splitting,
+        split_mode=split_mode,
+        split_group_size=split_group_size,
+        simplify_model=False,
+    )
+
+    return materialize_submodels_with_inputs(
+        sub_models=sub_models,
+        tensor_values=tensor_values,
+        parent_model_hash=parent_model_hash,
+    )
+
+
+def get_model_info(onnx_model_path: str) -> Dict[str, Any]:
     model = onnx.load(onnx_model_path)
 
     return {
@@ -263,8 +520,8 @@ def get_model_info(onnx_model_path: str) -> Dict:
 
 
 if __name__ == "__main__":
-    onnx_model_path = "examples/onnx/bert/bert_large_squad.onnx"
-    input_data_path = "examples/onnx/bert/bert_large_squad_input.json"
+    onnx_model_path = "examples/onnx/mnist_classifier/network.onnx"
+    input_data_path = "examples/onnx/mnist_classifier/input.json"
 
     cache_dir = "cache/debug_split"
     os.makedirs(cache_dir, exist_ok=True)
@@ -272,7 +529,9 @@ if __name__ == "__main__":
     split_models = split_onnx_model_with_inputs(
         onnx_model_path=onnx_model_path,
         input_data_path=input_data_path,
+        split_mode="fixed",
         split_group_size=1,
+        simplify_model=True,
     )
 
     for idx, (name, _, model, input_data) in enumerate(split_models, start=1):

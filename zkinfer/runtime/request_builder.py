@@ -1,10 +1,11 @@
 import logging
 import os
 import time
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 from zkinfer.config.runtime import FileTransferConfig, ProvingCacheConfig
 from zkinfer.graph.onnx_splitter import split_onnx_model_with_inputs
+from zkinfer.runtime.models import ProofJob
 from zkinfer.storage.io import (
     compute_bytes_md5_hex,
     exists,
@@ -13,7 +14,6 @@ from zkinfer.storage.io import (
     save_json,
     save_model_proto,
 )
-from zkinfer.runtime.models import ProofJob
 
 
 class RequestBuilder:
@@ -26,8 +26,7 @@ class RequestBuilder:
         file_transfer: FileTransferConfig,
         proving_cache: ProvingCacheConfig,
         max_retries: int,
-    ):
-
+    ) -> List[ProofJob]:
         models_with_inputs = self._load_or_split_model(request)
         jobs: List[ProofJob] = []
 
@@ -65,9 +64,9 @@ class RequestBuilder:
                     model_path=model_file_path,
                     input_path=input_file_path,
                     profiling_file_path=profiling_file_path,
-                    model_write_time=model_write_time
-                    if file_transfer.type == "s3"
-                    else 0.0,
+                    model_write_time=(
+                        model_write_time if file_transfer.type == "s3" else 0.0
+                    ),
                     profiling_data=profiling_data,
                     predicted_duration=predicted_duration,
                     max_retries=max_retries,
@@ -77,17 +76,30 @@ class RequestBuilder:
         return jobs
 
     def _load_or_split_model(self, request):
-        if request.split_mode == "none":
+        split_mode = (request.split_mode or "none").lower()
+
+        if split_mode == "none":
             model_proto = load_model_proto(request.onnx_model_path)
             input_data = load_json(request.input_data_path)
             model_hash = compute_bytes_md5_hex(model_proto.SerializeToString())
 
             return [(request.name, model_hash, model_proto, input_data)]
 
-        return split_onnx_model_with_inputs(
-            request.onnx_model_path,
-            request.input_data_path,
+        self.logger.info(
+            "Splitting request %s using split_mode=%s ops_per_chunk=%s",
+            request.request_id,
+            split_mode,
             request.ops_per_chunk,
+        )
+
+        return split_onnx_model_with_inputs(
+            onnx_model_path=request.onnx_model_path,
+            input_data_path=request.input_data_path,
+            split_mode=split_mode,
+            split_group_size=request.ops_per_chunk,
+            simplify_model=getattr(request, "simplify_model", False),
+            simplified_model_path=getattr(request, "simplified_model_path", None),
+            simplify_input_shapes=getattr(request, "simplify_input_shapes", None),
         )
 
     def _save_model_if_needed(
@@ -121,7 +133,7 @@ class RequestBuilder:
         model_name: str,
         profiling_file_path: str,
         file_transfer: FileTransferConfig,
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         profiling_exists = exists(
             profiling_file_path,
             storage_type=file_transfer.type,

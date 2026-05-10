@@ -5,8 +5,9 @@ defaults:
   - override hydra/job_logging: disabled
 
 execution:
-  split_mode: none #none, fixed, auto
+  split_mode: fixed #none, fixed, auto
   ops_per_chunk: 1
+  simplify_model: true
 
 jobs:
   scheduler: lpt

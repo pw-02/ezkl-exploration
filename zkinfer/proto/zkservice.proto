@@ -23,11 +23,15 @@ message InferenceRequest {
   string input_data_path = 3;
 
   // Model partitioning strategy.
-  string split_mode = 4;     // none | fixed | auto
+  string split_mode = 4;     // none | single_ops | fixed
   int32 ops_per_chunk = 5;
 
   // Coordinator scheduling policy.
   string scheduler = 6;      // fifo | lpt
+
+  // Optional ONNX simplification before splitting.
+  bool simplify_model = 7;
+  string simplify_input_shapes_json = 8;
 }
 
 message InferenceRequestAck {

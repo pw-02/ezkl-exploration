@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import sys
 import time
 from concurrent import futures
@@ -44,6 +43,18 @@ def validate_config(cfg: DictConfig) -> None:
         )
 
 
+def parse_optional_json_dict(value: str):
+    if not value:
+        return None
+
+    parsed = json.loads(value)
+
+    if not isinstance(parsed, dict):
+        raise ValueError("Expected JSON object")
+
+    return parsed
+
+
 class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
     """Thin gRPC adapter around the core Coordinator."""
 
@@ -57,6 +68,10 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
 
     def SubmitInferenceRequest(self, request, context):
         try:
+            simplify_input_shapes = parse_optional_json_dict(
+                request.simplify_input_shapes_json
+            )
+
             request_id = self.coordinator.submit_request(
                 name=request.name,
                 onnx_model_path=request.onnx_model_path,
@@ -64,8 +79,20 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 split_mode=request.split_mode,
                 ops_per_chunk=request.ops_per_chunk,
                 scheduler=request.scheduler,
+                simplify_model=request.simplify_model,
+                simplify_input_shapes=simplify_input_shapes,
             )
+
             return pb2.InferenceRequestAck(request_id=request_id)
+
+        except json.JSONDecodeError as exc:
+            self._set_error(
+                context,
+                grpc.StatusCode.INVALID_ARGUMENT,
+                exc,
+                "Invalid simplify_input_shapes_json",
+            )
+            return pb2.InferenceRequestAck(request_id="")
 
         except Exception as exc:
             self._set_error(
@@ -114,6 +141,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 perf_metrics=perf_metrics,
                 message=request.message,
             )
+
             return pb2.StatusAck(ok=ok)
 
         except json.JSONDecodeError as exc:
@@ -159,7 +187,10 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
         context.set_details(f"{message}: {exc}")
 
 
-def create_grpc_server(cfg: DictConfig, service: ZKCoordinatorGrpcService) -> grpc.Server:
+def create_grpc_server(
+    cfg: DictConfig,
+    service: ZKCoordinatorGrpcService,
+) -> grpc.Server:
     max_message_bytes = cfg.coordinator.grpc_max_message_mb * 1024 * 1024
 
     server = grpc.server(

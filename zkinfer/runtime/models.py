@@ -56,9 +56,13 @@ class InferenceRequest:
     name: str
     onnx_model_path: str
     input_data_path: str
+
     split_mode: str
     ops_per_chunk: int
     scheduler: str
+
+    simplify_model: bool = False
+    simplify_input_shapes: Optional[Dict] = None
 
     request_id: str = field(init=False)
     proof_jobs: List[ProofJob] = field(default_factory=list)
@@ -67,6 +71,7 @@ class InferenceRequest:
     queued_time: Optional[datetime] = None
     started_time: Optional[datetime] = None
     completed_time: Optional[datetime] = None
+
     error_message: Optional[str] = None
     request_status: RequestStatus = RequestStatus.CREATED
 
