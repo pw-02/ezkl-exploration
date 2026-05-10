@@ -72,3 +72,5 @@ scp -i us-west-2-kp.pem -r ubuntu@ec2-35-94-137-102.us-west-2.compute.amazonaws.
 aws s3 cp s3://dzkml/onnxmodels/bert_large_squad.onnx .
 
 aws s3 cp s3://dzkml/onnxmodels/distilbert_squad.onnx .
+
+#commit
