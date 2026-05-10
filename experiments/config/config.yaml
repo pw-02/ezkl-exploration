@@ -1,6 +1,8 @@
 defaults:
-  - workload: mnist_classifier
   - _self_
+  - workload: mnist_classifier
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
 
 execution:
   split_mode: none
@@ -18,3 +20,14 @@ launch:
 
 paths:
   runs_dir: experiments/runs
+
+hydra:
+  run:
+    dir: .
+  sweep:
+    dir: .
+  output_subdir: null
+  job_logging:
+    level: DISABLE
+  hydra_logging:
+    level: DISABLE

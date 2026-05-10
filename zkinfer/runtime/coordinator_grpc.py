@@ -189,6 +189,7 @@ def serve(cfg: DictConfig):
 
     coordinator = Coordinator(
         runtime_config=runtime_config,
+        reports_dir=cfg.paths.reports_dir,
         logger=logger,
     )
 

@@ -30,7 +30,7 @@ __pycache__/
 distributed_proving/__pycache__/
 *.env
 settings.json
-
+experiments/runs
 # Model and keys
 model.onnx
 *pk

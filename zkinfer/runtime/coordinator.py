@@ -1,30 +1,26 @@
 import logging
 import threading
-import uuid
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from zkinfer.config.runtime import RuntimeConfig
 from zkinfer.profiling.reports import write_job_report, write_request_report
+from zkinfer.runtime.models import InferenceRequest, JobStatus, ProofJob, RequestStatus
 from zkinfer.runtime.request_builder import RequestBuilder
 from zkinfer.runtime.scheduler import JobScheduler
 from zkinfer.storage.io import save_json
 
-# coordinator.py
-from zkinfer.runtime.models import InferenceRequest, JobStatus, ProofJob, RequestStatus
-
 
 class Coordinator:
     """Core coordinator state machine for distributed zk inference jobs."""
-
     def __init__(
         self,
         runtime_config: RuntimeConfig,
+        reports_dir: str,
         logger: logging.Logger,
     ):
         self.logger = logger
+        self.reports_dir = reports_dir
 
         self.file_transfer = runtime_config.file_transfer
         self.proving_cache = runtime_config.proving_cache
@@ -193,8 +189,6 @@ class Coordinator:
         with self.lock:
             self.active_requests[req.request_id] = req
 
-            # Most requests should use the coordinator's configured scheduler.
-            # If a request asks for another policy, order those jobs locally first.
             if req.scheduler == self.scheduler_policy:
                 self.scheduler.add_jobs(req.proof_jobs)
             else:
@@ -285,7 +279,11 @@ class Coordinator:
         if not parent_req:
             return
 
-        job_report = write_job_report(job, perf_metrics=perf_metrics)
+        job_report = write_job_report(
+            job,
+            perf_metrics=perf_metrics,
+            out_dir=self.reports_dir,
+        )
 
         if job.job_status == JobStatus.COMPLETED and job.profiling_file_path:
             save_json(
@@ -294,7 +292,6 @@ class Coordinator:
                 storage_type=self.file_transfer.type,
                 s3_bucket=self.file_transfer.s3_bucket,
             )
-            
 
     def _maybe_finalize_request(self, request_id: str) -> None:
         parent_req = self.active_requests.get(request_id)
@@ -322,4 +319,7 @@ class Coordinator:
             parent_req.request_status = RequestStatus.COMPLETED
             self.logger.info("Request %s completed.", parent_req.request_id)
 
-        write_request_report(parent_req)
+        write_request_report(
+            parent_req,
+            out_dir=self.reports_dir,
+        )
