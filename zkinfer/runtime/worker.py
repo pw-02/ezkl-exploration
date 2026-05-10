@@ -31,6 +31,8 @@ class LocalJobPaths:
     model_path: str
     input_path: str
     tmp_dir: str
+    report_dir: str
+    artifact_dir: str
     cache_prefix: str
     s3_read_time: float = 0.0
 
@@ -46,7 +48,6 @@ class ZKProofWorker:
         self.poll_interval_sec = cfg.worker.job_poll_interval_sec
         self.resource_monitor_interval_sec = cfg.worker.resource_monitor_interval_sec
         self.send_proofs_to_coordinator = cfg.worker.send_proofs_to_coordinator
-
         self.grpc_max_message_bytes = cfg.coordinator.grpc_max_message_mb * 1024 * 1024
 
         self.channel = None
@@ -139,11 +140,26 @@ class ZKProofWorker:
 
     def prepare_local_paths(self, assignment) -> LocalJobPaths:
         job_id = assignment.job_id
+        request_id = assignment.request_id
+
         model_path = assignment.model_path
         input_path = assignment.input_path
 
         tmp_dir = os.path.join(self.cfg.paths.tmp_dir, job_id)
+
+        report_dir = os.path.join(
+            self.cfg.paths.reports_dir,
+            request_id,
+            "jobs",
+            job_id,
+        )
+        artifact_dir = os.path.join(
+            self.cfg.paths.artifacts_dir,
+            "jobs",
+            job_id,
+        )
         os.makedirs(tmp_dir, exist_ok=True)
+        os.makedirs(artifact_dir, exist_ok=True)
 
         cache_prefix = os.path.dirname(model_path)
         s3_read_time = 0.0
@@ -158,6 +174,8 @@ class ZKProofWorker:
                 model_path=model_path,
                 input_path=input_path,
                 tmp_dir=tmp_dir,
+                report_dir=report_dir,
+                artifact_dir=artifact_dir,
                 cache_prefix=cache_prefix,
                 s3_read_time=0.0,
             )
@@ -182,6 +200,8 @@ class ZKProofWorker:
             model_path=local_model_path,
             input_path=local_input_path,
             tmp_dir=tmp_dir,
+            report_dir=report_dir,
+            artifact_dir=artifact_dir,
             cache_prefix=cache_prefix,
             s3_read_time=s3_read_time,
         )
@@ -189,11 +209,11 @@ class ZKProofWorker:
     def start_monitoring_processes(
         self,
         job_id: str,
-        tmp_dir: str,
+        artifact_dir: str,
         status_file: str,
     ):
         worker_pid = str(os.getpid())
-        resource_usage_file = os.path.join(tmp_dir, "resource_usage.log")
+        resource_usage_file = os.path.join(artifact_dir, "resource_usage.log")
 
         resource_proc = subprocess.Popen(
             [
@@ -244,7 +264,7 @@ class ZKProofWorker:
 
     def collect_metrics(
         self,
-        tmp_dir: str,
+        artifact_dir: str,
         resource_usage_file: str,
         proof_stages: EZKLProofStages,
         ezkl_metrics: Dict[str, Any],
@@ -274,10 +294,10 @@ class ZKProofWorker:
             "vk_file_size(GB)": proof_stages.get_vk_file_size_gb(),
         }
 
-        circuit_info = read_csv_first_row(os.path.join(tmp_dir, "halo2_circuit.csv"))
-        prover_info_cpu = read_csv_first_row(os.path.join(tmp_dir, "halo2_prover_cpu.csv"))
-        fft_summary = summarize_fft_report(os.path.join(tmp_dir, "halo2_ffts.csv"))
-        msm_summary = summarize_msm_report(os.path.join(tmp_dir, "halo2_msms.csv"))
+        circuit_info = read_csv_first_row(os.path.join(artifact_dir, "halo2_circuit.csv"))
+        prover_info_cpu = read_csv_first_row(os.path.join(artifact_dir, "halo2_prover_cpu.csv"))
+        fft_summary = summarize_fft_report(os.path.join(artifact_dir, "halo2_ffts.csv"))
+        msm_summary = summarize_msm_report(os.path.join(artifact_dir, "halo2_msms.csv"))
 
         return {
             **metrics,
@@ -307,16 +327,17 @@ class ZKProofWorker:
         try:
             local_paths = self.prepare_local_paths(assignment)
 
-            status_file = os.path.join(local_paths.tmp_dir, "status.txt")
+            status_file = os.path.join(local_paths.artifact_dir, "status.txt")
+
             heartbeat_proc, resource_proc, resource_usage_file = (
                 self.start_monitoring_processes(
                     job_id=job_id,
-                    tmp_dir=local_paths.tmp_dir,
+                    artifact_dir=local_paths.artifact_dir,
                     status_file=status_file,
                 )
             )
 
-            os.environ["EZKL_LOG_DIR"] = local_paths.tmp_dir
+            os.environ["EZKL_LOG_DIR"] = local_paths.artifact_dir
 
             proof_stages = EZKLProofStages(
                 input_data_path=local_paths.input_path,
@@ -349,7 +370,7 @@ class ZKProofWorker:
                 return
 
             metrics = self.collect_metrics(
-                tmp_dir=local_paths.tmp_dir,
+                artifact_dir=local_paths.artifact_dir,
                 resource_usage_file=resource_usage_file,
                 proof_stages=proof_stages,
                 ezkl_metrics=ezkl_metrics,
@@ -379,6 +400,7 @@ class ZKProofWorker:
             self.stop_processes(heartbeat_proc, resource_proc)
 
             if local_paths and os.path.exists(local_paths.tmp_dir):
+                self.logger.info("Cleaning up temporary directory: %s", local_paths.tmp_dir)
                 shutil.rmtree(local_paths.tmp_dir, ignore_errors=True)
 
     def run_once(self) -> None:

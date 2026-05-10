@@ -46,9 +46,10 @@ def write_job_report(
     out_dir: str = "reports",
 ) -> Dict[str, Any]:
     perf_metrics = perf_metrics or {}
-
-    report_dir = os.path.join(out_dir, job.inference_request_id)
+    report_dir = out_dir
     os.makedirs(report_dir, exist_ok=True)
+    # report_dir = os.path.join(out_dir, job.inference_request_id)
+    # os.makedirs(report_dir, exist_ok=True)
 
     queue_wait_time_s = _duration_seconds(job.queued_time, job.started_time)
     job_runtime_s = _duration_seconds(job.started_time, job.completed_time)
@@ -148,8 +149,11 @@ def write_request_report(
     request,
     out_dir: str = "reports",
 ) -> Dict[str, Any]:
-    report_dir = os.path.join(out_dir, request.request_id)
+    
+    report_dir = out_dir
     os.makedirs(report_dir, exist_ok=True)
+    # report_dir = os.path.join(out_dir, request.request_id)
+    # os.makedirs(report_dir, exist_ok=True)
 
     job_report_file = os.path.join(report_dir, "job_report.csv")
     job_data = read_csv_as_dict(job_report_file)

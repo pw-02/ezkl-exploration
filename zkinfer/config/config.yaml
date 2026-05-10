@@ -31,9 +31,11 @@ file_transfer:
   s3_prefix: zkinfer/jobs
 
 paths:
-  tmp_dir: tmp
-  reports_dir: reports
+  runs_dir: runs
   logs_dir: logs
+  reports_dir: reports
+  artifacts_dir: artifacts
+  tmp_dir: tmp
 
 hydra:
   run:

@@ -5,7 +5,7 @@ defaults:
   - override hydra/job_logging: disabled
 
 execution:
-  split_mode: none
+  split_mode: fixed #none
   ops_per_chunk: 1
 
 jobs:
@@ -17,6 +17,9 @@ launch:
   coordinator_port: 50051
   coordinator_ready_timeout_sec: 30
   worker_startup_delay_sec: 1
+  shutdown_when_done: true
+  poll_completion_interval_sec: 5
+
 
 paths:
   runs_dir: experiments/runs
