@@ -91,12 +91,15 @@ def main(cfg: DictConfig) -> None:
     processes: List[subprocess.Popen] = []
 
     try:
+        
         coordinator_cmd = [
             sys.executable,
             "-m",
             "zkinfer.runtime.coordinator_grpc",
             f"coordinator.host={cfg.launch.coordinator_host}",
             f"coordinator.port={cfg.launch.coordinator_port}",
+            f"paths.logs_dir={cfg.paths.logs_dir}",
+            f"paths.reports_dir={cfg.paths.reports_dir}",
         ]
 
         processes.append(
