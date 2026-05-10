@@ -15,19 +15,16 @@ from omegaconf import DictConfig
 
 import zkinfer.proto.zkservice_pb2 as pb
 import zkinfer.proto.zkservice_pb2_grpc as pb_grpc
-
 from zkinfer.backends.ezkl.metrics import (
     read_csv_first_row,
     summarize_fft_report,
     summarize_msm_report,
 )
 from zkinfer.backends.ezkl.prover import EZKLProofStages
-
 from zkinfer.profiling.resource_parser import parse_resource_usage_file
-
 from zkinfer.storage.s3 import download_file
+from zkinfer.utils.network import get_ip
 
-from zkinfer.utils.utils import get_ip
 
 @dataclass
 class LocalJobPaths:
@@ -108,7 +105,7 @@ class ZKProofWorker:
                 time.sleep(self.poll_interval_sec)
 
         raise last_error
-    
+
     def get_next_job(self):
         return self.safe_grpc_call(
             lambda: self.stub.GetNextJob(
@@ -128,11 +125,12 @@ class ZKProofWorker:
         def _call():
             return self.stub.SubmitJobResult(
                 pb.JobResult(
+                    worker_id=self.worker_id,
                     job_id=job_id,
                     proof=proof or b"",
                     status=status,
-                    perf_metrics=json.dumps(perf_metrics) if perf_metrics else "",
                     message=message or "",
+                    perf_metrics_json=json.dumps(perf_metrics) if perf_metrics else "",
                 )
             )
 
@@ -150,7 +148,7 @@ class ZKProofWorker:
         cache_prefix = os.path.dirname(model_path)
         s3_read_time = 0.0
 
-        if assignment.file_transfer_type != "s3":
+        if self.cfg.file_transfer.type != "s3":
             if not os.path.exists(model_path):
                 raise FileNotFoundError(f"Model path does not exist: {model_path}")
             if not os.path.exists(input_path):
@@ -164,7 +162,10 @@ class ZKProofWorker:
                 s3_read_time=0.0,
             )
 
-        s3_bucket = assignment.file_transfer_s3_bucket
+        if not self.cfg.file_transfer.s3_bucket:
+            raise ValueError("file_transfer.s3_bucket must be set when file_transfer.type=s3")
+
+        s3_bucket = self.cfg.file_transfer.s3_bucket
 
         local_model_path = os.path.join(tmp_dir, os.path.basename(model_path))
         local_input_path = os.path.join(tmp_dir, "input.json")
@@ -253,7 +254,11 @@ class ZKProofWorker:
                 parse_resource_usage_file(resource_usage_file)
             )
         except Exception as exc:
-            self.logger.error("Failed to parse resource usage file: %s", exc, exc_info=True)
+            self.logger.error(
+                "Failed to parse resource usage file: %s",
+                exc,
+                exc_info=True,
+            )
             max_process_mem = None
             max_system_mem = None
             avg_process_cpu = None
@@ -303,10 +308,12 @@ class ZKProofWorker:
             local_paths = self.prepare_local_paths(assignment)
 
             status_file = os.path.join(local_paths.tmp_dir, "status.txt")
-            heartbeat_proc, resource_proc, resource_usage_file = self.start_monitoring_processes(
-                job_id=job_id,
-                tmp_dir=local_paths.tmp_dir,
-                status_file=status_file,
+            heartbeat_proc, resource_proc, resource_usage_file = (
+                self.start_monitoring_processes(
+                    job_id=job_id,
+                    tmp_dir=local_paths.tmp_dir,
+                    status_file=status_file,
+                )
             )
 
             os.environ["EZKL_LOG_DIR"] = local_paths.tmp_dir
@@ -314,12 +321,12 @@ class ZKProofWorker:
             proof_stages = EZKLProofStages(
                 input_data_path=local_paths.input_path,
                 onnx_model_path=local_paths.model_path,
-                proving_cache_enabled=assignment.proving_cache_enabled,
-                proving_cache_overwrite=assignment.proving_cache_overwrite,
-                proving_cache_type=assignment.proving_cache_type,
-                proving_cache_root_dir=assignment.proving_cache_root_dir,
-                proving_cache_s3_bucket=assignment.proving_cache_s3_bucket or None,
-                proving_cache_s3_prefix=assignment.proving_cache_s3_prefix,
+                proving_cache_enabled=self.cfg.backend.proving_cache.enabled,
+                proving_cache_overwrite=self.cfg.backend.proving_cache.overwrite,
+                proving_cache_type=self.cfg.backend.proving_cache.type,
+                proving_cache_root_dir=self.cfg.backend.proving_cache.root_dir,
+                proving_cache_s3_bucket=self.cfg.backend.proving_cache.s3_bucket,
+                proving_cache_s3_prefix=self.cfg.backend.proving_cache.s3_prefix,
                 status_file=status_file,
                 local_tmp_dir=local_paths.tmp_dir,
                 logger=self.logger,
@@ -328,7 +335,12 @@ class ZKProofWorker:
             try:
                 ezkl_metrics = proof_stages.run_all(setup_only=False)
             except Exception as exc:
-                self.logger.error("Proof stages failed for job %s: %s", job_id, exc, exc_info=True)
+                self.logger.error(
+                    "Proof stages failed for job %s: %s",
+                    job_id,
+                    exc,
+                    exc_info=True,
+                )
                 self.submit_job_result(
                     job_id=job_id,
                     status="FAILED",
@@ -387,24 +399,26 @@ class ZKProofWorker:
             self.run_once()
 
 
-def setup_worker_logger(cfg: DictConfig) -> logging.Logger:
-    os.makedirs(cfg.paths.logs_dir, exist_ok=True)
-    log_file = os.path.join(cfg.paths.logs_dir, "worker.log")
+def setup_logger(name: str) -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler(log_file),
-        ],
-    )
-    return logging.getLogger("worker")
+    if logger.handlers:
+        return logger
+
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+    console = logging.StreamHandler(sys.stdout)
+    console.setFormatter(formatter)
+    logger.addHandler(console)
+
+    return logger
 
 
 @hydra.main(config_path="../config", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    logger = setup_worker_logger(cfg)
+    logger = setup_logger("worker")
     logger.info("Starting ZKProofWorker...")
 
     worker = ZKProofWorker(cfg, logger)

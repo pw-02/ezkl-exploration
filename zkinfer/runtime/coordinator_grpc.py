@@ -16,7 +16,7 @@ from zkinfer.config.runtime import build_runtime_config
 from zkinfer.runtime.coordinator import Coordinator
 
 
-def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
+def setup_logger(name: str) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
     logger.propagate = False
@@ -29,11 +29,6 @@ def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(formatter)
     logger.addHandler(console)
-
-    if log_file:
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
 
     return logger
 
@@ -88,20 +83,11 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 return pb2.JobAssignment(job_available=False)
 
             return pb2.JobAssignment(
+                job_available=True,
+                request_id=job.inference_request_id,
                 job_id=job.job_id,
                 model_path=job.model_path,
                 input_path=job.input_path,
-                job_available=True,
-                file_transfer_type=self.coordinator.file_transfer.type,
-                file_transfer_root_dir=self.coordinator.file_transfer.root_dir,
-                file_transfer_s3_bucket=self.coordinator.file_transfer.s3_bucket or "",
-                file_transfer_s3_prefix=self.coordinator.file_transfer.s3_prefix,
-                proving_cache_enabled=self.coordinator.proving_cache.enabled,
-                proving_cache_type=self.coordinator.proving_cache.type,
-                proving_cache_overwrite=self.coordinator.proving_cache.overwrite,
-                proving_cache_root_dir=self.coordinator.proving_cache.root_dir,
-                proving_cache_s3_bucket=self.coordinator.proving_cache.s3_bucket or "",
-                proving_cache_s3_prefix=self.coordinator.proving_cache.s3_prefix,
             )
 
         except Exception as exc:
@@ -115,7 +101,11 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
 
     def SubmitJobResult(self, request, context):
         try:
-            perf_metrics = json.loads(request.perf_metrics) if request.perf_metrics else None
+            perf_metrics = (
+                json.loads(request.perf_metrics_json)
+                if request.perf_metrics_json
+                else None
+            )
 
             ok = self.coordinator.submit_job_result(
                 job_id=request.job_id,
@@ -131,7 +121,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 context,
                 grpc.StatusCode.INVALID_ARGUMENT,
                 exc,
-                "Invalid perf_metrics JSON",
+                "Invalid perf_metrics_json JSON",
             )
             return pb2.StatusAck(ok=False)
 
@@ -190,9 +180,7 @@ def create_grpc_server(cfg: DictConfig, service: ZKCoordinatorGrpcService) -> gr
 def serve(cfg: DictConfig):
     validate_config(cfg)
 
-    os.makedirs(cfg.paths.logs_dir, exist_ok=True)
-    log_file = os.path.join(cfg.paths.logs_dir, "coordinator.log")
-    logger = setup_logger("coordinator", log_file)
+    logger = setup_logger("coordinator")
 
     logger.info("Starting ZK Coordinator gRPC Service")
     logger.debug("Loaded config:\n%s", OmegaConf.to_yaml(cfg, resolve=True))

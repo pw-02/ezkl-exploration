@@ -24,7 +24,7 @@ examples/onnx/nanoGPT/nano_gpt_12_layers_768_embd.onnx
 utils/report.csv
 halo2_ffts.csv
 halo2_msms.csv
-
+reports
 # Python and environment
 __pycache__/
 distributed_proving/__pycache__/

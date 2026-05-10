@@ -291,9 +291,10 @@ class Coordinator:
             save_json(
                 job_report,
                 job.profiling_file_path,
-                use_s3=self.file_transfer.type == "s3",
+                storage_type=self.file_transfer.type,
                 s3_bucket=self.file_transfer.s3_bucket,
             )
+            
 
     def _maybe_finalize_request(self, request_id: str) -> None:
         parent_req = self.active_requests.get(request_id)

@@ -4,8 +4,9 @@ import socket
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
@@ -22,15 +23,34 @@ def setup_logger() -> logging.Logger:
     return logging.getLogger("launch")
 
 
-def open_log(logs_dir: str, name: str):
-    Path(logs_dir).mkdir(parents=True, exist_ok=True)
-    return open(Path(logs_dir) / f"{name}.log", "w", encoding="utf-8")
+def create_run_dirs(cfg: DictConfig) -> Dict[str, Path]:
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    run_id = f"{timestamp}_{cfg.workload.name}"
+    run_dir = Path(cfg.paths.runs_dir) / run_id
+
+    dirs = {
+        "run_dir": run_dir,
+        "logs_dir": run_dir / "logs",
+        "reports_dir": run_dir / "reports",
+        "tmp_dir": run_dir / "tmp",
+        "shared_dir": run_dir / "shared",
+    }
+
+    for path in dirs.values():
+        path.mkdir(parents=True, exist_ok=True)
+
+    return dirs
+
+
+def open_log(logs_dir: Path, name: str):
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    return open(logs_dir / f"{name}.log", "w", encoding="utf-8")
 
 
 def start_process(
     name: str,
     command: List[str],
-    logs_dir: str,
+    logs_dir: Path,
     env: dict,
     logger: logging.Logger,
 ) -> subprocess.Popen:
@@ -59,7 +79,12 @@ def stop_processes(processes: List[subprocess.Popen], logger: logging.Logger) ->
             proc.kill()
 
 
-def wait_for_port(host: str, port: int, timeout_sec: int, logger: logging.Logger) -> None:
+def wait_for_port(
+    host: str,
+    port: int,
+    timeout_sec: int,
+    logger: logging.Logger,
+) -> None:
     deadline = time.time() + timeout_sec
 
     while time.time() < deadline:
@@ -94,9 +119,15 @@ def submit_workload(cfg: DictConfig, logger: logging.Logger) -> str:
 @hydra.main(config_path="./config", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     logger = setup_logger()
+    run_dirs = create_run_dirs(cfg)
 
-    logs_dir = cfg.paths.logs_dir
-    Path(logs_dir).mkdir(parents=True, exist_ok=True)
+    run_dir = run_dirs["run_dir"]
+    logs_dir = run_dirs["logs_dir"]
+    reports_dir = run_dirs["reports_dir"]
+    tmp_dir = run_dirs["tmp_dir"]
+    shared_dir = run_dirs["shared_dir"]
+
+    logger.info("Run directory: %s", run_dir)
 
     env = os.environ.copy()
     env["PYTHONPATH"] = f".:{env.get('PYTHONPATH', '')}"
@@ -110,8 +141,10 @@ def main(cfg: DictConfig) -> None:
             "zkinfer.runtime.coordinator_grpc",
             f"coordinator.host={cfg.launch.coordinator_host}",
             f"coordinator.port={cfg.launch.coordinator_port}",
-            f"paths.logs_dir={cfg.paths.logs_dir}",
-            f"paths.reports_dir={cfg.paths.reports_dir}",
+            f"paths.tmp_dir={tmp_dir}",
+            f"paths.logs_dir={logs_dir}",
+            f"paths.reports_dir={reports_dir}",
+            f"file_transfer.root_dir={shared_dir}",
         ]
 
         processes.append(
@@ -141,6 +174,10 @@ def main(cfg: DictConfig) -> None:
                 f"coordinator.host={cfg.launch.coordinator_host}",
                 f"coordinator.port={cfg.launch.coordinator_port}",
                 f"worker.worker_id={worker_id}",
+                f"paths.tmp_dir={tmp_dir}",
+                f"paths.logs_dir={logs_dir}",
+                f"paths.reports_dir={reports_dir}",
+                f"file_transfer.root_dir={shared_dir}",
             ]
 
             processes.append(
@@ -175,7 +212,7 @@ def main(cfg: DictConfig) -> None:
 
     finally:
         stop_processes(processes, logger)
-        logger.info("Done.")
+        logger.info("Done. Run directory: %s", run_dir)
 
 
 if __name__ == "__main__":
