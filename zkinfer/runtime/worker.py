@@ -13,7 +13,6 @@ import hydra
 import psutil
 from omegaconf import DictConfig
 
-from backup.common import get_fft_summary
 import zkinfer.proto.zkservice_pb2 as pb
 import zkinfer.proto.zkservice_pb2_grpc as pb_grpc
 
@@ -109,10 +108,12 @@ class ZKProofWorker:
                 time.sleep(self.poll_interval_sec)
 
         raise last_error
-
+    
     def get_next_job(self):
         return self.safe_grpc_call(
-            lambda: self.stub.GetNextJob(pb.WorkerIdRequest(worker_id=self.worker_id)),
+            lambda: self.stub.GetNextJob(
+                pb.WorkerRequest(worker_id=self.worker_id)
+            ),
             action="GetNextJob",
         )
 

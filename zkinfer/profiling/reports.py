@@ -2,7 +2,7 @@ import os
 from typing import Dict, Optional
 
 
-from zkinfer.storage.storage_utils import convert_csv_to_dict, write_dict_to_csv
+from zkinfer.storage.io import read_csv_as_dict, write_dict_to_csv
 
 
 def _values(data: Dict, key: str):
@@ -111,7 +111,7 @@ def write_request_report(request, out_dir: str = "reports") -> Dict:
     os.makedirs(report_dir, exist_ok=True)
 
     job_report_file = os.path.join(report_dir, "job_report.csv")
-    job_data = convert_csv_to_dict(job_report_file)
+    job_data = read_csv_as_dict(job_report_file)
 
     queue_wait_time_s = (
         (request.started_time - request.queued_time).total_seconds()

@@ -24,7 +24,7 @@ class ZKInferenceClient:
         input_data_path: str,
         split_mode: str,
         ops_per_chunk: int,
-        schedule: str,
+        scheduler: str,
     ) -> str:
         with grpc.insecure_channel(
             self.target,
@@ -42,7 +42,7 @@ class ZKInferenceClient:
                     input_data_path=input_data_path,
                     split_mode=split_mode,
                     ops_per_chunk=ops_per_chunk,
-                    schedule=schedule,
+                    scheduler=scheduler,
                 )
             )
 

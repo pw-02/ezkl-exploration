@@ -1,8 +1,7 @@
 from collections import deque
 from typing import Deque, Iterable, Optional
 
-from zkinfer.runtime.coordinator import ProofJob
-
+from zkinfer.runtime.models import ProofJob
 
 class JobScheduler:
     def __init__(self, policy: str = "fifo"):

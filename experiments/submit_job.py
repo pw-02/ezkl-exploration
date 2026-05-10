@@ -40,7 +40,7 @@ def main(cfg: DictConfig) -> None:
             input_data_path=cfg.workload.input_file,
             split_mode=cfg.execution.split_mode,
             ops_per_chunk=cfg.execution.ops_per_chunk,
-            schedule=cfg.jobs.scheduler,
+            scheduler=cfg.jobs.scheduler,
         )
 
         logger.info("Job submitted. Request ID: %s", request_id)

@@ -13,6 +13,7 @@ from zkinfer.storage.io import (
     save_json,
     save_model_proto,
 )
+from zkinfer.runtime.models import ProofJob
 
 
 class RequestBuilder:
@@ -26,7 +27,6 @@ class RequestBuilder:
         proving_cache: ProvingCacheConfig,
         max_retries: int,
     ):
-        from zkinfer.runtime.coordinator import ProofJob
 
         models_with_inputs = self._load_or_split_model(request)
         jobs: List[ProofJob] = []

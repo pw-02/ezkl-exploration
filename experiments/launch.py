@@ -1,6 +1,6 @@
 import logging
 import os
-import signal
+import socket
 import subprocess
 import sys
 import time
@@ -35,7 +35,6 @@ def start_process(
     logger: logging.Logger,
 ) -> subprocess.Popen:
     log_file = open_log(logs_dir, name)
-
     logger.info("Starting %s: %s", name, " ".join(command))
 
     return subprocess.Popen(
@@ -60,6 +59,20 @@ def stop_processes(processes: List[subprocess.Popen], logger: logging.Logger) ->
             proc.kill()
 
 
+def wait_for_port(host: str, port: int, timeout_sec: int, logger: logging.Logger) -> None:
+    deadline = time.time() + timeout_sec
+
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                logger.info("Coordinator is ready at %s:%s", host, port)
+                return
+        except OSError:
+            time.sleep(0.5)
+
+    raise TimeoutError(f"Coordinator did not become ready at {host}:{port}")
+
+
 def submit_workload(cfg: DictConfig, logger: logging.Logger) -> str:
     target = f"{cfg.launch.coordinator_host}:{cfg.launch.coordinator_port}"
 
@@ -74,11 +87,11 @@ def submit_workload(cfg: DictConfig, logger: logging.Logger) -> str:
         input_data_path=cfg.workload.input_file,
         split_mode=cfg.execution.split_mode,
         ops_per_chunk=cfg.execution.ops_per_chunk,
-        schedule=cfg.jobs.scheduler,
+        scheduler=cfg.jobs.scheduler,
     )
 
 
-@hydra.main(config_path=".", config_name="config", version_base=None)
+@hydra.main(config_path="./config", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     logger = setup_logger()
 
@@ -91,7 +104,6 @@ def main(cfg: DictConfig) -> None:
     processes: List[subprocess.Popen] = []
 
     try:
-        
         coordinator_cmd = [
             sys.executable,
             "-m",
@@ -112,7 +124,12 @@ def main(cfg: DictConfig) -> None:
             )
         )
 
-        time.sleep(cfg.launch.startup_delay_sec)
+        wait_for_port(
+            host=cfg.launch.coordinator_host,
+            port=cfg.launch.coordinator_port,
+            timeout_sec=cfg.launch.coordinator_ready_timeout_sec,
+            logger=logger,
+        )
 
         for idx in range(cfg.launch.num_workers):
             worker_id = f"worker_{idx + 1}"
@@ -136,11 +153,10 @@ def main(cfg: DictConfig) -> None:
                 )
             )
 
-        time.sleep(cfg.launch.startup_delay_sec)
+        time.sleep(cfg.launch.worker_startup_delay_sec)
 
         request_id = submit_workload(cfg, logger)
         logger.info("Submitted request: %s", request_id)
-
         logger.info("Experiment running. Press Ctrl+C to stop coordinator/workers.")
 
         while True:

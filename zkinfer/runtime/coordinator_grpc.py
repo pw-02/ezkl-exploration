@@ -68,7 +68,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 input_data_path=request.input_data_path,
                 split_mode=request.split_mode,
                 ops_per_chunk=request.ops_per_chunk,
-                schedule=request.schedule,
+                scheduler=request.scheduler,
             )
             return pb2.InferenceRequestAck(request_id=request_id)
 
@@ -200,7 +200,7 @@ def serve(cfg: DictConfig):
     runtime_config = build_runtime_config(cfg)
 
     coordinator = Coordinator(
-        config=runtime_config,
+        runtime_config=runtime_config,
         logger=logger,
     )
 

@@ -7,44 +7,41 @@ from typing import Optional
 import psutil
 
 
-def current_timestamp() -> str:
+def timestamp() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def log_system_usage(log_file, interval_sec: float) -> None:
-    cpu_percent = psutil.cpu_percent(interval=interval_sec)
-    memory = psutil.virtual_memory()
+def log_system_usage(file, interval: float) -> None:
+    cpu_usage = psutil.cpu_percent(interval=None)
+    memory_info = psutil.virtual_memory()
 
-    total_memory_gb = memory.total / (1024 ** 3)
-    used_memory_gb = memory.used / (1024 ** 3)
+    total_memory_gb = memory_info.total / (1024**3)
+    used_memory_gb = memory_info.used / (1024**3)
 
-    log_file.write(
-        f"{current_timestamp()} | "
-        f"TYPE:system | "
-        f"CPU: {cpu_percent:.1f}% | "
+    file.write(
+        f"{timestamp()} | TYPE:system | "
+        f"CPU: {cpu_usage:.1f}% | "
         f"MEM: {used_memory_gb:.2f}GB/{total_memory_gb:.2f}GB "
-        f"({memory.percent:.1f}%)\n"
+        f"({memory_info.percent:.1f}%)\n"
     )
-    log_file.flush()
+    file.flush()
 
 
 def log_process_usage(
     process: psutil.Process,
-    log_file,
-    interval_sec: float,
+    file,
 ) -> bool:
     try:
-        cpu_percent = process.cpu_percent(interval=interval_sec)
-        memory_gb = process.memory_info().rss / (1024 ** 3)
+        cpu_usage = process.cpu_percent(interval=None)
+        memory_gb = process.memory_info().rss / (1024**3)
 
-        log_file.write(
-            f"{current_timestamp()} | "
-            f"TYPE:process | "
+        file.write(
+            f"{timestamp()} | TYPE:process | "
             f"PID: {process.pid} | "
-            f"CPU: {cpu_percent:.1f}% | "
+            f"CPU: {cpu_usage:.1f}% | "
             f"MEM: {memory_gb:.2f}GB\n"
         )
-        log_file.flush()
+        file.flush()
 
         return True
 
@@ -57,42 +54,48 @@ def resolve_process(pid: Optional[int]) -> Optional[psutil.Process]:
         return None
 
     try:
-        return psutil.Process(pid)
+        process = psutil.Process(pid)
+
+        # prime cpu counters
+        process.cpu_percent(interval=None)
+
+        return process
 
     except psutil.NoSuchProcess:
-        print(f"Process not found: {pid}", file=sys.stderr)
+        print(f"No such process: {pid}", file=sys.stderr)
         sys.exit(1)
 
 
 def run(
-    log_path: str,
-    interval_sec: float,
+    log_file: str,
+    interval: float,
     pid: Optional[int],
 ) -> None:
     process = resolve_process(pid)
 
-    with open(log_path, "a", encoding="utf-8") as log_file:
+    # prime system cpu counter
+    psutil.cpu_percent(interval=None)
+
+    with open(log_file, "a", encoding="utf-8") as file:
         while True:
-            log_system_usage(log_file, interval_sec)
+            log_system_usage(file, interval)
 
             if process is not None:
-                process_alive = log_process_usage(
-                    process,
-                    log_file,
-                    interval_sec,
-                )
+                alive = log_process_usage(process, file)
 
-                if not process_alive:
-                    print("Target process exited.", file=sys.stderr)
+                if not alive:
+                    print("Process exited.", file=sys.stderr)
                     break
+
+            time.sleep(interval)
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--log_path", required=True)
-    parser.add_argument("--interval_sec", type=float, default=3)
-    parser.add_argument("--pid", type=int, default=None)
+    parser.add_argument("--log_file", required=True)
+    parser.add_argument("--interval", type=float, default=3)
+    parser.add_argument("--pid", type=int)
 
     return parser.parse_args()
 
@@ -101,8 +104,8 @@ def main() -> None:
     args = parse_args()
 
     run(
-        log_path=args.log_path,
-        interval_sec=args.interval_sec,
+        log_file=args.log_file,
+        interval=args.interval,
         pid=args.pid,
     )
 

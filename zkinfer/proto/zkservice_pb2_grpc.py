@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from proto import zkservice_pb2 as proto_dot_zkservice__pb2
+import zkinfer.proto.zkservice_pb2 as zkservice__pb2
 
 GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + ' but the generated code in proto/zkservice_pb2_grpc.py depends on'
+        + ' but the generated code in zkservice_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -40,23 +40,23 @@ class ZKJobServiceStub(object):
         """
         self.SubmitInferenceRequest = channel.unary_unary(
                 '/zkservice.ZKJobService/SubmitInferenceRequest',
-                request_serializer=proto_dot_zkservice__pb2.InferenceRequest.SerializeToString,
-                response_deserializer=proto_dot_zkservice__pb2.InferenceRequestAck.FromString,
+                request_serializer=zkservice__pb2.InferenceRequest.SerializeToString,
+                response_deserializer=zkservice__pb2.InferenceRequestAck.FromString,
                 _registered_method=True)
         self.GetNextJob = channel.unary_unary(
                 '/zkservice.ZKJobService/GetNextJob',
-                request_serializer=proto_dot_zkservice__pb2.WorkerRequest.SerializeToString,
-                response_deserializer=proto_dot_zkservice__pb2.JobAssignment.FromString,
+                request_serializer=zkservice__pb2.WorkerRequest.SerializeToString,
+                response_deserializer=zkservice__pb2.JobAssignment.FromString,
                 _registered_method=True)
         self.SubmitJobResult = channel.unary_unary(
                 '/zkservice.ZKJobService/SubmitJobResult',
-                request_serializer=proto_dot_zkservice__pb2.JobResult.SerializeToString,
-                response_deserializer=proto_dot_zkservice__pb2.StatusAck.FromString,
+                request_serializer=zkservice__pb2.JobResult.SerializeToString,
+                response_deserializer=zkservice__pb2.StatusAck.FromString,
                 _registered_method=True)
         self.SendHeartbeat = channel.unary_unary(
                 '/zkservice.ZKJobService/SendHeartbeat',
-                request_serializer=proto_dot_zkservice__pb2.HeartbeatRequest.SerializeToString,
-                response_deserializer=proto_dot_zkservice__pb2.HeartbeatAck.FromString,
+                request_serializer=zkservice__pb2.HeartbeatRequest.SerializeToString,
+                response_deserializer=zkservice__pb2.HeartbeatAck.FromString,
                 _registered_method=True)
 
 
@@ -99,23 +99,23 @@ def add_ZKJobServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'SubmitInferenceRequest': grpc.unary_unary_rpc_method_handler(
                     servicer.SubmitInferenceRequest,
-                    request_deserializer=proto_dot_zkservice__pb2.InferenceRequest.FromString,
-                    response_serializer=proto_dot_zkservice__pb2.InferenceRequestAck.SerializeToString,
+                    request_deserializer=zkservice__pb2.InferenceRequest.FromString,
+                    response_serializer=zkservice__pb2.InferenceRequestAck.SerializeToString,
             ),
             'GetNextJob': grpc.unary_unary_rpc_method_handler(
                     servicer.GetNextJob,
-                    request_deserializer=proto_dot_zkservice__pb2.WorkerRequest.FromString,
-                    response_serializer=proto_dot_zkservice__pb2.JobAssignment.SerializeToString,
+                    request_deserializer=zkservice__pb2.WorkerRequest.FromString,
+                    response_serializer=zkservice__pb2.JobAssignment.SerializeToString,
             ),
             'SubmitJobResult': grpc.unary_unary_rpc_method_handler(
                     servicer.SubmitJobResult,
-                    request_deserializer=proto_dot_zkservice__pb2.JobResult.FromString,
-                    response_serializer=proto_dot_zkservice__pb2.StatusAck.SerializeToString,
+                    request_deserializer=zkservice__pb2.JobResult.FromString,
+                    response_serializer=zkservice__pb2.StatusAck.SerializeToString,
             ),
             'SendHeartbeat': grpc.unary_unary_rpc_method_handler(
                     servicer.SendHeartbeat,
-                    request_deserializer=proto_dot_zkservice__pb2.HeartbeatRequest.FromString,
-                    response_serializer=proto_dot_zkservice__pb2.HeartbeatAck.SerializeToString,
+                    request_deserializer=zkservice__pb2.HeartbeatRequest.FromString,
+                    response_serializer=zkservice__pb2.HeartbeatAck.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -147,8 +147,8 @@ class ZKJobService(object):
             request,
             target,
             '/zkservice.ZKJobService/SubmitInferenceRequest',
-            proto_dot_zkservice__pb2.InferenceRequest.SerializeToString,
-            proto_dot_zkservice__pb2.InferenceRequestAck.FromString,
+            zkservice__pb2.InferenceRequest.SerializeToString,
+            zkservice__pb2.InferenceRequestAck.FromString,
             options,
             channel_credentials,
             insecure,
@@ -174,8 +174,8 @@ class ZKJobService(object):
             request,
             target,
             '/zkservice.ZKJobService/GetNextJob',
-            proto_dot_zkservice__pb2.WorkerRequest.SerializeToString,
-            proto_dot_zkservice__pb2.JobAssignment.FromString,
+            zkservice__pb2.WorkerRequest.SerializeToString,
+            zkservice__pb2.JobAssignment.FromString,
             options,
             channel_credentials,
             insecure,
@@ -201,8 +201,8 @@ class ZKJobService(object):
             request,
             target,
             '/zkservice.ZKJobService/SubmitJobResult',
-            proto_dot_zkservice__pb2.JobResult.SerializeToString,
-            proto_dot_zkservice__pb2.StatusAck.FromString,
+            zkservice__pb2.JobResult.SerializeToString,
+            zkservice__pb2.StatusAck.FromString,
             options,
             channel_credentials,
             insecure,
@@ -228,8 +228,8 @@ class ZKJobService(object):
             request,
             target,
             '/zkservice.ZKJobService/SendHeartbeat',
-            proto_dot_zkservice__pb2.HeartbeatRequest.SerializeToString,
-            proto_dot_zkservice__pb2.HeartbeatAck.FromString,
+            zkservice__pb2.HeartbeatRequest.SerializeToString,
+            zkservice__pb2.HeartbeatAck.FromString,
             options,
             channel_credentials,
             insecure,
