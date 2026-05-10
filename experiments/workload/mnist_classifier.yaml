@@ -1,0 +1,4 @@
+# experiments/workload/mnist_classifier.yaml
+name: mnist_classifier
+onnx_file: examples/onnx/mnist_classifier/network.onnx
+input_file: examples/onnx/mnist_classifier/input.json

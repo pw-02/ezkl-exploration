@@ -1,0 +1,20 @@
+defaults:
+  - workload: mnist_classifier
+  - _self_
+
+execution:
+  split_mode: none
+  ops_per_chunk: 1
+
+jobs:
+  scheduler: lpt
+
+launch:
+  num_workers: 1
+  coordinator_host: localhost
+  coordinator_port: 50051
+  startup_delay_sec: 2
+
+paths:
+  logs_dir: experiments/outputs/logs
+  reports_dir: experiments/outputs/reports

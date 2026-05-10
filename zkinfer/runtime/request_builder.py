@@ -5,13 +5,13 @@ from typing import Dict, List
 
 from zkinfer.config.runtime import FileTransferConfig, ProvingCacheConfig
 from zkinfer.graph.onnx_splitter import split_onnx_model_with_inputs
-from zkinfer.storage.storage_utils import (
+from zkinfer.storage.io import (
     compute_bytes_md5_hex,
-    file_exists,
-    load_json_file,
+    exists,
+    load_json,
     load_model_proto,
-    save_json_file,
-    save_model_proto_file,
+    save_json,
+    save_model_proto,
 )
 
 
@@ -32,16 +32,16 @@ class RequestBuilder:
         jobs: List[ProofJob] = []
 
         for model_name, model_hash, model_proto, input_data in models_with_inputs:
-            cache_dir = os.path.join(proving_cache.root_dir, model_hash)
-            model_file_path = os.path.join(cache_dir, "model.onnx")
-            input_file_path = os.path.join(cache_dir, "input.json")
-            profiling_file_path = os.path.join(cache_dir, "profiling.json")
+            job_dir = os.path.join(file_transfer.root_dir, model_hash)
+
+            model_file_path = os.path.join(job_dir, "model.onnx")
+            input_file_path = os.path.join(job_dir, "input.json")
+            profiling_file_path = os.path.join(job_dir, "profiling.json")
 
             model_write_time = self._save_model_if_needed(
                 model_proto=model_proto,
                 model_file_path=model_file_path,
                 file_transfer=file_transfer,
-                proving_cache=proving_cache,
             )
 
             profiling_data = self._load_profiling_data(
@@ -79,8 +79,9 @@ class RequestBuilder:
     def _load_or_split_model(self, request):
         if request.split_mode == "none":
             model_proto = load_model_proto(request.onnx_model_path)
-            input_data = load_json_file(request.input_data_path)
+            input_data = load_json(request.input_data_path)
             model_hash = compute_bytes_md5_hex(model_proto.SerializeToString())
+
             return [(request.name, model_hash, model_proto, input_data)]
 
         return split_onnx_model_with_inputs(
@@ -94,24 +95,25 @@ class RequestBuilder:
         model_proto,
         model_file_path: str,
         file_transfer: FileTransferConfig,
-        proving_cache: ProvingCacheConfig,
     ) -> float:
-        model_exists = file_exists(
+        model_exists = exists(
             model_file_path,
-            use_s3=file_transfer.type == "s3",
+            storage_type=file_transfer.type,
             s3_bucket=file_transfer.s3_bucket,
         )
 
-        if not proving_cache.overwrite and model_exists:
+        if model_exists:
             return 0.0
 
         start = time.perf_counter()
-        save_model_proto_file(
+
+        save_model_proto(
             model_proto,
             model_file_path,
-            use_s3=file_transfer.type == "s3",
+            storage_type=file_transfer.type,
             s3_bucket=file_transfer.s3_bucket,
         )
+
         return time.perf_counter() - start
 
     def _load_profiling_data(
@@ -120,9 +122,9 @@ class RequestBuilder:
         profiling_file_path: str,
         file_transfer: FileTransferConfig,
     ) -> Dict:
-        profiling_exists = file_exists(
+        profiling_exists = exists(
             profiling_file_path,
-            use_s3=file_transfer.type == "s3",
+            storage_type=file_transfer.type,
             s3_bucket=file_transfer.s3_bucket,
         )
 
@@ -134,9 +136,9 @@ class RequestBuilder:
             )
             return {}
 
-        return load_json_file(
+        return load_json(
             profiling_file_path,
-            use_s3=file_transfer.type == "s3",
+            storage_type=file_transfer.type,
             s3_bucket=file_transfer.s3_bucket,
         )
 
@@ -147,10 +149,12 @@ class RequestBuilder:
         file_transfer: FileTransferConfig,
     ) -> float:
         start = time.perf_counter()
-        save_json_file(
+
+        save_json(
             input_data,
             input_file_path,
-            use_s3=file_transfer.type == "s3",
+            storage_type=file_transfer.type,
             s3_bucket=file_transfer.s3_bucket,
         )
+
         return time.perf_counter() - start
