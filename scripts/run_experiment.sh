@@ -10,7 +10,7 @@ DISPATCHER_HOST="${3:-localhost}"
 
 SESSION="zkexp"
 PROJECT_DIR="ezkl-exploration"
-CONDA_SH="$HOME/miniconda3/etc/profile.d/conda.sh"
+# CONDA_SH="$HOME/miniconda3/etc/profile.d/conda.sh"
 
 # Replace any existing session with the same name
 tmux has-session -t "$SESSION" 2>/dev/null && tmux kill-session -t "$SESSION"
@@ -19,7 +19,7 @@ tmux has-session -t "$SESSION" 2>/dev/null && tmux kill-session -t "$SESSION"
 tmux new-session -d -s "$SESSION"
 
 # Common setup command
-SETUP_CMD="source \"$CONDA_SH\" && cd \"$PROJECT_DIR\" && export PYTHONPATH=.:\"\$PYTHONPATH\""
+SETUP_CMD="cd \"$PROJECT_DIR\" && export PYTHONPATH=.:\"\$PYTHONPATH\""
 
 # Dispatcher window
 tmux rename-window -t "$SESSION:0" "dispatcher"
