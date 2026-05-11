@@ -278,8 +278,8 @@ if __name__ == "__main__":
     logger = setup_logger(os.path.join(base_path, "debug.log"))
 
     try:
-        input_data_path = "cache/debug_split/input_1.json"
-        onnx_model_path = "cache/debug_split/model_1.onnx"
+        input_data_path = "experiments/models/mnist_classifier/input.json"
+        onnx_model_path = "experiments/models/mnist_classifier/network.onnx"
 
         settings_path = os.path.join(base_path, "settings.json")
         compiled_circuit_path = os.path.join(base_path, "circuit.json")
