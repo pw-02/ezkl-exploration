@@ -64,7 +64,6 @@ def calibrate_settings(
     if not os.path.exists(settings_path):
         res = ezkl.gen_settings(onnx_model_path, settings_path)
         logger.info("gen_settings result: %s", res)
-
         if run_calibrate:
             res = ezkl.calibrate_settings(
                 input_data_path,
@@ -104,57 +103,17 @@ def compile_circuit(
         raise FileNotFoundError(f"Compiled circuit not created: {compiled_circuit_path}")
 
 
-def get_srs(
-    settings_path: str,
-    logger: logging.Logger,
-    srs_path: Optional[str] = None,
-    use_local_srs: bool = True,
-) -> str:
+def get_srs(settings_path: str, logger: logging.Logger) -> None:
     logger.info("GETTING_SRS")
     dump_json_if_exists(settings_path, logger, "settings before get_srs")
 
-    with open(settings_path, "r", encoding="utf-8") as file:
-        settings = json.load(file)
+    #get logrows from settings to ensure we get the correct SRS size
+    with open(settings_path, "r") as f:
+        settings = json.load(f)
 
-    logrows = settings.get("run_args", {}).get("logrows")
-    if logrows is None:
-        raise ValueError("settings.json missing run_args.logrows")
 
-    if srs_path is None:
-        srs_path = os.path.join(
-            os.path.dirname(settings_path) or ".",
-            f"kzg{logrows}.srs",
-        )
-
-    logger.info("SRS path: %s", srs_path)
-    logger.info("logrows: %s", logrows)
-
-    if use_local_srs:
-        logger.warning("Using LOCAL test SRS via ezkl.gen_srs")
-        res = ezkl.gen_srs(
-            srs_path=srs_path,
-            logrows=logrows,
-        )
-    else:
-        logger.info("Using downloaded public SRS via ezkl.get_srs")
-        res = ezkl.get_srs(
-            settings_path=settings_path,
-            srs_path=srs_path,
-        )
-
-    logger.info("SRS result: %s", res)
-
-    if not os.path.exists(srs_path):
-        raise FileNotFoundError(f"SRS file not created: {srs_path}")
-
-    logger.info("SRS size: %.2f MB", os.path.getsize(srs_path) / 1024 / 1024)
-
-    with open(srs_path, "rb") as file:
-        header = file.read(32)
-
-    logger.debug("SRS header bytes: %s", header.hex())
-
-    return srs_path
+    res = ezkl.get_srs( settings_path=settings_path, srs_path=f".kzg{settings['run_args']['logrows']}.srs")
+    logger.info("get_srs result: %s", res)
 
 
 def gen_witness(
@@ -183,18 +142,12 @@ def gen_keys(
     compiled_circuit_path: str,
     vk_path: str,
     pk_path: str,
-    srs_path: str,
     logger: logging.Logger,
 ) -> None:
     logger.info("GENERATING_KEYS")
 
     if not os.path.exists(vk_path) or not os.path.exists(pk_path):
-        res = ezkl.setup(
-            compiled_circuit_path,
-            vk_path,
-            pk_path,
-            srs_path=srs_path,
-        )
+        res = ezkl.setup(compiled_circuit_path, vk_path, pk_path)
         logger.info("setup result: %s", res)
     else:
         logger.info("Using existing keys: %s / %s", vk_path, pk_path)
@@ -205,7 +158,6 @@ def compute_proof(
     compiled_circuit_path: str,
     pk_path: str,
     proof_path: str,
-    srs_path: str,
     logger: logging.Logger,
 ) -> None:
     logger.info("PROVING")
@@ -216,7 +168,6 @@ def compute_proof(
         pk_path,
         proof_path,
         "single",
-        srs_path=srs_path,
     )
     logger.info("prove result: %s", res)
 
@@ -256,8 +207,6 @@ def run_proof(
     proof_path: str,
     logger: logging.Logger,
     setup_only: bool = False,
-    srs_path: Optional[str] = None,
-    use_local_srs: bool = True,
 ) -> Dict[str, Any]:
     perf_measurements: Dict[str, Any] = {}
     total_setup_time = 0.0
@@ -282,21 +231,9 @@ def run_proof(
         logger,
     )
 
-    srs_holder: Dict[str, str] = {}
-
-    def get_srs_stage() -> None:
-        srs_holder["path"] = get_srs(
-            settings_path=settings_path,
-            logger=logger,
-            srs_path=srs_path,
-            use_local_srs=use_local_srs,
-        )
-
-    t = timed_stage("get_srs", logger, get_srs_stage)
+    t = timed_stage("get_srs", logger, get_srs, settings_path, logger)
     perf_measurements["ezkl_get_srs_time(s)"] = t
     total_setup_time += t
-
-    resolved_srs_path = srs_holder["path"]
 
     t = timed_stage(
         "gen_witness",
@@ -317,7 +254,6 @@ def run_proof(
         compiled_circuit_path,
         vk_path,
         pk_path,
-        resolved_srs_path,
         logger,
     )
     perf_measurements["ezkl_key_gen_time(s)"] = t
@@ -334,7 +270,6 @@ def run_proof(
             compiled_circuit_path,
             pk_path,
             proof_path,
-            resolved_srs_path,
             logger,
         )
 
@@ -357,7 +292,6 @@ if __name__ == "__main__":
         vk_path = os.path.join(base_path, "vk.json")
         pk_path = os.path.join(base_path, "pk.json")
         proof_path = os.path.join(base_path, "proof.json")
-        srs_path = os.path.join(base_path, "kzg.srs")
 
         metrics = run_proof(
             onnx_model_path=onnx_model_path,
@@ -369,8 +303,6 @@ if __name__ == "__main__":
             pk_path=pk_path,
             proof_path=proof_path,
             logger=logger,
-            srs_path=srs_path,
-            use_local_srs=True,
         )
 
         logger.info("Perf measurements: %s", metrics)
