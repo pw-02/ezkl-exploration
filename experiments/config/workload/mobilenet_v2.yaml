@@ -1,0 +1,5 @@
+name: mobilenet_v2
+onnx_file: experiments/models/mobile_net/mobilenetv2_050_Opset18.onnx
+input_file: experiments/models/mobile_net/input.json
+input_shapes:
+  input: [1,3,224,224]
