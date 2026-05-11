@@ -18,5 +18,6 @@ pyparsing
 torch
 torchvision
 onnxsim
+onnxscript
 # pip install --upgrade grpcio grpcio-tools
 #pip install --upgrade protobuf
