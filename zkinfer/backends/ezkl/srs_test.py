@@ -3,7 +3,10 @@ import os
 import shutil
 import ezkl
 
-MODEL_PATH = "network.onnx"
+
+# MODEL_PATH = "experiments/models/mnist_classifier/input.json"
+MODEL_PATH = "experiments/models/mnist_classifier/network.onnx"
+
 COMPILED_MODEL_PATH = "network.compiled"
 SETTINGS_PATH = "settings.json"
 CALIBRATION_DATA = "calibration.json"
