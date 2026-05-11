@@ -198,13 +198,13 @@ class EZKLProofStages:
         self.ezkl.gen_settings(self.onnx_model_path, self.settings_path)
         #accuracy, resources
         
-        self.ezkl.calibrate_settings(
-            self.input_data_path,
-            self.onnx_model_path,
-            self.settings_path,
-            "resources", 
-            scales=[7],
-        )
+        # self.ezkl.calibrate_settings(
+        #     self.input_data_path,
+        #     self.onnx_model_path,
+        #     self.settings_path,
+        #     "resources", 
+        #     scales=[7],
+        # )
         # self._fix_logrows_after_calibration(margin=1)
 
         s3_write_time = self._upload_to_cache(self.settings_path, "settings.json")
