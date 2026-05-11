@@ -107,8 +107,12 @@ def get_srs(settings_path: str, logger: logging.Logger) -> None:
     logger.info("GETTING_SRS")
     dump_json_if_exists(settings_path, logger, "settings before get_srs")
 
+    #get logrows from settings to ensure we get the correct SRS size
+    with open(settings_path, "r") as f:
+        settings = json.load(f)
 
-    res = ezkl.get_srs( settings_path=settings_path,srs_path=".")
+
+    res = ezkl.get_srs( settings_path=settings_path, srs_path=f".kzg{settings['run_args']['logrows']}.srs")
     logger.info("get_srs result: %s", res)
 
 
