@@ -15,7 +15,7 @@ WORKLOADS=(
 for WORKLOAD in "${WORKLOADS[@]}"; do
   echo "Running workload: ${WORKLOAD}"
 
-  python launch.py \
+  python run_local_exp.py \
     workload="${WORKLOAD}" \
     launch.num_workers="${NUM_WORKERS}" \
     launch.coordinator_host="${COORDINATOR_HOST}" \
