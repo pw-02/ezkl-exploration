@@ -17,7 +17,7 @@ def setup_logger() -> logging.Logger:
     return logging.getLogger("submit")
 
 
-@hydra.main(config_path=".", config_name="config", version_base=None)
+@hydra.main(config_path="./config", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     logger = setup_logger()
 
