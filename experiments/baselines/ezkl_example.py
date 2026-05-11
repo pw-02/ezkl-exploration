@@ -107,7 +107,8 @@ def get_srs(settings_path: str, logger: logging.Logger) -> None:
     logger.info("GETTING_SRS")
     dump_json_if_exists(settings_path, logger, "settings before get_srs")
 
-    res = ezkl.get_srs(settings_path)
+
+    res = ezkl.get_srs( settings_path=settings_path,srs_path=".")
     logger.info("get_srs result: %s", res)
 
 
