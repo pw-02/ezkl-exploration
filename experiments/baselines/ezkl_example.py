@@ -369,7 +369,7 @@ if __name__ == "__main__":
             pk_path=pk_path,
             proof_path=proof_path,
             logger=logger,
-            srs_path=srs_path,
+            srs_path=None,
             use_local_srs=True,
         )
 
