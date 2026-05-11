@@ -43,7 +43,7 @@ done
 tmux new-window -t "$SESSION" -n "submit"
 
 tmux send-keys -t "$SESSION:submit" \
-  "$SETUP_CMD && sleep 2 && python experiments/submit.py workload=${WORKLOAD} launch.num_workers=${NUM_WORKERS} launch.coordinator_host=${COORDINATOR_HOST}" \
+  "$SETUP_CMD && sleep 2 && python experiments/submit_job.py workload=${WORKLOAD} launch.num_workers=${NUM_WORKERS} launch.coordinator_host=${COORDINATOR_HOST}" \
   C-m
 
 tmux attach -t "$SESSION"
