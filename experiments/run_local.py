@@ -103,7 +103,6 @@ def submit_workload(cfg: DictConfig, logger: logging.Logger) -> str:
         ops_per_chunk=cfg.execution.ops_per_chunk,
         scheduler=cfg.jobs.scheduler,
         simplify_model=cfg.execution.get("simplify_model", False),
-        simplified_model_path=cfg.execution.get("simplified_model_path", None),
         simplify_input_shapes=cfg.workload.get("input_shapes", None),
     )
 

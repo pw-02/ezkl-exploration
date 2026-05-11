@@ -109,12 +109,12 @@ def run_proof(
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
 
-    base_path = "ezkl_tmp"
+    base_path = "_ezkl_tmp"
     os.makedirs(base_path, exist_ok=True)
 
     try:
-        input_data_path = "cache/sub_model_8/input.json"
-        onnx_model_path = "cache/sub_model_8/model.onnx"
+        input_data_path = "cache/debug_split/input_1.json"
+        onnx_model_path = "cache/debug_split/model_1.onnx"
 
         settings_path = os.path.join(base_path, "settings.json")
         compiled_circuit_path = os.path.join(base_path, "circuit.json")

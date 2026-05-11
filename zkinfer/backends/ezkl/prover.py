@@ -2,6 +2,8 @@ import logging
 import os
 import time
 from typing import Any, Dict, Optional, Tuple
+import json
+import math
 
 from zkinfer.storage.s3 import (
     download_file,
@@ -60,6 +62,8 @@ class EZKLProofStages:
 
         self.witness_path = os.path.join(self.tmp_dir, "witness.json")
         self.proof_path = os.path.join(self.tmp_dir, "proof.pf")
+
+        self.ezkl_stting_dict = {}
 
     @property
     def use_s3_cache(self) -> bool:
@@ -135,6 +139,45 @@ class EZKLProofStages:
         download_file(self.proving_cache_s3_bucket, pk_key, self.pk_path)
         download_file(self.proving_cache_s3_bucket, vk_key, self.vk_path)
         return True, time.perf_counter() - start
+    
+    def _load_settings(self) -> Dict[str, Any]:
+        with open(self.settings_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+
+    def _save_settings(self, settings: Dict[str, Any]) -> None:
+        with open(self.settings_path, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2)
+
+
+    def _fix_logrows_after_calibration(self, margin: int = 1) -> None:
+        if not os.path.exists(self.settings_path):
+            return
+
+        settings = self._load_settings()
+        run_args = settings.setdefault("run_args", {})
+
+        total_assignments = int(settings.get("total_assignments") or 0)
+        current_logrows = int(run_args.get("logrows") or 0)
+
+        if total_assignments <= 0:
+            self.logger.warning(
+                "Cannot fix logrows because total_assignments=%s",
+                total_assignments,
+            )
+            return
+
+        required_logrows = math.ceil(math.log2(total_assignments)) + margin
+
+        if required_logrows > current_logrows:
+            self.logger.warning(
+                "Increasing EZKL logrows from %s to %s because total_assignments=%s",
+                current_logrows,
+                required_logrows,
+                total_assignments,
+            )
+            run_args["logrows"] = required_logrows
+            self._save_settings(settings)
 
     def get_pk_file_size_gb(self) -> float:
         return os.path.getsize(self.pk_path) / (1024 ** 3) if os.path.exists(self.pk_path) else 0.0
@@ -153,14 +196,23 @@ class EZKLProofStages:
             return True, s3_read_time, 0.0
 
         self.ezkl.gen_settings(self.onnx_model_path, self.settings_path)
+        #accuracy, resources
+        
         self.ezkl.calibrate_settings(
             self.input_data_path,
             self.onnx_model_path,
             self.settings_path,
-            "resources",
+            "resources", 
+            scales=[7],
         )
+        # self._fix_logrows_after_calibration(margin=1)
 
         s3_write_time = self._upload_to_cache(self.settings_path, "settings.json")
+
+        self.ezkl_stting_dict = self._load_settings()
+
+    
+
         return False, 0.0, s3_write_time
 
     def compile_circuit(self):
@@ -282,4 +334,4 @@ class EZKLProofStages:
             metrics["ezkl_proof_time(s)"] = time.perf_counter() - start
 
         self._update_status("DONE")
-        return metrics
+        return metrics, self.ezkl_stting_dict

@@ -334,7 +334,13 @@ class ZKProofWorker:
                 status_file=status_file,
             )
 
-            ezkl_metrics = proof_stages.run_all(setup_only=False)
+            ezkl_metrics, ezkl_settings = proof_stages.run_all(setup_only=False)
+
+            #save ezkl settings to artifact dir
+            settings_output_path = os.path.join(local_paths.artifact_dir, "ezkl_settings.json")
+            with open(settings_output_path, "w") as f:
+                json.dump(ezkl_settings, f, indent=4)
+
 
             metrics = self.collect_metrics(
                 artifact_dir=local_paths.artifact_dir,
@@ -350,6 +356,8 @@ class ZKProofWorker:
                 perf_metrics=metrics,
                 message="Proof computation completed successfully",
             )
+
+       
 
             self.logger.info("Completed job %s", job_id)
 

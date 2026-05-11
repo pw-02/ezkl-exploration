@@ -28,19 +28,97 @@ def load_json_input(file_path: str) -> Dict[str, Any]:
         return json.load(file)
 
 
+def ort_type_to_numpy_dtype(ort_type: str) -> np.dtype:
+    if "float16" in ort_type:
+        return np.float16
+    if "float" in ort_type:
+        return np.float32
+    if "double" in ort_type:
+        return np.float64
+    if "int64" in ort_type:
+        return np.int64
+    if "int32" in ort_type:
+        return np.int32
+    if "int8" in ort_type:
+        return np.int8
+    if "uint8" in ort_type:
+        return np.uint8
+    if "bool" in ort_type:
+        return np.bool_
+
+    return np.float32
+
+
+def resolve_input_shape(
+    shape: Sequence[Any],
+    batch_size: int = 1,
+    default_dim: int = 1,
+    seq_len: int = 128,
+) -> List[int]:
+    resolved_shape = []
+
+    for idx, dim in enumerate(shape):
+        if isinstance(dim, int) and dim > 0:
+            resolved_shape.append(dim)
+        elif idx == 0:
+            resolved_shape.append(batch_size)
+        else:
+            resolved_shape.append(seq_len if dim in ("sequence_length", "seq_len") else default_dim)
+
+    return resolved_shape
+
+
+def make_example_feed_dict(
+    session: ort.InferenceSession,
+    batch_size: int = 1,
+    default_dim: int = 1,
+    seq_len: int = 128,
+) -> Dict[str, np.ndarray]:
+    feed_dict: Dict[str, np.ndarray] = {}
+
+    for model_input in session.get_inputs():
+        name = model_input.name
+        dtype = ort_type_to_numpy_dtype(model_input.type)
+
+        shape = resolve_input_shape(
+            model_input.shape,
+            batch_size=batch_size,
+            default_dim=default_dim,
+            seq_len=seq_len,
+        )
+
+        if name == "attention_mask":
+            arr = np.ones(shape, dtype=np.int64)
+        elif name == "token_type_ids":
+            arr = np.zeros(shape, dtype=np.int64)
+        elif name == "input_ids":
+            arr = np.ones(shape, dtype=np.int64)
+        elif np.issubdtype(dtype, np.integer):
+            arr = np.ones(shape, dtype=dtype)
+        elif dtype == np.bool_:
+            arr = np.ones(shape, dtype=dtype)
+        else:
+            arr = np.random.randn(*shape).astype(dtype)
+
+        feed_dict[name] = arr
+
+    return feed_dict
+
+
 def format_model_input(
-    input_data_path: str,
+    input_data_path: Optional[str],
     session: ort.InferenceSession,
 ) -> Dict[str, np.ndarray]:
+    if input_data_path is None:
+        print("No input_data_path provided; generating example input from ONNX input metadata.")
+        return make_example_feed_dict(session)
+
     input_data = load_json_input(input_data_path)["input_data"]
     feed_dict: Dict[str, np.ndarray] = {}
 
     for idx, model_input in enumerate(session.get_inputs()):
-        dtype = np.float32 if "float" in model_input.type else np.int64
-        shape = [
-            1 if dim is None or dim == "batch_size" else dim
-            for dim in model_input.shape
-        ]
+        dtype = ort_type_to_numpy_dtype(model_input.type)
+        shape = resolve_input_shape(model_input.shape)
 
         feed_dict[model_input.name] = np.array(
             input_data[idx],
@@ -52,7 +130,7 @@ def format_model_input(
 
 def run_model_inference(
     onnx_model_path: str,
-    input_data_path: str,
+    input_data_path: Optional[str] = None,
 ):
     session = ort.InferenceSession(onnx_model_path)
     feed_dict = format_model_input(input_data_path, session)
@@ -174,7 +252,7 @@ def merge_onnx_models(sub_models: OrderedDict):
 
 def collect_tensor_values_from_inference(
     onnx_model_path: str,
-    input_data_path: str,
+    input_data_path: Optional[str] = None,
 ) -> Dict[str, np.ndarray]:
     model = onnx.load(onnx_model_path)
     model.graph.ClearField("output")
@@ -183,6 +261,9 @@ def collect_tensor_values_from_inference(
 
     for node in shape_info.graph.node:
         for output_name in node.output:
+            if not output_name:
+                continue
+
             if not any(output.name == output_name for output in model.graph.output):
                 output_info = onnx.ValueInfoProto()
                 output_info.name = output_name
@@ -205,7 +286,8 @@ def build_producer_map(model: onnx.ModelProto) -> Dict[str, onnx.NodeProto]:
 
     for node in model.graph.node:
         for output in node.output:
-            producer_map[output] = node
+            if output:
+                producer_map[output] = node
 
     return producer_map
 
@@ -221,7 +303,7 @@ def trace_sources(
     visited = set()
 
     def dfs(tensor_name: str) -> None:
-        if tensor_name in visited:
+        if not tensor_name or tensor_name in visited:
             return
 
         visited.add(tensor_name)
@@ -258,12 +340,10 @@ def get_partition_io(
     initializers: set,
     passthrough_ops: set,
 ) -> Tuple[List[str], List[str]]:
-    node_outputs = set()
     raw_inputs = []
 
     for node in nodes:
-        node_outputs.update(node.output)
-        raw_inputs.extend(node.input)
+        raw_inputs.extend(input_name for input_name in node.input if input_name)
 
     true_inputs = trace_sources(
         tensor_names=raw_inputs,
@@ -473,7 +553,7 @@ def materialize_submodels_with_inputs(
 
 def split_onnx_model_with_inputs(
     onnx_model_path: str,
-    input_data_path: str,
+    input_data_path: Optional[str] = None,
     split_group_size: int = 1,
     split_mode: str = "single_ops",
     simplify_model: bool = False,
@@ -521,7 +601,10 @@ def get_model_info(onnx_model_path: str) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     onnx_model_path = "examples/onnx/mnist_classifier/network.onnx"
-    input_data_path = "examples/onnx/mnist_classifier/input.json"
+
+    # Set to None to generate an example input automatically.
+    input_data_path = None
+    # input_data_path = "examples/onnx/mnist_classifier/input.json"
 
     cache_dir = "cache/debug_split"
     os.makedirs(cache_dir, exist_ok=True)
@@ -551,3 +634,5 @@ if __name__ == "__main__":
 
     with open(parent_model_file_path, "wb") as file:
         file.write(parent_model.SerializeToString())
+
+    print(f"Saved parent model to {parent_model_file_path}")
