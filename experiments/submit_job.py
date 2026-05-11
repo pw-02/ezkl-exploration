@@ -41,6 +41,8 @@ def main(cfg: DictConfig) -> None:
             split_mode=cfg.execution.split_mode,
             ops_per_chunk=cfg.execution.ops_per_chunk,
             scheduler=cfg.jobs.scheduler,
+            simplify_model=cfg.execution.get("simplify_model", False),
+            simplify_input_shapes=cfg.workload.get("input_shapes", None),
         )
 
         logger.info("Job submitted. Request ID: %s", request_id)
