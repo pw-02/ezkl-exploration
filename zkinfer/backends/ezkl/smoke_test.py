@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import platform
 import shutil
 import subprocess
@@ -19,7 +20,6 @@ WITNESS = WORK / "witness.json"
 PK = WORK / "pk.key"
 VK = WORK / "vk.key"
 PROOF = WORK / "proof.json"
-SRS = WORK / "local_test.srs"
 
 
 class TinyModel(nn.Module):
@@ -39,13 +39,11 @@ def run_step(name, fn):
         raise
 
 
-def main():
-    WORK.mkdir(exist_ok=True)
-
+def print_env():
     print("=== ENV ===")
     print("python:", platform.python_version())
     print("platform:", platform.platform())
-    print("ezkl python:", getattr(ezkl, "__version__", "unknown"))
+    print("ezkl:", getattr(ezkl, "__version__", "unknown"))
     print("torch:", torch.__version__)
 
     cli = shutil.which("ezkl")
@@ -56,6 +54,12 @@ def main():
         except Exception as e:
             print("ezkl cli version failed:", repr(e))
 
+
+def main():
+    WORK.mkdir(exist_ok=True)
+    print_env()
+
+    # 1. Export tiny ONNX model
     model = TinyModel().eval()
     x = torch.tensor([[0.25, -1.0, 2.0]], dtype=torch.float32)
 
@@ -68,12 +72,18 @@ def main():
             input_names=["input"],
             output_names=["output"],
             opset_version=11,
+            dynamic_axes=None,
         ),
     )
 
+    # 2. ezkl input format
     with open(INPUT, "w") as f:
         json.dump({"input_data": [x.detach().numpy().reshape(-1).tolist()]}, f)
 
+    print("model:", MODEL.resolve())
+    print("input:", INPUT.resolve())
+
+    # 3. Generate settings
     run_step(
         "gen_settings",
         lambda: ezkl.gen_settings(
@@ -82,6 +92,7 @@ def main():
         ),
     )
 
+    # 4. Calibrate settings
     run_step(
         "calibrate_settings",
         lambda: ezkl.calibrate_settings(
@@ -95,12 +106,10 @@ def main():
     with open(SETTINGS) as f:
         settings = json.load(f)
 
-    print("\n=== RUN_ARGS ===")
-    print(json.dumps(settings.get("run_args", {}), indent=2))
+    print("\n=== SETTINGS RUN_ARGS ===")
+    print(json.dumps(settings.get("run_args", settings), indent=2)[:4000])
 
-    logrows = settings["run_args"]["logrows"]
-    print("Using logrows:", logrows)
-
+    # 5. Compile circuit
     run_step(
         "compile_circuit",
         lambda: ezkl.compile_circuit(
@@ -110,17 +119,16 @@ def main():
         ),
     )
 
-    # IMPORTANT:
-    # This avoids ezkl.get_srs(), which downloads/parses public SRS.
-    # gen_srs is local and good for debugging/smoke tests.
+    # 6. SRS
+    # This is the step failing on your other machine.
     run_step(
-        "gen_local_srs",
-        lambda: ezkl.gen_srs(
-            srs_path=str(SRS),
-            logrows=logrows,
+        "get_srs",
+        lambda: ezkl.get_srs(
+            settings_path=str(SETTINGS),
         ),
     )
 
+    # 7. Witness
     run_step(
         "gen_witness",
         lambda: ezkl.gen_witness(
@@ -130,6 +138,7 @@ def main():
         ),
     )
 
+    # 8. Mock test, catches many circuit/model issues without full proving
     run_step(
         "mock",
         lambda: ezkl.mock(
@@ -138,16 +147,17 @@ def main():
         ),
     )
 
+    # 9. Setup keys
     run_step(
         "setup",
         lambda: ezkl.setup(
             model=str(COMPILED),
             vk_path=str(VK),
             pk_path=str(PK),
-            srs_path=str(SRS),
         ),
     )
 
+    # 10. Prove
     run_step(
         "prove",
         lambda: ezkl.prove(
@@ -156,22 +166,21 @@ def main():
             pk_path=str(PK),
             proof_path=str(PROOF),
             proof_type="single",
-            srs_path=str(SRS),
         ),
     )
 
+    # 11. Verify
     run_step(
         "verify",
         lambda: ezkl.verify(
             proof_path=str(PROOF),
             settings_path=str(SETTINGS),
             vk_path=str(VK),
-            srs_path=str(SRS),
         ),
     )
 
-    print("\nSUCCESS: ezkl local-SRS smoke test completed.")
-    print("Artifacts:", WORK.resolve())
+    print("\nSUCCESS: ezkl smoke test completed.")
+    print(f"Artifacts in: {WORK.resolve()}")
 
 
 if __name__ == "__main__":
