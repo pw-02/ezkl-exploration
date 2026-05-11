@@ -1,0 +1,6 @@
+name: mnist_gan
+onnx_file: experiments/models/mnist_gan/network.onnx
+input_file: experiments/models/mnist_gan/input.json
+
+input_shapes:
+  input: [1, 1, 28, 28]
