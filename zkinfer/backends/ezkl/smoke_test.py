@@ -45,70 +45,21 @@ def print_env():
     print("platform:", platform.platform())
     print("ezkl:", getattr(ezkl, "__version__", "unknown"))
     print("torch:", torch.__version__)
-    print("HOME:", os.environ.get("HOME"))
-    print("USERPROFILE:", os.environ.get("USERPROFILE"))
 
     cli = shutil.which("ezkl")
     print("ezkl cli:", cli)
     if cli:
         try:
-            print(
-                "ezkl cli version:",
-                subprocess.check_output([cli, "--version"], text=True).strip(),
-            )
+            print("ezkl cli version:", subprocess.check_output([cli, "--version"], text=True).strip())
         except Exception as e:
             print("ezkl cli version failed:", repr(e))
-
-
-def get_expected_srs_path(settings_path: Path) -> Path:
-    with open(settings_path, "r", encoding="utf-8") as f:
-        settings = json.load(f)
-
-    run_args = settings.get("run_args", {})
-    logrows = run_args.get("logrows")
-    commitment = str(run_args.get("commitment", "KZG")).lower()
-
-    if logrows is None:
-        raise ValueError("settings.json missing run_args.logrows")
-
-    home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or "."
-    srs_dir = Path(home) / ".ezkl" / "srs"
-    srs_dir.mkdir(parents=True, exist_ok=True)
-
-    if commitment == "ipa":
-        srs_name = f"ipa{logrows}.srs"
-    else:
-        srs_name = f"kzg{logrows}.srs"
-
-    return srs_dir / srs_name
-
-
-def print_file_debug(path: Path, label: str):
-    print(f"\n=== {label} ===")
-    print("path:", path)
-
-    if not path.exists():
-        print("exists: false")
-        return
-
-    print("exists: true")
-    print("size:", path.stat().st_size, "bytes")
-
-    with open(path, "rb") as f:
-        header = f.read(64)
-
-    print("first 64 bytes hex:", header.hex())
-
-    try:
-        print("file command:", subprocess.check_output(["file", str(path)], text=True).strip())
-    except Exception as e:
-        print("file command failed:", repr(e))
 
 
 def main():
     WORK.mkdir(exist_ok=True)
     print_env()
 
+    # 1. Export tiny ONNX model
     model = TinyModel().eval()
     x = torch.tensor([[0.25, -1.0, 2.0]], dtype=torch.float32)
 
@@ -125,12 +76,14 @@ def main():
         ),
     )
 
-    with open(INPUT, "w", encoding="utf-8") as f:
+    # 2. ezkl input format
+    with open(INPUT, "w") as f:
         json.dump({"input_data": [x.detach().numpy().reshape(-1).tolist()]}, f)
 
     print("model:", MODEL.resolve())
     print("input:", INPUT.resolve())
 
+    # 3. Generate settings
     run_step(
         "gen_settings",
         lambda: ezkl.gen_settings(
@@ -139,6 +92,7 @@ def main():
         ),
     )
 
+    # 4. Calibrate settings
     run_step(
         "calibrate_settings",
         lambda: ezkl.calibrate_settings(
@@ -149,16 +103,13 @@ def main():
         ),
     )
 
-    with open(SETTINGS, "r", encoding="utf-8") as f:
+    with open(SETTINGS) as f:
         settings = json.load(f)
 
     print("\n=== SETTINGS RUN_ARGS ===")
     print(json.dumps(settings.get("run_args", settings), indent=2)[:4000])
 
-    srs_path = get_expected_srs_path(SETTINGS)
-    print("\nExpected ezkl SRS path:", srs_path)
-    print_file_debug(srs_path, "SRS BEFORE get_srs")
-
+    # 5. Compile circuit
     run_step(
         "compile_circuit",
         lambda: ezkl.compile_circuit(
@@ -168,16 +119,16 @@ def main():
         ),
     )
 
+    # 6. SRS
+    # This is the step failing on your other machine.
     run_step(
-        "get_srs_explicit_default_path",
+        "get_srs",
         lambda: ezkl.get_srs(
             settings_path=str(SETTINGS),
-            srs_path=str(srs_path),
         ),
     )
 
-    print_file_debug(srs_path, "SRS AFTER get_srs")
-
+    # 7. Witness
     run_step(
         "gen_witness",
         lambda: ezkl.gen_witness(
@@ -187,6 +138,7 @@ def main():
         ),
     )
 
+    # 8. Mock test, catches many circuit/model issues without full proving
     run_step(
         "mock",
         lambda: ezkl.mock(
@@ -195,16 +147,17 @@ def main():
         ),
     )
 
+    # 9. Setup keys
     run_step(
         "setup",
         lambda: ezkl.setup(
             model=str(COMPILED),
             vk_path=str(VK),
             pk_path=str(PK),
-            srs_path=str(srs_path),
         ),
     )
 
+    # 10. Prove
     run_step(
         "prove",
         lambda: ezkl.prove(
@@ -213,17 +166,16 @@ def main():
             pk_path=str(PK),
             proof_path=str(PROOF),
             proof_type="single",
-            srs_path=str(srs_path),
         ),
     )
 
+    # 11. Verify
     run_step(
         "verify",
         lambda: ezkl.verify(
             proof_path=str(PROOF),
             settings_path=str(SETTINGS),
             vk_path=str(VK),
-            srs_path=str(srs_path),
         ),
     )
 
