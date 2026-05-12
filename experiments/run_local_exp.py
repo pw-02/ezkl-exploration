@@ -1,4 +1,5 @@
 # experiments/run_local_suite.py
+# python experiments/run_local_exp.py suite.workloads='[mnist_classifier,mobilenet_v2]'
 
 import logging
 import os
@@ -355,7 +356,7 @@ def main(cfg: DictConfig) -> None:
             target=f"{cfg.launch.coordinator_host}:{cfg.launch.coordinator_port}"
         )
 
-        for workload_name in WORKLOADS:
+        for workload_name in cfg.suite.workloads:
             workload_cfg = load_workload_cfg(workload_name)
 
             logger.info("=" * 80)
