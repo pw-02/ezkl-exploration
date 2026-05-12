@@ -234,12 +234,15 @@ class Coordinator:
     def _complete_job_locked(self, job: ProofJob, zk_proof: bytes) -> None:
         job.zk_proof = zk_proof
         self.active_jobs.pop(job.job_id, None)
-
         self.logger.info(
             "Job %s completed. Jobs in queue: %d",
             job.job_name,
             len(self.scheduler),
         )
+
+        #wonder in here should we verify the proof before marking the job as completed? 
+        # or should we just trust the worker and let the client verify when they get the proof back? 
+        # for now we will just trust the worker and let the client verify when they get the proof back.
 
     def _handle_failed_job_locked(
         self,
