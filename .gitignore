@@ -1,5 +1,8 @@
 experiments/runs
+experiments/logs
 *pycache*
 _ezkl_tmp/
 ezkl_smoke
 cache
+tmp
+storage

@@ -5,15 +5,18 @@ defaults:
   - backend: ezkl
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
-
 coordinator:
   host: localhost
   port: 50051
   grpc_thread_pool_size: 4
   grpc_max_message_mb: 64
+  runs_dir: experiments/runs
+  logs_dir: experiments/logs/coordinator
 
 worker:
   worker_id: null
+  runs_dir: experiments/runs
+  logs_dir: experiments/logs/workers
   job_poll_interval_sec: 5
   resource_monitor_interval_sec: 3
   send_proofs_to_coordinator: true
@@ -27,16 +30,17 @@ heartbeat:
   timeout_sec: 45
 
 storage:
-  # filesystem | s3
-  type: filesystem
+  backend: filesystem # filesystem | s3
 
-  # Used when type=filesystem
-  root_dir: .
+  # Shared storage for coordinator <-> worker communication.
+  transfer_prefix: storage/transfer
 
-  # Per-run directory. Usually overridden by experiment launcher.
-  run_dir: runs/default
+  # Shared persistent proving cache.
+  proving_cache_enabled: true
+  proving_cache_prefix: storage/cache
+  proving_cache_overwrite: false
 
-  # Used when type=s3
+  # Used only when backend=s3.
   s3_bucket: null
   s3_prefix: zkinfer
 

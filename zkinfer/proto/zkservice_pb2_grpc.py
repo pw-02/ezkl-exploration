@@ -43,6 +43,11 @@ class ZKJobServiceStub(object):
                 request_serializer=proto_dot_zkservice__pb2.InferenceRequest.SerializeToString,
                 response_deserializer=proto_dot_zkservice__pb2.InferenceRequestAck.FromString,
                 _registered_method=True)
+        self.GetRequestStatus = channel.unary_unary(
+                '/zkservice.ZKJobService/GetRequestStatus',
+                request_serializer=proto_dot_zkservice__pb2.RequestStatusRequest.SerializeToString,
+                response_deserializer=proto_dot_zkservice__pb2.RequestStatusResponse.FromString,
+                _registered_method=True)
         self.GetNextJob = channel.unary_unary(
                 '/zkservice.ZKJobService/GetNextJob',
                 request_serializer=proto_dot_zkservice__pb2.WorkerRequest.SerializeToString,
@@ -74,6 +79,12 @@ class ZKJobServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetRequestStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetNextJob(self, request, context):
         """Worker API
         """
@@ -101,6 +112,11 @@ def add_ZKJobServiceServicer_to_server(servicer, server):
                     servicer.SubmitInferenceRequest,
                     request_deserializer=proto_dot_zkservice__pb2.InferenceRequest.FromString,
                     response_serializer=proto_dot_zkservice__pb2.InferenceRequestAck.SerializeToString,
+            ),
+            'GetRequestStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetRequestStatus,
+                    request_deserializer=proto_dot_zkservice__pb2.RequestStatusRequest.FromString,
+                    response_serializer=proto_dot_zkservice__pb2.RequestStatusResponse.SerializeToString,
             ),
             'GetNextJob': grpc.unary_unary_rpc_method_handler(
                     servicer.GetNextJob,
@@ -149,6 +165,33 @@ class ZKJobService(object):
             '/zkservice.ZKJobService/SubmitInferenceRequest',
             proto_dot_zkservice__pb2.InferenceRequest.SerializeToString,
             proto_dot_zkservice__pb2.InferenceRequestAck.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetRequestStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/zkservice.ZKJobService/GetRequestStatus',
+            proto_dot_zkservice__pb2.RequestStatusRequest.SerializeToString,
+            proto_dot_zkservice__pb2.RequestStatusResponse.FromString,
             options,
             channel_credentials,
             insecure,

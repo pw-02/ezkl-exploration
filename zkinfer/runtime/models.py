@@ -28,25 +28,39 @@ class ProofJob:
     inference_request_name: str
     model_name: str
     inference_request_id: str
+
     model_path: str
     input_path: str
+
     profiling_file_path: Optional[str] = None
+
     model_write_time: float = 0.0
     profiling_data: Dict = field(default_factory=dict)
+
     predicted_duration: float = 0.0
     max_retries: int = 0
 
     job_id: str = field(init=False)
     job_name: str = field(init=False)
+
     job_status: JobStatus = JobStatus.PREPARING
-    queued_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    queued_time: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
     started_time: Optional[datetime] = None
     completed_time: Optional[datetime] = None
+
     zk_proof: Optional[bytes] = None
     error_message: Optional[str] = None
+
     retry_count: int = 0
+
     parent_model_hash: Optional[str] = None
     model_hash: Optional[str] = None
+
+    # Shared cache/transfer prefix used by the worker/prover.
     cache_path: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -57,6 +71,8 @@ class ProofJob:
 @dataclass
 class InferenceRequest:
     name: str
+
+
     onnx_model_path: str
     input_data_path: str
 
@@ -65,18 +81,28 @@ class InferenceRequest:
     scheduler: str
 
     simplify_model: bool = False
-    simplify_input_shapes: Optional[Dict] = None
+    input_shapes: Optional[Dict] = None
 
     request_id: str = field(init=False)
+
     proof_jobs: List[ProofJob] = field(default_factory=list)
 
-    created_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_time: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
     queued_time: Optional[datetime] = None
     started_time: Optional[datetime] = None
     completed_time: Optional[datetime] = None
 
     error_message: Optional[str] = None
+
     request_status: RequestStatus = RequestStatus.CREATED
+
+    # Coordinator-owned request output dirs.
+    run_dir: Optional[str] = None
+    logs_dir: Optional[str] = None
+    reports_dir: Optional[str] = None
 
     def __post_init__(self) -> None:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
@@ -84,18 +110,27 @@ class InferenceRequest:
 
     def all_jobs_finished(self) -> bool:
         return all(
-            job.job_status in (JobStatus.COMPLETED, JobStatus.FAILED)
+            job.job_status in {
+                JobStatus.COMPLETED,
+                JobStatus.FAILED,
+            }
             for job in self.proof_jobs
         )
 
     def any_job_failed(self) -> bool:
-        return any(job.job_status == JobStatus.FAILED for job in self.proof_jobs)
+        return any(
+            job.job_status == JobStatus.FAILED
+            for job in self.proof_jobs
+        )
 
     def compute_progress(self) -> float:
         if not self.proof_jobs:
             return 0.0
 
-        completed = sum(
-            1 for job in self.proof_jobs if job.job_status == JobStatus.COMPLETED
+        completed_jobs = sum(
+            1
+            for job in self.proof_jobs
+            if job.job_status == JobStatus.COMPLETED
         )
-        return completed / len(self.proof_jobs) * 100.0
+
+        return completed_jobs / len(self.proof_jobs) * 100.0

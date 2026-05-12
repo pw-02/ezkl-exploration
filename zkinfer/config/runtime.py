@@ -11,11 +11,16 @@ class CoordinatorConfig:
     port: int
     grpc_thread_pool_size: int
     grpc_max_message_mb: int
+    runs_dir: str
+    logs_dir: str
+
 
 
 @dataclass(frozen=True)
 class WorkerConfig:
     worker_id: Optional[str]
+    runs_dir: str
+    logs_dir: str
     job_poll_interval_sec: int
     resource_monitor_interval_sec: int
     send_proofs_to_coordinator: bool
@@ -23,7 +28,7 @@ class WorkerConfig:
 
 @dataclass(frozen=True)
 class FileTransferConfig:
-    type: str
+    backend: str
     root_dir: str
     s3_bucket: Optional[str]
     s3_prefix: str
@@ -32,7 +37,7 @@ class FileTransferConfig:
 @dataclass(frozen=True)
 class ProvingCacheConfig:
     enabled: bool
-    type: str
+    backend: str
     overwrite: bool
     root_dir: str
     s3_bucket: Optional[str]
@@ -59,93 +64,114 @@ class RuntimeConfig:
     proving_cache: ProvingCacheConfig
     jobs: JobConfig
     heartbeat: HeartbeatConfig
-    run_dir: str
-    logs_dir: str
-    reports_dir: str
-    artifacts_dir: str
-    tmp_dir: str
 
 
-def _resolve_run_dir(cfg: DictConfig) -> Path:
-    root_dir = Path(cfg.storage.root_dir)
-    run_dir = Path(cfg.storage.run_dir)
+def _resolve_path(path: str) -> Path:
+    resolved = Path(path)
 
-    if not run_dir.is_absolute():
-        run_dir = root_dir / run_dir
+    if not resolved.is_absolute():
+        resolved = Path.cwd() / resolved
 
-    return run_dir
+    return resolved
 
 
 def _resolve_transfer_config(cfg: DictConfig) -> FileTransferConfig:
-    storage_type = cfg.storage.type
+    backend = cfg.storage.backend
 
-    if storage_type == "filesystem":
-        run_dir = _resolve_run_dir(cfg)
-        transfer_root = run_dir / "shared"
-
-        return FileTransferConfig(
-            type="filesystem",
-            root_dir=str(transfer_root),
-            s3_bucket=None,
-            s3_prefix="",
-        )
-
-    if storage_type == "s3":
-        prefix = cfg.storage.s3_prefix.rstrip("/")
-        run_dir = cfg.storage.run_dir.strip("/")
-
-        transfer_prefix = f"{prefix}/{run_dir}/shared"
+    if backend == "filesystem":
+        root_dir = _resolve_path(cfg.storage.transfer_prefix)
 
         return FileTransferConfig(
-            type="s3",
-            root_dir=transfer_prefix,
-            s3_bucket=cfg.storage.s3_bucket,
-            s3_prefix=transfer_prefix,
-        )
-
-    raise ValueError(f"Unsupported storage.type: {storage_type}")
-
-
-def _resolve_proving_cache_config(cfg: DictConfig) -> ProvingCacheConfig:
-    storage_type = cfg.storage.type
-    namespace = cfg.backend.proving_cache.namespace
-
-    if storage_type == "filesystem":
-        root_dir = Path(cfg.storage.root_dir) / "cache" / namespace
-
-        return ProvingCacheConfig(
-            enabled=cfg.backend.proving_cache.enabled,
-            type="filesystem",
-            overwrite=cfg.backend.proving_cache.overwrite,
+            backend="filesystem",
             root_dir=str(root_dir),
             s3_bucket=None,
             s3_prefix="",
         )
 
-    if storage_type == "s3":
-        prefix = cfg.storage.s3_prefix.rstrip("/")
-        cache_prefix = f"{prefix}/cache/{namespace}"
+    if backend == "s3":
+        base_prefix = cfg.storage.s3_prefix.rstrip("/")
+        transfer_prefix = cfg.storage.transfer_prefix.strip("/")
+        full_prefix = f"{base_prefix}/{transfer_prefix}"
 
-        return ProvingCacheConfig(
-            enabled=cfg.backend.proving_cache.enabled,
-            type="s3",
-            overwrite=cfg.backend.proving_cache.overwrite,
-            root_dir=cache_prefix,
+        return FileTransferConfig(
+            backend="s3",
+            root_dir=full_prefix,
             s3_bucket=cfg.storage.s3_bucket,
-            s3_prefix=cache_prefix,
+            s3_prefix=full_prefix,
         )
 
-    raise ValueError(f"Unsupported storage.type: {storage_type}")
+    raise ValueError(f"Unsupported storage.backend: {backend}")
 
 
-def build_runtime_config(cfg: DictConfig) -> RuntimeConfig:
-    if cfg.storage.type not in {"filesystem", "s3"}:
-        raise ValueError("storage.type must be either 'filesystem' or 's3'")
+def _resolve_proving_cache_config(cfg: DictConfig) -> ProvingCacheConfig:
+    backend = cfg.storage.backend
 
-    if cfg.storage.type == "s3" and not cfg.storage.s3_bucket:
-        raise ValueError("storage.s3_bucket must be set when storage.type=s3")
+    if backend == "filesystem":
+        root_dir = _resolve_path(cfg.storage.proving_cache_prefix)
 
-    run_dir = _resolve_run_dir(cfg)
+        return ProvingCacheConfig(
+            enabled=cfg.storage.proving_cache_enabled,
+            backend="filesystem",
+            overwrite=cfg.storage.proving_cache_overwrite,
+            root_dir=str(root_dir),
+            s3_bucket=None,
+            s3_prefix="",
+        )
+
+    if backend == "s3":
+        base_prefix = cfg.storage.s3_prefix.rstrip("/")
+        cache_prefix = cfg.storage.proving_cache_prefix.strip("/")
+        full_prefix = f"{base_prefix}/{cache_prefix}"
+
+        return ProvingCacheConfig(
+            enabled=cfg.storage.proving_cache_enabled,
+            backend="s3",
+            overwrite=cfg.storage.proving_cache_overwrite,
+            root_dir=full_prefix,
+            s3_bucket=cfg.storage.s3_bucket,
+            s3_prefix=full_prefix,
+        )
+
+    raise ValueError(f"Unsupported storage.backend: {backend}")
+
+
+def build_runtime_config(
+    cfg: DictConfig,
+    process_role: Optional[str] = None,
+) -> RuntimeConfig:
+    if cfg.storage.backend not in {"filesystem", "s3"}:
+        raise ValueError("storage.backend must be either 'filesystem' or 's3'")
+
+    if cfg.storage.backend == "s3" and not cfg.storage.s3_bucket:
+        raise ValueError("storage.s3_bucket must be set when storage.backend=s3")
+
+    if process_role not in {None, "coordinator", "worker"}:
+        raise ValueError("process_role must be one of: coordinator, worker, None")
+
+    coordinator_runs_dir = _resolve_path(cfg.coordinator.runs_dir)
+    worker_runs_dir = _resolve_path(cfg.worker.runs_dir)
+    coordinator_logs_dir = _resolve_path(cfg.coordinator.logs_dir)
+    worker_logs_dir = _resolve_path(cfg.worker.logs_dir)
+
+    file_transfer = _resolve_transfer_config(cfg)
+    proving_cache = _resolve_proving_cache_config(cfg)
+
+    if process_role == "coordinator":
+        coordinator_runs_dir.mkdir(parents=True, exist_ok=True)
+        coordinator_logs_dir.mkdir(parents=True, exist_ok=True)
+
+        if file_transfer.backend == "filesystem":
+            Path(file_transfer.root_dir).mkdir(parents=True, exist_ok=True)
+
+        if proving_cache.backend == "filesystem":
+            Path(proving_cache.root_dir).mkdir(parents=True, exist_ok=True)
+
+    elif process_role == "worker":
+        worker_runs_dir.mkdir(parents=True, exist_ok=True)
+        worker_logs_dir.mkdir(parents=True, exist_ok=True)
+
+        if proving_cache.backend == "filesystem":
+            Path(proving_cache.root_dir).mkdir(parents=True, exist_ok=True)
 
     return RuntimeConfig(
         coordinator=CoordinatorConfig(
@@ -153,15 +179,19 @@ def build_runtime_config(cfg: DictConfig) -> RuntimeConfig:
             port=cfg.coordinator.port,
             grpc_thread_pool_size=cfg.coordinator.grpc_thread_pool_size,
             grpc_max_message_mb=cfg.coordinator.grpc_max_message_mb,
+            runs_dir=str(coordinator_runs_dir),
+            logs_dir=str(coordinator_logs_dir),
         ),
         worker=WorkerConfig(
             worker_id=cfg.worker.worker_id,
+            runs_dir=str(worker_runs_dir),
+            logs_dir=str(worker_logs_dir),
             job_poll_interval_sec=cfg.worker.job_poll_interval_sec,
             resource_monitor_interval_sec=cfg.worker.resource_monitor_interval_sec,
             send_proofs_to_coordinator=cfg.worker.send_proofs_to_coordinator,
         ),
-        file_transfer=_resolve_transfer_config(cfg),
-        proving_cache=_resolve_proving_cache_config(cfg),
+        file_transfer=file_transfer,
+        proving_cache=proving_cache,
         jobs=JobConfig(
             scheduler=cfg.jobs.scheduler,
             max_retries=cfg.jobs.max_retries,
@@ -170,9 +200,4 @@ def build_runtime_config(cfg: DictConfig) -> RuntimeConfig:
             interval_sec=cfg.heartbeat.interval_sec,
             timeout_sec=cfg.heartbeat.timeout_sec,
         ),
-        run_dir=str(run_dir),
-        logs_dir=str(run_dir / "logs"),
-        reports_dir=str(run_dir / "reports"),
-        artifacts_dir=str(run_dir / "artifacts"),
-        tmp_dir=str(run_dir / "tmp"),
     )

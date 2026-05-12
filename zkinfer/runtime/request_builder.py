@@ -25,20 +25,15 @@ class RequestBuilder:
         proving_cache: ProvingCacheConfig,
         max_retries: int,
     ) -> List[ProofJob]:
-        models_with_inputs = self._load_or_split_model(request)
+        materialized_models = self._load_or_split_model(request)
         jobs: List[ProofJob] = []
 
-        for (
-            model_name,
-            parent_model_hash,
-            model_hash,
-            model_proto,
-            input_data,
-        ) in models_with_inputs:
+        for item in materialized_models:
             job_dir = os.path.join(
                 file_transfer.root_dir,
-                parent_model_hash,
-                model_hash,
+                request.request_id,
+                item.parent_hash,
+                item.sub_hash,
             )
 
             model_file_path = os.path.join(job_dir, "model.onnx")
@@ -48,53 +43,57 @@ class RequestBuilder:
             cache_path = self._build_cache_path(
                 request=request,
                 proving_cache=proving_cache,
-                model_name=model_name,
-                parent_model_hash=parent_model_hash,
-                model_hash=model_hash,
+                model_name=item.name,
+                parent_model_hash=item.parent_hash,
+                model_hash=item.sub_hash,
             )
 
             model_write_time = self._save_model_if_needed(
-                model_proto=model_proto,
+                model_proto=item.model,
                 model_file_path=model_file_path,
                 file_transfer=file_transfer,
             )
 
             profiling_data = self._load_profiling_data(
-                model_name=model_name,
+                model_name=item.name,
                 profiling_file_path=profiling_file_path,
                 file_transfer=file_transfer,
             )
 
             predicted_duration = profiling_data.get("job_runtime(s)", 0.0)
 
-            model_write_time += self._save_input(
-                input_data=input_data,
+            input_write_time = self._save_input(
+                input_data=item.input_data,
                 input_file_path=input_file_path,
                 file_transfer=file_transfer,
             )
 
+            total_write_time = model_write_time + input_write_time
+
             jobs.append(
                 ProofJob(
                     inference_request_name=request.name,
-                    model_name=model_name,
+                    model_name=item.name,
                     inference_request_id=request.request_id,
                     model_path=model_file_path,
                     input_path=input_file_path,
                     profiling_file_path=profiling_file_path,
                     model_write_time=(
-                        model_write_time if file_transfer.type == "s3" else 0.0
+                        total_write_time
+                        if file_transfer.backend == "s3"
+                        else 0.0
                     ),
                     profiling_data=profiling_data,
                     predicted_duration=predicted_duration,
                     max_retries=max_retries,
-                    parent_model_hash=parent_model_hash,
-                    model_hash=model_hash,
+                    parent_model_hash=item.parent_hash,
+                    model_hash=item.sub_hash,
                     cache_path=cache_path,
                 )
             )
 
         return jobs
-    
+
     def _load_or_split_model(self, request):
         split_mode = (request.split_mode or "none").lower()
 
@@ -107,13 +106,13 @@ class RequestBuilder:
         )
 
         return split_onnx_model_with_inputs(
-            onnx_model_path=request.onnx_model_path,
+            model_path=request.onnx_model_path,
             input_data_path=request.input_data_path,
             split_mode=split_mode,
             split_group_size=request.ops_per_chunk,
             simplify_model=getattr(request, "simplify_model", False),
             simplified_model_path=getattr(request, "simplified_model_path", None),
-            simplify_input_shapes=getattr(request, "simplify_input_shapes", None),
+            input_shapes=getattr(request, "input_shapes", None),
             model_name=request.name,
         )
 
@@ -154,13 +153,11 @@ class RequestBuilder:
         model_file_path: str,
         file_transfer: FileTransferConfig,
     ) -> float:
-        model_exists = exists(
+        if exists(
             model_file_path,
-            storage_type=file_transfer.type,
+            storage_type=file_transfer.backend,
             s3_bucket=file_transfer.s3_bucket,
-        )
-
-        if model_exists:
+        ):
             return 0.0
 
         start = time.perf_counter()
@@ -168,7 +165,7 @@ class RequestBuilder:
         save_model_proto(
             model_proto,
             model_file_path,
-            storage_type=file_transfer.type,
+            storage_type=file_transfer.backend,
             s3_bucket=file_transfer.s3_bucket,
         )
 
@@ -180,13 +177,11 @@ class RequestBuilder:
         profiling_file_path: str,
         file_transfer: FileTransferConfig,
     ) -> Dict[str, Any]:
-        profiling_exists = exists(
+        if not exists(
             profiling_file_path,
-            storage_type=file_transfer.type,
+            storage_type=file_transfer.backend,
             s3_bucket=file_transfer.s3_bucket,
-        )
-
-        if not profiling_exists:
+        ):
             self.logger.warning(
                 "Profiling data not found for %s at %s. Using predicted_duration=0.0",
                 model_name,
@@ -196,7 +191,7 @@ class RequestBuilder:
 
         return load_json(
             profiling_file_path,
-            storage_type=file_transfer.type,
+            storage_type=file_transfer.backend,
             s3_bucket=file_transfer.s3_bucket,
         )
 
@@ -211,7 +206,7 @@ class RequestBuilder:
         save_json(
             input_data,
             input_file_path,
-            storage_type=file_transfer.type,
+            storage_type=file_transfer.backend,
             s3_bucket=file_transfer.s3_bucket,
         )
 

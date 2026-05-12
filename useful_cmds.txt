@@ -30,6 +30,15 @@ zkInfer/worker.py
 python zkInfer/submit_job.py 
 
 
+#multi-run
+python experiments/run_local_exp.py -m \
+  workload=mnist_classifier,mnist_gan,mobilenet_v2,nano_gpt_4_layers_64_embd \
+  launch.num_workers=1 \
+  launch.shutdown_when_done=true
+
+
+
+
 scp -i us-west-2-kp.pem -r  ubuntu@ec2-35-95-241-206.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/ "C:\Users\pw\Desktop\"
 
 cd ezkl-exploration

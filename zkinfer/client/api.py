@@ -30,6 +30,15 @@ class ZKInferenceClient:
         self.grpc_max_message_bytes = grpc_max_message_mb * 1024 * 1024
         self.logger = logger or logging.getLogger(__name__)
 
+    def _channel(self):
+        return grpc.insecure_channel(
+            self.target,
+            options=[
+                ("grpc.max_send_message_length", self.grpc_max_message_bytes),
+                ("grpc.max_receive_message_length", self.grpc_max_message_bytes),
+            ],
+        )
+
     def submit_inference_request(
         self,
         name: str,
@@ -39,23 +48,24 @@ class ZKInferenceClient:
         ops_per_chunk: int,
         scheduler: str,
         simplify_model: bool = False,
-        simplify_input_shapes: Optional[Dict[str, Any]] = None,
+        input_shapes: Optional[Dict[str, Any]] = None,
     ) -> str:
-        simplify_input_shapes = _to_plain_dict(simplify_input_shapes)
+        input_shapes = _to_plain_dict(input_shapes)
 
-        simplify_input_shapes_json = (
-            json.dumps(simplify_input_shapes)
-            if simplify_input_shapes
+        input_shapes_payload = (
+            json.dumps(input_shapes)
+            if input_shapes is not None
             else ""
         )
 
-        with grpc.insecure_channel(
-            self.target,
-            options=[
-                ("grpc.max_send_message_length", self.grpc_max_message_bytes),
-                ("grpc.max_receive_message_length", self.grpc_max_message_bytes),
-            ],
-        ) as channel:
+        self.logger.info(
+            "Submitting request name=%s split_mode=%s ops_per_chunk=%s",
+            name,
+            split_mode,
+            ops_per_chunk,
+        )
+
+        with self._channel() as channel:
             stub = pb_grpc.ZKJobServiceStub(channel)
 
             response = stub.SubmitInferenceRequest(
@@ -67,8 +77,26 @@ class ZKInferenceClient:
                     ops_per_chunk=ops_per_chunk,
                     scheduler=scheduler,
                     simplify_model=simplify_model,
-                    simplify_input_shapes_json=simplify_input_shapes_json,
+                    input_shapes=input_shapes_payload,
                 )
             )
 
+        if not response.request_id:
+            raise RuntimeError(
+                f"Coordinator returned empty request_id for request '{name}'"
+            )
+
+        self.logger.info(
+            "Submitted request %s",
+            response.request_id,
+        )
+
         return response.request_id
+
+    def get_request_status(self, request_id: str):
+        with self._channel() as channel:
+            stub = pb_grpc.ZKJobServiceStub(channel)
+
+            return stub.GetRequestStatus(
+                pb.RequestStatusRequest(request_id=request_id)
+            )

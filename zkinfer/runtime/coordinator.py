@@ -1,6 +1,7 @@
 import logging
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, Optional
 
 from zkinfer.config.runtime import RuntimeConfig
@@ -13,13 +14,15 @@ from zkinfer.storage.io import save_json
 
 class Coordinator:
     """Core coordinator state machine for distributed zk inference jobs."""
+
     def __init__(
         self,
         runtime_config: RuntimeConfig,
         logger: logging.Logger,
     ):
         self.logger = logger
-        self.reports_dir = runtime_config.reports_dir
+        self.runs_dir = Path(runtime_config.coordinator.runs_dir)
+
         self.file_transfer = runtime_config.file_transfer
         self.proving_cache = runtime_config.proving_cache
         self.jobs_config = runtime_config.jobs
@@ -47,7 +50,7 @@ class Coordinator:
         ops_per_chunk: int,
         scheduler: Optional[str],
         simplify_model: bool = False,
-        simplify_input_shapes: Optional[Dict] = None,
+        input_shapes: Optional[Dict] = None,
     ) -> str:
         requested_policy = (scheduler or self.scheduler_policy).lower()
 
@@ -59,31 +62,80 @@ class Coordinator:
             ops_per_chunk=ops_per_chunk,
             scheduler=requested_policy,
             simplify_model=simplify_model,
-            simplify_input_shapes=simplify_input_shapes,
+            input_shapes=input_shapes,
         )
 
         req.request_status = RequestStatus.PREPARING
+        self._create_request_dirs(req)
+
         req.proof_jobs = self.request_builder.build_jobs(
             request=req,
             file_transfer=self.file_transfer,
             proving_cache=self.proving_cache,
             max_retries=self.max_retries,
         )
-     
 
         self._enqueue_request(req)
 
         self.logger.info(
-            "Submitted request %s with %d jobs",
+            "Submitted request %s with %d jobs | run_dir=%s",
             req.request_id,
             len(req.proof_jobs),
+            req.run_dir,
         )
 
         return req.request_id
 
+    def _create_request_dirs(self, req: InferenceRequest) -> None:
+    
+        run_dir = self.runs_dir / req.request_id
+
+        dirs = {
+            "run_dir": run_dir,
+            # "logs_dir": run_dir / "logs",
+            "reports_dir": run_dir / "reports",
+        }
+
+        for path in dirs.values():
+            path.mkdir(parents=True, exist_ok=True)
+
+        req.run_dir = str(dirs["run_dir"])
+        # req.logs_dir = str(dirs["logs_dir"])
+        req.reports_dir = str(dirs["reports_dir"])
+
+    def get_request_status(self, request_id: str) -> Dict:
+        with self.lock:
+            req = self.active_requests.get(request_id)
+
+            if req is None:
+                return {
+                    "request_id": request_id,
+                    "status": "unknown",
+                    "message": f"Request {request_id} not found.",
+                    "total_jobs": 0,
+                    "queued_jobs": 0,
+                    "in_progress_jobs": 0,
+                    "completed_jobs": 0,
+                    "failed_jobs": 0,
+                }
+
+            jobs = req.proof_jobs
+
+            return {
+                "request_id": request_id,
+                "status": req.request_status.value.lower(),
+                "message": req.error_message or "",
+                "total_jobs": len(jobs),
+                "queued_jobs": sum(1 for job in jobs if job.job_status == JobStatus.QUEUED),
+                "in_progress_jobs": sum(1 for job in jobs if job.job_status == JobStatus.IN_PROGRESS),
+                "completed_jobs": sum(1 for job in jobs if job.job_status == JobStatus.COMPLETED),
+                "failed_jobs": sum(1 for job in jobs if job.job_status == JobStatus.FAILED),
+            }
+
     def get_next_job(self) -> Optional[ProofJob]:
         with self.lock:
             job = self.scheduler.next_job()
+
             if job is None:
                 return None
 
@@ -140,6 +192,7 @@ class Coordinator:
                 )
 
                 job_info = self.worker_status.get(worker_id)
+
                 if job_info and job_info.get("job_id"):
                     self._requeue_active_job_locked(job_info["job_id"])
 
@@ -159,6 +212,7 @@ class Coordinator:
     ) -> bool:
         with self.lock:
             job = self.active_jobs.get(job_id)
+
             if not job:
                 self.logger.error("Job %s not found in active_jobs", job_id)
                 return False
@@ -174,6 +228,7 @@ class Coordinator:
 
             if job.job_status == JobStatus.FAILED:
                 should_retry = self._handle_failed_job_locked(job, zk_proof, message)
+
                 if should_retry:
                     return True
             else:
@@ -181,6 +236,7 @@ class Coordinator:
 
         self._finalize_job(job, perf_metrics=perf_metrics)
         self._maybe_finalize_request(job.inference_request_id)
+
         return True
 
     def _enqueue_request(self, req: InferenceRequest) -> None:
@@ -200,10 +256,13 @@ class Coordinator:
                 request_scheduler.add_jobs(req.proof_jobs)
 
                 ordered_jobs = []
+
                 while True:
                     job = request_scheduler.next_job()
+
                     if job is None:
                         break
+
                     ordered_jobs.append(job)
 
                 self.scheduler.add_jobs(ordered_jobs)
@@ -214,18 +273,21 @@ class Coordinator:
         self.active_jobs[job.job_id] = job
 
         parent_req = self.active_requests.get(job.inference_request_id)
+
         if parent_req and parent_req.started_time is None:
             parent_req.started_time = datetime.now(timezone.utc)
             parent_req.request_status = RequestStatus.IN_PROGRESS
 
     def _requeue_active_job_locked(self, job_id: str) -> None:
         job = self.active_jobs.get(job_id)
+
         if not job or job.job_status != JobStatus.IN_PROGRESS:
             return
 
         job.job_status = JobStatus.QUEUED
         job.started_time = None
         job.completed_time = None
+
         self.scheduler.requeue(job)
         self.active_jobs.pop(job.job_id, None)
 
@@ -234,15 +296,12 @@ class Coordinator:
     def _complete_job_locked(self, job: ProofJob, zk_proof: bytes) -> None:
         job.zk_proof = zk_proof
         self.active_jobs.pop(job.job_id, None)
+
         self.logger.info(
             "Job %s completed. Jobs in queue: %d",
             job.job_name,
             len(self.scheduler),
         )
-
-        #wonder in here should we verify the proof before marking the job as completed? 
-        # or should we just trust the worker and let the client verify when they get the proof back? 
-        # for now we will just trust the worker and let the client verify when they get the proof back.
 
     def _handle_failed_job_locked(
         self,
@@ -268,13 +327,16 @@ class Coordinator:
 
             self.active_jobs.pop(job.job_id, None)
             self.scheduler.requeue(job)
+
             return True
 
         job.error_message = message or "Job failed permanently after retries."
         job.zk_proof = zk_proof
+
         self.active_jobs.pop(job.job_id, None)
 
         self.logger.error("Job %s failed permanently: %s", job.job_name, message)
+
         return False
 
     def _finalize_job(
@@ -283,25 +345,27 @@ class Coordinator:
         perf_metrics: Optional[Dict] = None,
     ) -> None:
         parent_req = self.active_requests.get(job.inference_request_id)
+
         if not parent_req:
             return
 
         job_report = write_job_report(
             job,
             perf_metrics=perf_metrics,
-            out_dir=self.reports_dir,
+            out_dir=parent_req.reports_dir,
         )
 
         if job.job_status == JobStatus.COMPLETED and job.profiling_file_path:
             save_json(
                 job_report,
                 job.profiling_file_path,
-                storage_type=self.file_transfer.type,
+                storage_type=self.file_transfer.backend,
                 s3_bucket=self.file_transfer.s3_bucket,
             )
 
     def _maybe_finalize_request(self, request_id: str) -> None:
         parent_req = self.active_requests.get(request_id)
+
         if not parent_req:
             return
 
@@ -312,8 +376,11 @@ class Coordinator:
 
         if parent_req.any_job_failed():
             failed_count = sum(
-                1 for job in parent_req.proof_jobs if job.job_status == JobStatus.FAILED
+                1
+                for job in parent_req.proof_jobs
+                if job.job_status == JobStatus.FAILED
             )
+
             parent_req.request_status = RequestStatus.FAILED
             parent_req.error_message = "One or more sub-jobs failed."
 
@@ -328,5 +395,5 @@ class Coordinator:
 
         write_request_report(
             parent_req,
-            out_dir=self.reports_dir,
+            out_dir=parent_req.reports_dir,
         )

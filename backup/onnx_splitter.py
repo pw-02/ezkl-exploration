@@ -41,61 +41,6 @@ def run_model_inference(onnx_model_path: str, input_data_path: str):
     return session.run(None, feed_dict)
 
 
-def extract_model(
-    onnx_model_path: str,
-    node_inputs: Sequence[str],
-    node_outputs: Sequence[str],
-):
-    if not os.path.exists(onnx_model_path):
-        raise FileNotFoundError(f"Invalid ONNX model path: {onnx_model_path}")
-
-    if not node_outputs:
-        raise ValueError("node_outputs must not be empty")
-
-    model = onnx.load(onnx_model_path)
-    extractor = Extractor(model)
-    return extractor.extract_model(node_inputs, node_outputs)
-
-
-def merge_onnx_models(sub_models: OrderedDict):
-    _, first_model = next(iter(sub_models.items()))
-    merged_model = first_model
-    merged_model.graph.ClearField("output")
-
-    sub_model_list = list(sub_models.items())
-
-    for idx, (_, model) in enumerate(sub_model_list[1:]):
-        for input_tensor in model.graph.input:
-            if all(input_tensor.name != existing.name for existing in merged_model.graph.input):
-                merged_model.graph.input.append(input_tensor)
-
-        model.graph.ClearField("input")
-
-        merged_model.graph.node.extend(model.graph.node)
-        merged_model.graph.initializer.extend(model.graph.initializer)
-
-        inputs_seen = set()
-        deduped_inputs = []
-        for graph_input in merged_model.graph.input:
-            if graph_input.name not in inputs_seen:
-                inputs_seen.add(graph_input.name)
-                deduped_inputs.append(graph_input)
-
-        merged_model.graph.ClearField("input")
-        merged_model.graph.input.extend(deduped_inputs)
-
-        if idx == len(sub_model_list) - 2:
-            for output_tensor in model.graph.output:
-                if output_tensor not in merged_model.graph.output:
-                    merged_model.graph.output.append(output_tensor)
-
-        for value_info in model.graph.value_info:
-            if value_info not in merged_model.graph.value_info:
-                merged_model.graph.value_info.append(value_info)
-
-    return merged_model
-
-
 def collect_tensor_values_from_inference(
     onnx_model_path: str,
     input_data_path: str,

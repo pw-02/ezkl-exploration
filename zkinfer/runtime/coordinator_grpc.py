@@ -3,7 +3,7 @@ import logging
 import sys
 import time
 from concurrent import futures
-from typing import Optional
+from typing import Dict, Optional
 
 import grpc
 import hydra
@@ -15,7 +15,7 @@ from zkinfer.config.runtime import build_runtime_config
 from zkinfer.runtime.coordinator import Coordinator
 
 
-def setup_logger(name: str) -> logging.Logger:
+def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
     logger.propagate = False
@@ -23,24 +23,31 @@ def setup_logger(name: str) -> logging.Logger:
     if logger.handlers:
         return logger
 
-    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
 
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(formatter)
     logger.addHandler(console)
 
+    if log_file:
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
     return logger
 
 
 def validate_config(cfg: DictConfig) -> None:
-    if cfg.storage.type not in {"filesystem", "s3"}:
-        raise ValueError("storage.type must be either 'filesystem' or 's3'")
+    if cfg.storage.backend not in {"filesystem", "s3"}:
+        raise ValueError("storage.backend must be either 'filesystem' or 's3'")
 
-    if cfg.storage.type == "s3" and not cfg.storage.s3_bucket:
-        raise ValueError("storage.s3_bucket must be set when storage.type=s3")
+    if cfg.storage.backend == "s3" and not cfg.storage.s3_bucket:
+        raise ValueError("storage.s3_bucket must be set when storage.backend=s3")
 
 
-def parse_optional_json_dict(value: str):
+def parse_optional_json_dict(value: str) -> Optional[Dict]:
     if not value:
         return None
 
@@ -65,9 +72,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
 
     def SubmitInferenceRequest(self, request, context):
         try:
-            simplify_input_shapes = parse_optional_json_dict(
-                request.simplify_input_shapes_json
-            )
+            input_shapes = parse_optional_json_dict(request.input_shapes)
 
             request_id = self.coordinator.submit_request(
                 name=request.name,
@@ -77,7 +82,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 ops_per_chunk=request.ops_per_chunk,
                 scheduler=request.scheduler,
                 simplify_model=request.simplify_model,
-                simplify_input_shapes=simplify_input_shapes,
+                input_shapes=input_shapes,
             )
 
             return pb2.InferenceRequestAck(request_id=request_id)
@@ -87,9 +92,8 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 context,
                 grpc.StatusCode.INVALID_ARGUMENT,
                 exc,
-                "Invalid simplify_input_shapes_json",
+                "Invalid input_shapes JSON",
             )
-            return pb2.InferenceRequestAck(request_id="")
 
         except Exception as exc:
             self._set_error(
@@ -98,7 +102,37 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 exc,
                 "Error submitting inference request",
             )
-            return pb2.InferenceRequestAck(request_id="")
+
+        return pb2.InferenceRequestAck(request_id="")
+
+    def GetRequestStatus(self, request, context):
+        try:
+            status = self.coordinator.get_request_status(request.request_id)
+
+            return pb2.RequestStatusResponse(
+                request_id=status["request_id"],
+                status=status["status"],
+                message=status["message"],
+                total_jobs=status["total_jobs"],
+                queued_jobs=status["queued_jobs"],
+                in_progress_jobs=status["in_progress_jobs"],
+                completed_jobs=status["completed_jobs"],
+                failed_jobs=status["failed_jobs"],
+            )
+
+        except Exception as exc:
+            self._set_error(
+                context,
+                grpc.StatusCode.INTERNAL,
+                exc,
+                "Error fetching request status",
+            )
+
+            return pb2.RequestStatusResponse(
+                request_id=request.request_id,
+                status="unknown",
+                message=str(exc),
+            )
 
     def GetNextJob(self, request, context):
         try:
@@ -123,6 +157,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 exc,
                 "Error fetching next job",
             )
+
             return pb2.JobAssignment(job_available=False)
 
     def SubmitJobResult(self, request, context):
@@ -150,6 +185,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 exc,
                 "Invalid perf_metrics_json JSON",
             )
+
             return pb2.StatusAck(ok=False)
 
         except Exception as exc:
@@ -159,6 +195,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 exc,
                 "Error submitting job result",
             )
+
             return pb2.StatusAck(ok=False)
 
     def SendHeartbeat(self, request, context):
@@ -179,6 +216,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 exc,
                 "Error recording heartbeat",
             )
+
             return pb2.HeartbeatAck(success=False)
 
     def _set_error(self, context, code, exc: Exception, message: str) -> None:
@@ -211,12 +249,13 @@ def create_grpc_server(
 def serve(cfg: DictConfig) -> None:
     validate_config(cfg)
 
-    logger = setup_logger("coordinator")
+
+    runtime_config = build_runtime_config(cfg=cfg, process_role="coordinator")
+    logger = setup_logger("coordinator", log_file=f"{runtime_config.coordinator.logs_dir}/coordinator.log")
 
     logger.info("Starting ZK Coordinator gRPC Service")
     logger.debug("Loaded config:\n%s", OmegaConf.to_yaml(cfg, resolve=True))
 
-    runtime_config = build_runtime_config(cfg)
 
     coordinator = Coordinator(
         runtime_config=runtime_config,
