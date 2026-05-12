@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export PYTHONPATH=.:$PYTHONPATH
+# export PYTHONPATH=.:$PYTHONPATH
 
 NUM_WORKERS="${1:-1}"
 COORDINATOR_HOST="${2:-127.0.0.1}"
