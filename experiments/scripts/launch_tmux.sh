@@ -2,7 +2,7 @@
 set -euo pipefail
 
 NUM_WORKERS="${1:-1}"
-WORKLOAD="${2:-mnist_classifier}"
+WORKLOAD="${2:-mnist_gan}"
 COORDINATOR_HOST="${3:-127.0.0.1}"
 COORDINATOR_PORT="${4:-50051}"
 
