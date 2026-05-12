@@ -1,31 +1,81 @@
 # experiments/run_local_suite.py
 
-import time
-from pathlib import Path
-import hydra
-from omegaconf import DictConfig, OmegaConf
-from zkinfer.client.api import ZKInferenceClient
 import logging
 import os
 import socket
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional
+
+import hydra
+from omegaconf import DictConfig, OmegaConf
+
+from zkinfer.client.api import ZKInferenceClient
+
 
 WORKLOADS = [
     "mnist_classifier",
+    "mnist_classifier",
+    "mnist_classifier",
 ]
 
-# experiments/local_launch.py
 
-def setup_logger() -> logging.Logger:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] launch: %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout)],
+class ActiveRunLog:
+    def __init__(self) -> None:
+        self.file = None
+        self.lock = threading.Lock()
+
+    def set_path(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        with self.lock:
+            self.close()
+            self.file = open(path, "a", encoding="utf-8", buffering=1)
+
+    def write(self, text: str) -> None:
+        with self.lock:
+            if self.file is not None:
+                self.file.write(text)
+
+    def close(self) -> None:
+        if self.file is not None:
+            self.file.close()
+            self.file = None
+
+
+class ActiveRunLogHandler(logging.Handler):
+    def __init__(self, active_log: ActiveRunLog) -> None:
+        super().__init__()
+        self.active_log = active_log
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.active_log.write(self.format(record) + "\n")
+
+
+def setup_logger(active_log: ActiveRunLog) -> logging.Logger:
+    logger = logging.getLogger("launch")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.handlers.clear()
+
+    formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] launch: %(message)s"
     )
-    return logging.getLogger("launch")
+
+    console = logging.StreamHandler(sys.stdout)
+    console.setFormatter(formatter)
+
+    file_handler = ActiveRunLogHandler(active_log)
+    file_handler.setFormatter(formatter)
+
+    logger.addHandler(console)
+    logger.addHandler(file_handler)
+
+    return logger
 
 
 @dataclass
@@ -34,20 +84,41 @@ class ManagedProcess:
     command: List[str]
     env: dict
     logger: logging.Logger
+    active_log: ActiveRunLog
     proc: Optional[subprocess.Popen] = None
+    _tee_thread: Optional[threading.Thread] = None
 
     def start(self) -> None:
         self.logger.info("Starting %s: %s", self.name, " ".join(self.command))
 
         self.proc = subprocess.Popen(
             self.command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             env=self.env,
+            text=True,
+            bufsize=1,
         )
+
+        self._tee_thread = threading.Thread(
+            target=self._tee_output,
+            name=f"{self.name}-tee",
+            daemon=True,
+        )
+        self._tee_thread.start()
+
+    def _tee_output(self) -> None:
+        assert self.proc is not None
+        assert self.proc.stdout is not None
+
+        for line in self.proc.stdout:
+            prefixed = f"[{self.name}] {line}"
+            print(prefixed, end="")
+            self.active_log.write(prefixed)
 
     def returncode(self) -> Optional[int]:
         if self.proc is None:
             return None
-
         return self.proc.poll()
 
     def stop(self, timeout_sec: int = 5) -> None:
@@ -64,6 +135,9 @@ class ManagedProcess:
                 self.logger.warning("Killing %s pid=%s", self.name, self.proc.pid)
                 self.proc.kill()
                 self.proc.wait(timeout=timeout_sec)
+
+        if self._tee_thread is not None:
+            self._tee_thread.join(timeout=timeout_sec)
 
 
 class ProcessGroup:
@@ -89,7 +163,6 @@ class ProcessGroup:
 
     def raise_if_any_failed(self) -> None:
         failed = self.failed_processes()
-
         if not failed:
             return
 
@@ -97,17 +170,14 @@ class ProcessGroup:
             f"- {process.name} exited with code {process.returncode()}"
             for process in failed
         )
-
         raise RuntimeError(f"One or more subprocesses failed:\n{details}")
 
 
 def make_env() -> dict:
     env = os.environ.copy()
-
     existing_pythonpath = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = f".:{existing_pythonpath}" if existing_pythonpath else "."
     env["PYTHONUNBUFFERED"] = "1"
-
     return env
 
 
@@ -174,7 +244,6 @@ def wait_for_request_or_crash(
 
     while True:
         process_group.raise_if_any_failed()
-
         status = client.get_request_status(request_id)
 
         logger.info(
@@ -199,13 +268,10 @@ def wait_for_request_or_crash(
         time.sleep(poll_interval_sec)
 
 
-
 def load_workload_cfg(workload_name: str) -> DictConfig:
     path = Path(__file__).parent / "config" / "workload" / f"{workload_name}.yaml"
-
     if not path.exists():
         raise FileNotFoundError(f"Workload config not found: {path}")
-
     return OmegaConf.load(path)
 
 
@@ -226,9 +292,26 @@ def submit_workload(
     )
 
 
+def request_logs_dir(cfg: DictConfig, request_id: str) -> Path:
+    return Path(cfg.paths.runs_dir) / request_id / "logs"
+
+
+def save_request_metadata(
+    cfg: DictConfig,
+    workload_cfg: DictConfig,
+    request_id: str,
+) -> None:
+    logs_dir = request_logs_dir(cfg, request_id)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    OmegaConf.save(config=cfg, f=logs_dir / "exp_config.yaml")
+    OmegaConf.save(config=workload_cfg, f=logs_dir / "workload_config.yaml")
+
+
 @hydra.main(config_path="./config", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
-    logger = setup_logger()
+    active_log = ActiveRunLog()
+    logger = setup_logger(active_log)
 
     env = make_env()
     process_group = ProcessGroup(logger)
@@ -240,6 +323,7 @@ def main(cfg: DictConfig) -> None:
                 command=build_coordinator_cmd(cfg),
                 env=env,
                 logger=logger,
+                active_log=active_log,
             )
         )
 
@@ -260,6 +344,7 @@ def main(cfg: DictConfig) -> None:
                     command=build_worker_cmd(cfg, worker_id),
                     env=env,
                     logger=logger,
+                    active_log=active_log,
                 )
             )
 
@@ -277,7 +362,15 @@ def main(cfg: DictConfig) -> None:
             logger.info("Workload config:\n%s", OmegaConf.to_yaml(workload_cfg))
 
             request_id = submit_workload(client, cfg, workload_cfg)
+
+            logs_dir = request_logs_dir(cfg, request_id)
+            exp_log_path = logs_dir / "exp.log"
+
+            active_log.set_path(exp_log_path)
+            save_request_metadata(cfg, workload_cfg, request_id)
+
             logger.info("Submitted request: %s", request_id)
+            logger.info("Writing workload log to %s", exp_log_path)
 
             wait_for_request_or_crash(
                 client=client,
@@ -288,10 +381,12 @@ def main(cfg: DictConfig) -> None:
             )
 
             logger.info("Finished workload: %s", workload_cfg.name)
+            active_log.close()
 
         logger.info("All workloads completed.")
 
     finally:
+        active_log.close()
         process_group.stop_all()
         logger.info("Suite finished.")
 

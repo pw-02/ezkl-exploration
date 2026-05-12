@@ -44,7 +44,7 @@ def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
     logger.addHandler(console)
 
     if log_file:
-        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 

@@ -20,7 +20,9 @@ launch:
   worker_startup_delay_sec: 1
   shutdown_when_done: true
   poll_completion_interval_sec: 5
-
+  
+paths:
+  runs_dir: experiments/runs
 
 hydra:
   run:
