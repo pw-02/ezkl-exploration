@@ -15,8 +15,8 @@ pandas
 psutils
 boto3
 pyparsing
-torch
-torchvision
+# torch
+# torchvision
 onnxsim
 onnxscript
 # pip install --upgrade grpcio grpcio-tools

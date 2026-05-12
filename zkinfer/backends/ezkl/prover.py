@@ -12,6 +12,7 @@ from zkinfer.storage.s3 import (
     download_if_exists,
 )
 
+
 class EZKLProofStages:
     def __init__(
         self,
@@ -25,6 +26,7 @@ class EZKLProofStages:
         proving_cache_s3_prefix: Optional[str] = None,
         status_file: Optional[str] = None,
         local_tmp_dir: Optional[str] = None,
+        srs_dir: Optional[str] = None,
         logger: Optional[logging.Logger] = None,
     ):
         import ezkl
@@ -44,6 +46,11 @@ class EZKLProofStages:
         self.proving_cache_s3_prefix = proving_cache_s3_prefix
 
         self.tmp_dir = local_tmp_dir or "tmp"
+
+        home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or "."
+        self.srs_dir = srs_dir or os.path.join(home, ".ezkl", "srs")
+        os.makedirs(self.srs_dir, exist_ok=True)
+        self.srs_path: Optional[str] = None
 
         # For filesystem cache, reusable EZKL setup outputs live under proving_cache_root_dir.
         # For S3/no cache, local files are created under tmp_dir and optionally uploaded/downloaded.
@@ -139,16 +146,32 @@ class EZKLProofStages:
         download_file(self.proving_cache_s3_bucket, pk_key, self.pk_path)
         download_file(self.proving_cache_s3_bucket, vk_key, self.vk_path)
         return True, time.perf_counter() - start
-    
+
     def _load_settings(self) -> Dict[str, Any]:
         with open(self.settings_path, "r", encoding="utf-8") as f:
             return json.load(f)
-
 
     def _save_settings(self, settings: Dict[str, Any]) -> None:
         with open(self.settings_path, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=2)
 
+    def _resolve_srs_path(self) -> str:
+        settings = self._load_settings()
+        run_args = settings.get("run_args", {})
+
+        logrows = run_args.get("logrows")
+        if logrows is None:
+            raise ValueError("settings.json missing run_args.logrows")
+
+        commitment = str(run_args.get("commitment", "KZG")).lower()
+
+        if commitment == "ipa":
+            filename = f"ipa{logrows}.srs"
+        else:
+            filename = f"kzg{logrows}.srs"
+
+        os.makedirs(self.srs_dir, exist_ok=True)
+        return os.path.join(self.srs_dir, filename)
 
     def _fix_logrows_after_calibration(self, margin: int = 1) -> None:
         if not os.path.exists(self.settings_path):
@@ -193,11 +216,12 @@ class EZKLProofStages:
             "settings.json",
         )
         if used_cache:
+            self.ezkl_stting_dict = self._load_settings()
             return True, s3_read_time, 0.0
 
         self.ezkl.gen_settings(self.onnx_model_path, self.settings_path)
         #accuracy, resources
-        
+
         # self.ezkl.calibrate_settings(
         #     self.input_data_path,
         #     self.onnx_model_path,
@@ -210,8 +234,6 @@ class EZKLProofStages:
         s3_write_time = self._upload_to_cache(self.settings_path, "settings.json")
 
         self.ezkl_stting_dict = self._load_settings()
-
-    
 
         return False, 0.0, s3_write_time
 
@@ -239,7 +261,37 @@ class EZKLProofStages:
 
     def get_srs(self):
         self._update_status("GETTING_SRS")
-        self.ezkl.get_srs(self.settings_path)
+
+        self.srs_path = self._resolve_srs_path()
+        settings = self._load_settings()
+        logrows = settings["run_args"]["logrows"]
+
+        self.logger.info("Generating local SRS")
+        self.logger.info("srs_dir: %s", self.srs_dir)
+        self.logger.info("srs_path: %s", self.srs_path)
+        self.logger.info("logrows: %s", logrows)
+
+        if os.path.exists(self.srs_path) and not self.proving_cache_overwrite:
+            self.logger.info(
+                "Using existing SRS: %s size=%.2f MB",
+                self.srs_path,
+                os.path.getsize(self.srs_path) / 1024 / 1024,
+            )
+            return
+
+        self.ezkl.gen_srs(
+            srs_path=self.srs_path,
+            logrows=logrows,
+        )
+
+        if not os.path.exists(self.srs_path):
+            raise FileNotFoundError(f"SRS file not created: {self.srs_path}")
+
+        self.logger.info(
+            "SRS generated: %s size=%.2f MB",
+            self.srs_path,
+            os.path.getsize(self.srs_path) / 1024 / 1024,
+        )
 
     def gen_witness(self):
         self._update_status("GENERATING_WITNESS")
@@ -256,7 +308,15 @@ class EZKLProofStages:
         if used_cache:
             return True, s3_read_time, 0.0
 
-        self.ezkl.setup(self.compiled_circuit_path, self.vk_path, self.pk_path)
+        if not self.srs_path:
+            self.srs_path = self._resolve_srs_path()
+
+        self.ezkl.setup(
+            self.compiled_circuit_path,
+            self.vk_path,
+            self.pk_path,
+            srs_path=self.srs_path,
+        )
 
         s3_write_time = 0.0
         s3_write_time += self._upload_to_cache(self.pk_path, "pk.json")
@@ -266,12 +326,17 @@ class EZKLProofStages:
 
     def compute_proof(self):
         self._update_status("PROVING")
+
+        if not self.srs_path:
+            self.srs_path = self._resolve_srs_path()
+
         self.ezkl.prove(
             self.witness_path,
             self.compiled_circuit_path,
             self.pk_path,
             self.proof_path,
             "single",
+            srs_path=self.srs_path,
         )
 
     def run_all(self, setup_only: bool = False) -> Dict[str, Any]:
@@ -303,6 +368,7 @@ class EZKLProofStages:
         self.get_srs()
         elapsed = time.perf_counter() - start
         metrics["ezkl_get_srs_time(s)"] = elapsed
+        metrics["ezkl_srs_path"] = self.srs_path
         total_setup_time += elapsed
 
         start = time.perf_counter()

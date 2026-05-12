@@ -10,7 +10,7 @@ import torch.nn as nn
 import ezkl
 
 
-WORK = Path("ezkl_smoke_test_out").resolve()
+WORK = Path("ezkl_smoke_test_out")
 MODEL = WORK / "model.onnx"
 INPUT = WORK / "input.json"
 SETTINGS = WORK / "settings.json"
@@ -19,7 +19,7 @@ WITNESS = WORK / "witness.json"
 PK = WORK / "pk.key"
 VK = WORK / "vk.key"
 PROOF = WORK / "proof.json"
-SRS = WORK / "kzg.srs"
+SRS = WORK / "local_test.srs"
 
 
 class TinyModel(nn.Module):
@@ -39,15 +39,9 @@ def run_step(name, fn):
         raise
 
 
-def file_info(path):
-    path = Path(path)
-    if path.exists():
-        print(f"{path.name}: exists, size={path.stat().st_size} bytes")
-    else:
-        print(f"{path.name}: MISSING")
+def main():
+    WORK.mkdir(exist_ok=True)
 
-
-def print_env():
     print("=== ENV ===")
     print("python:", platform.python_version())
     print("platform:", platform.platform())
@@ -58,40 +52,9 @@ def print_env():
     print("ezkl cli:", cli)
     if cli:
         try:
-            print(
-                "ezkl cli version:",
-                subprocess.check_output([cli, "--version"], text=True).strip(),
-            )
+            print("ezkl cli version:", subprocess.check_output([cli, "--version"], text=True).strip())
         except Exception as e:
             print("ezkl cli version failed:", repr(e))
-
-
-def call_compile():
-    # Newer ezkl Python docs use compiled_circuit.
-    try:
-        return ezkl.compile_circuit(
-            model=str(MODEL),
-            compiled_circuit=str(COMPILED),
-            settings_path=str(SETTINGS),
-        )
-    except TypeError:
-        # Some older versions used compiled_model.
-        return ezkl.compile_circuit(
-            model=str(MODEL),
-            compiled_model=str(COMPILED),
-            settings_path=str(SETTINGS),
-        )
-
-
-def main():
-    if WORK.exists():
-        shutil.rmtree(WORK)
-    WORK.mkdir(parents=True, exist_ok=True)
-
-    print_env()
-    print("\n=== PATHS ===")
-    print("work:", WORK)
-    print("srs:", SRS)
 
     model = TinyModel().eval()
     x = torch.tensor([[0.25, -1.0, 2.0]], dtype=torch.float32)
@@ -101,17 +64,15 @@ def main():
         lambda: torch.onnx.export(
             model,
             x,
-            str(MODEL),
+            MODEL,
             input_names=["input"],
             output_names=["output"],
             opset_version=11,
         ),
     )
-    file_info(MODEL)
 
-    # EZKL input format: flattened input tensor.
-    INPUT.write_text(json.dumps({"input_data": [x.detach().numpy().reshape(-1).tolist()]}))
-    file_info(INPUT)
+    with open(INPUT, "w") as f:
+        json.dump({"input_data": [x.detach().numpy().reshape(-1).tolist()]}, f)
 
     run_step(
         "gen_settings",
@@ -120,7 +81,6 @@ def main():
             output=str(SETTINGS),
         ),
     )
-    file_info(SETTINGS)
 
     run_step(
         "calibrate_settings",
@@ -131,27 +91,35 @@ def main():
             target="resources",
         ),
     )
-    file_info(SETTINGS)
 
-    print("\n=== SETTINGS PREVIEW ===")
-    settings = json.loads(SETTINGS.read_text())
-    print(json.dumps(settings.get("run_args", settings), indent=2)[:3000])
+    with open(SETTINGS) as f:
+        settings = json.load(f)
 
-    run_step("compile_circuit", call_compile)
-    file_info(COMPILED)
+    print("\n=== RUN_ARGS ===")
+    print(json.dumps(settings.get("run_args", {}), indent=2))
 
-    # Critical part: use a fresh explicit SRS file, not ~/.ezkl cache.
-    if SRS.exists():
-        SRS.unlink()
+    logrows = settings["run_args"]["logrows"]
+    print("Using logrows:", logrows)
 
     run_step(
-        "get_srs",
-        lambda: ezkl.get_srs(
+        "compile_circuit",
+        lambda: ezkl.compile_circuit(
+            model=str(MODEL),
+            compiled_circuit=str(COMPILED),
             settings_path=str(SETTINGS),
-            srs_path=str(SRS),
         ),
     )
-    file_info(SRS)
+
+    # IMPORTANT:
+    # This avoids ezkl.get_srs(), which downloads/parses public SRS.
+    # gen_srs is local and good for debugging/smoke tests.
+    run_step(
+        "gen_local_srs",
+        lambda: ezkl.gen_srs(
+            srs_path=str(SRS),
+            logrows=logrows,
+        ),
+    )
 
     run_step(
         "gen_witness",
@@ -161,7 +129,6 @@ def main():
             output=str(WITNESS),
         ),
     )
-    file_info(WITNESS)
 
     run_step(
         "mock",
@@ -180,8 +147,6 @@ def main():
             srs_path=str(SRS),
         ),
     )
-    file_info(VK)
-    file_info(PK)
 
     run_step(
         "prove",
@@ -190,10 +155,10 @@ def main():
             model=str(COMPILED),
             pk_path=str(PK),
             proof_path=str(PROOF),
+            proof_type="single",
             srs_path=str(SRS),
         ),
     )
-    file_info(PROOF)
 
     run_step(
         "verify",
@@ -205,8 +170,8 @@ def main():
         ),
     )
 
-    print("\nSUCCESS: ezkl smoke test completed.")
-    print("Artifacts:", WORK)
+    print("\nSUCCESS: ezkl local-SRS smoke test completed.")
+    print("Artifacts:", WORK.resolve())
 
 
 if __name__ == "__main__":

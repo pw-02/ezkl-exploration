@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import ezkl
 
@@ -64,6 +64,7 @@ def calibrate_settings(
     if not os.path.exists(settings_path):
         res = ezkl.gen_settings(onnx_model_path, settings_path)
         logger.info("gen_settings result: %s", res)
+
         if run_calibrate:
             res = ezkl.calibrate_settings(
                 input_data_path,
@@ -103,17 +104,67 @@ def compile_circuit(
         raise FileNotFoundError(f"Compiled circuit not created: {compiled_circuit_path}")
 
 
-def get_srs(settings_path: str, logger: logging.Logger) -> None:
+def resolve_srs_path(settings_path: str, srs_dir: str) -> str:
+    with open(settings_path, "r", encoding="utf-8") as f:
+        settings = json.load(f)
+
+    run_args = settings.get("run_args", {})
+    logrows = run_args.get("logrows")
+    commitment = str(run_args.get("commitment", "KZG")).lower()
+
+    if logrows is None:
+        raise ValueError("settings.json missing run_args.logrows")
+
+    os.makedirs(srs_dir, exist_ok=True)
+
+    if commitment == "ipa":
+        filename = f"ipa{logrows}.srs"
+    else:
+        filename = f"kzg{logrows}.srs"
+
+    return os.path.join(srs_dir, filename)
+
+
+def get_srs(
+    settings_path: str,
+    srs_dir: str,
+    logger: logging.Logger,
+) -> str:
     logger.info("GETTING_SRS")
     dump_json_if_exists(settings_path, logger, "settings before get_srs")
 
-    #get logrows from settings to ensure we get the correct SRS size
-    with open(settings_path, "r") as f:
+    srs_path = resolve_srs_path(settings_path, srs_dir)
+
+    with open(settings_path, "r", encoding="utf-8") as f:
         settings = json.load(f)
 
+    logrows = settings["run_args"]["logrows"]
 
-    res = ezkl.get_srs( settings_path=settings_path, srs_path=f".kzg{settings['run_args']['logrows']}.srs")
-    logger.info("get_srs result: %s", res)
+    logger.info("Generating local SRS")
+    logger.info("srs_dir: %s", srs_dir)
+    logger.info("srs_path: %s", srs_path)
+    logger.info("logrows: %s", logrows)
+
+    if os.path.exists(srs_path):
+        logger.info(
+            "Using existing SRS: %s size=%.2f MB",
+            srs_path,
+            os.path.getsize(srs_path) / 1024 / 1024,
+        )
+        return srs_path
+
+    res = ezkl.gen_srs(
+        srs_path=srs_path,
+        logrows=logrows,
+    )
+    logger.info("gen_srs result: %s", res)
+
+    if not os.path.exists(srs_path):
+        raise FileNotFoundError(f"SRS file not created: {srs_path}")
+
+    logger.info("SRS size: %.2f MB", os.path.getsize(srs_path) / 1024 / 1024)
+
+    return srs_path
 
 
 def gen_witness(
@@ -142,12 +193,18 @@ def gen_keys(
     compiled_circuit_path: str,
     vk_path: str,
     pk_path: str,
+    srs_path: str,
     logger: logging.Logger,
 ) -> None:
     logger.info("GENERATING_KEYS")
 
     if not os.path.exists(vk_path) or not os.path.exists(pk_path):
-        res = ezkl.setup(compiled_circuit_path, vk_path, pk_path)
+        res = ezkl.setup(
+            compiled_circuit_path,
+            vk_path,
+            pk_path,
+            srs_path=srs_path,
+        )
         logger.info("setup result: %s", res)
     else:
         logger.info("Using existing keys: %s / %s", vk_path, pk_path)
@@ -158,6 +215,7 @@ def compute_proof(
     compiled_circuit_path: str,
     pk_path: str,
     proof_path: str,
+    srs_path: str,
     logger: logging.Logger,
 ) -> None:
     logger.info("PROVING")
@@ -168,6 +226,7 @@ def compute_proof(
         pk_path,
         proof_path,
         "single",
+        srs_path=srs_path,
     )
     logger.info("prove result: %s", res)
 
@@ -205,11 +264,13 @@ def run_proof(
     vk_path: str,
     pk_path: str,
     proof_path: str,
+    srs_dir: str,
     logger: logging.Logger,
     setup_only: bool = False,
 ) -> Dict[str, Any]:
     perf_measurements: Dict[str, Any] = {}
     total_setup_time = 0.0
+    srs_holder: Dict[str, str] = {}
 
     perf_measurements["calibrate_settings_time(s)"] = timed_stage(
         "calibrate_settings",
@@ -231,9 +292,18 @@ def run_proof(
         logger,
     )
 
-    t = timed_stage("get_srs", logger, get_srs, settings_path, logger)
+    def get_srs_stage() -> None:
+        srs_holder["path"] = get_srs(
+            settings_path=settings_path,
+            srs_dir=srs_dir,
+            logger=logger,
+        )
+
+    t = timed_stage("get_srs", logger, get_srs_stage)
     perf_measurements["ezkl_get_srs_time(s)"] = t
     total_setup_time += t
+
+    srs_path = srs_holder["path"]
 
     t = timed_stage(
         "gen_witness",
@@ -254,6 +324,7 @@ def run_proof(
         compiled_circuit_path,
         vk_path,
         pk_path,
+        srs_path,
         logger,
     )
     perf_measurements["ezkl_key_gen_time(s)"] = t
@@ -270,6 +341,7 @@ def run_proof(
             compiled_circuit_path,
             pk_path,
             proof_path,
+            srs_path,
             logger,
         )
 
@@ -283,8 +355,8 @@ if __name__ == "__main__":
     logger = setup_logger(os.path.join(base_path, "debug.log"))
 
     try:
-        input_data_path = "experiments/models/mnist_classifier/input.json"
         onnx_model_path = "experiments/models/mnist_classifier/network.onnx"
+        input_data_path = "experiments/models/mnist_classifier/input.json"
 
         settings_path = os.path.join(base_path, "settings.json")
         compiled_circuit_path = os.path.join(base_path, "circuit.json")
@@ -292,6 +364,10 @@ if __name__ == "__main__":
         vk_path = os.path.join(base_path, "vk.json")
         pk_path = os.path.join(base_path, "pk.json")
         proof_path = os.path.join(base_path, "proof.json")
+
+        home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or "."
+        srs_dir = os.path.join(home, ".ezkl", "srs")
+        os.makedirs(srs_dir, exist_ok=True)
 
         metrics = run_proof(
             onnx_model_path=onnx_model_path,
@@ -302,6 +378,7 @@ if __name__ == "__main__":
             vk_path=vk_path,
             pk_path=pk_path,
             proof_path=proof_path,
+            srs_dir=srs_dir,
             logger=logger,
         )
 
