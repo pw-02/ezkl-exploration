@@ -3,10 +3,12 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
@@ -43,41 +45,210 @@ def create_run_dirs(cfg: DictConfig) -> Dict[str, Path]:
     return dirs
 
 
-def open_log(logs_dir: Path, name: str):
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    return open(logs_dir / f"{name}.log", "w", encoding="utf-8")
+@dataclass
+class ManagedProcess:
+    name: str
+    command: List[str]
+    logs_dir: Path
+    env: dict
+    logger: logging.Logger
+    proc: Optional[subprocess.Popen] = None
+    _tee_thread: Optional[threading.Thread] = None
+
+    @property
+    def log_path(self) -> Path:
+        return self.logs_dir / f"{self.name}.log"
+
+    def start(self) -> None:
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+
+        self.logger.info("Starting %s: %s", self.name, " ".join(self.command))
+
+        self.proc = subprocess.Popen(
+            self.command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=self.env,
+            text=True,
+            bufsize=1,
+        )
+
+        self._tee_thread = threading.Thread(
+            target=self._tee_output,
+            name=f"{self.name}-tee",
+            daemon=True,
+        )
+        self._tee_thread.start()
+
+    def _tee_output(self) -> None:
+        assert self.proc is not None
+        assert self.proc.stdout is not None
+
+        with open(self.log_path, "w", encoding="utf-8") as log_file:
+            for line in self.proc.stdout:
+                prefixed = f"[{self.name}] {line}"
+
+                print(prefixed, end="")
+                log_file.write(line)
+                log_file.flush()
+
+    def is_running(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+    def returncode(self) -> Optional[int]:
+        if self.proc is None:
+            return None
+        return self.proc.poll()
+
+    def stop(self, timeout_sec: int = 3) -> None:
+        if self.proc is None:
+            return
+
+        if self.proc.poll() is not None:
+            return
+
+        self.logger.info("Stopping %s", self.name)
+        self.proc.terminate()
+
+        try:
+            self.proc.wait(timeout=timeout_sec)
+        except subprocess.TimeoutExpired:
+            self.logger.warning("Killing %s pid=%s", self.name, self.proc.pid)
+            self.proc.kill()
+            self.proc.wait(timeout=timeout_sec)
 
 
-def start_process(name: str, command: List[str], logs_dir: Path, env: dict, logger: logging.Logger):
-    log_file = open_log(logs_dir, name)
-    logger.info("Starting %s: %s", name, " ".join(command))
+class ProcessGroup:
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+        self.processes: List[ManagedProcess] = []
 
-    return subprocess.Popen(
-        command,
-        stdout=log_file,
-        stderr=subprocess.STDOUT,
-        env=env,
-        text=True,
-    )
+    def add(self, process: ManagedProcess) -> ManagedProcess:
+        self.processes.append(process)
+        process.start()
+        return process
+
+    def stop_all(self) -> None:
+        for process in reversed(self.processes):
+            process.stop()
+
+    def failed_processes(self) -> List[ManagedProcess]:
+        failed = []
+
+        for process in self.processes:
+            code = process.returncode()
+            if code is not None and code != 0:
+                failed.append(process)
+
+        return failed
+
+    def raise_if_any_failed(self) -> None:
+        failed = self.failed_processes()
+
+        if not failed:
+            return
+
+        details = "\n".join(
+            f"- {p.name} exited with code {p.returncode()}. Log: {p.log_path}"
+            for p in failed
+        )
+
+        raise RuntimeError(f"One or more subprocesses failed:\n{details}")
 
 
-def stop_processes(processes: List[subprocess.Popen], logger: logging.Logger) -> None:
-    for proc in processes:
-        if proc.poll() is None:
-            proc.terminate()
+def make_env() -> dict:
+    env = os.environ.copy()
 
-    time.sleep(2)
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f".:{existing_pythonpath}" if existing_pythonpath else "."
 
-    for proc in processes:
-        if proc.poll() is None:
-            logger.warning("Killing process %s", proc.pid)
-            proc.kill()
+    # Makes subprocess Python logs stream immediately.
+    env["PYTHONUNBUFFERED"] = "1"
+
+    return env
 
 
-def wait_for_port(host: str, port: int, timeout_sec: int, logger: logging.Logger) -> None:
+def build_common_overrides(
+    cfg: DictConfig,
+    tmp_dir: Path,
+    logs_dir: Path,
+    reports_dir: Path,
+    artifacts_dir: Path,
+    shared_dir: Path,
+) -> List[str]:
+    return [
+        f"coordinator.host={cfg.launch.coordinator_host}",
+        f"coordinator.port={cfg.launch.coordinator_port}",
+        f"paths.tmp_dir={tmp_dir}",
+        f"paths.logs_dir={logs_dir}",
+        f"paths.reports_dir={reports_dir}",
+        f"paths.artifacts_dir={artifacts_dir}",
+        f"file_transfer.root_dir={shared_dir}",
+    ]
+
+
+def build_coordinator_cmd(
+    cfg: DictConfig,
+    tmp_dir: Path,
+    logs_dir: Path,
+    reports_dir: Path,
+    artifacts_dir: Path,
+    shared_dir: Path,
+) -> List[str]:
+    return [
+        sys.executable,
+        "-u",
+        "-m",
+        "zkinfer.runtime.coordinator_grpc",
+        *build_common_overrides(
+            cfg,
+            tmp_dir,
+            logs_dir,
+            reports_dir,
+            artifacts_dir,
+            shared_dir,
+        ),
+    ]
+
+
+def build_worker_cmd(
+    cfg: DictConfig,
+    worker_id: str,
+    tmp_dir: Path,
+    logs_dir: Path,
+    reports_dir: Path,
+    artifacts_dir: Path,
+    shared_dir: Path,
+) -> List[str]:
+    return [
+        sys.executable,
+        "-u",
+        "-m",
+        "zkinfer.runtime.worker",
+        *build_common_overrides(
+            cfg,
+            tmp_dir,
+            logs_dir,
+            reports_dir,
+            artifacts_dir,
+            shared_dir,
+        ),
+        f"worker.worker_id={worker_id}",
+    ]
+
+
+def wait_for_port_or_crash(
+    host: str,
+    port: int,
+    timeout_sec: int,
+    process_group: ProcessGroup,
+    logger: logging.Logger,
+) -> None:
     deadline = time.time() + timeout_sec
 
     while time.time() < deadline:
+        process_group.raise_if_any_failed()
+
         try:
             with socket.create_connection((host, port), timeout=1):
                 logger.info("Coordinator is ready at %s:%s", host, port)
@@ -85,11 +256,13 @@ def wait_for_port(host: str, port: int, timeout_sec: int, logger: logging.Logger
         except OSError:
             time.sleep(0.5)
 
+    process_group.raise_if_any_failed()
     raise TimeoutError(f"Coordinator did not become ready at {host}:{port}")
 
 
 def submit_workload(cfg: DictConfig, logger: logging.Logger) -> str:
     target = f"{cfg.launch.coordinator_host}:{cfg.launch.coordinator_port}"
+
     logger.info("Submitting workload to %s", target)
     logger.info("Workload:\n%s", OmegaConf.to_yaml(cfg.workload))
 
@@ -107,15 +280,18 @@ def submit_workload(cfg: DictConfig, logger: logging.Logger) -> str:
     )
 
 
-def wait_for_request_report(
+def wait_for_request_report_or_crash(
     reports_dir: Path,
     poll_interval_sec: int,
+    process_group: ProcessGroup,
     logger: logging.Logger,
 ) -> None:
     report_path = reports_dir / "request_report.csv"
+
     logger.info("Waiting for request report: %s", report_path)
 
     while not report_path.exists():
+        process_group.raise_if_any_failed()
         time.sleep(poll_interval_sec)
 
     logger.info("Request completed. Report written to %s", report_path)
@@ -135,52 +311,59 @@ def main(cfg: DictConfig) -> None:
 
     logger.info("Run directory: %s", run_dir)
 
-    env = os.environ.copy()
-    env["PYTHONPATH"] = f".:{env.get('PYTHONPATH', '')}"
-
-    processes: List[subprocess.Popen] = []
+    env = make_env()
+    process_group = ProcessGroup(logger)
 
     try:
-        coordinator_cmd = [
-            sys.executable,
-            "-m",
-            "zkinfer.runtime.coordinator_grpc",
-            f"coordinator.host={cfg.launch.coordinator_host}",
-            f"coordinator.port={cfg.launch.coordinator_port}",
-            f"paths.tmp_dir={tmp_dir}",
-            f"paths.logs_dir={logs_dir}",
-            f"paths.reports_dir={reports_dir}",
-            f"paths.artifacts_dir={artifacts_dir}",
-            f"file_transfer.root_dir={shared_dir}",
-        ]
+        coordinator_cmd = build_coordinator_cmd(
+            cfg,
+            tmp_dir,
+            logs_dir,
+            reports_dir,
+            artifacts_dir,
+            shared_dir,
+        )
 
-        processes.append(start_process("coordinator", coordinator_cmd, logs_dir, env, logger))
+        process_group.add(
+            ManagedProcess(
+                name="coordinator",
+                command=coordinator_cmd,
+                logs_dir=logs_dir,
+                env=env,
+                logger=logger,
+            )
+        )
 
-        wait_for_port(
+        wait_for_port_or_crash(
             host=cfg.launch.coordinator_host,
             port=cfg.launch.coordinator_port,
             timeout_sec=cfg.launch.coordinator_ready_timeout_sec,
+            process_group=process_group,
             logger=logger,
         )
 
         for idx in range(cfg.launch.num_workers):
             worker_id = f"worker_{idx + 1}"
 
-            worker_cmd = [
-                sys.executable,
-                "-m",
-                "zkinfer.runtime.worker",
-                f"coordinator.host={cfg.launch.coordinator_host}",
-                f"coordinator.port={cfg.launch.coordinator_port}",
-                f"worker.worker_id={worker_id}",
-                f"paths.tmp_dir={tmp_dir}",
-                f"paths.logs_dir={logs_dir}",
-                f"paths.reports_dir={reports_dir}",
-                f"paths.artifacts_dir={artifacts_dir}",
-                f"file_transfer.root_dir={shared_dir}",
-            ]
+            worker_cmd = build_worker_cmd(
+                cfg,
+                worker_id,
+                tmp_dir,
+                logs_dir,
+                reports_dir,
+                artifacts_dir,
+                shared_dir,
+            )
 
-            processes.append(start_process(worker_id, worker_cmd, logs_dir, env, logger))
+            process_group.add(
+                ManagedProcess(
+                    name=worker_id,
+                    command=worker_cmd,
+                    logs_dir=logs_dir,
+                    env=env,
+                    logger=logger,
+                )
+            )
 
         time.sleep(cfg.launch.worker_startup_delay_sec)
 
@@ -188,21 +371,24 @@ def main(cfg: DictConfig) -> None:
         logger.info("Submitted request: %s", request_id)
 
         if cfg.launch.shutdown_when_done:
-            wait_for_request_report(
+            wait_for_request_report_or_crash(
                 reports_dir=reports_dir,
                 poll_interval_sec=cfg.launch.poll_completion_interval_sec,
+                process_group=process_group,
                 logger=logger,
             )
         else:
             logger.info("Experiment running. Press Ctrl+C to stop coordinator/workers.")
+
             while True:
+                process_group.raise_if_any_failed()
                 time.sleep(cfg.launch.poll_completion_interval_sec)
 
     except KeyboardInterrupt:
         logger.info("Stopping experiment...")
 
     finally:
-        stop_processes(processes, logger)
+        process_group.stop_all()
         logger.info("Done. Run directory: %s", run_dir)
 
 
