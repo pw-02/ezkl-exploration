@@ -11,7 +11,7 @@ CONDA_ENV="${CONDA_ENV:-zk}"
 ROOT_DIR="$(pwd)"
 
 RUN_ID="$(date +%Y-%m-%d_%H-%M-%S)_${WORKLOAD}"
-RUN_DIR="${ROOT_DIR}/runs/${RUN_ID}"
+RUN_DIR="${ROOT_DIR}/experiments/runs/${RUN_ID}"
 
 LOGS_DIR="${RUN_DIR}/logs"
 REPORTS_DIR="${RUN_DIR}/reports"
