@@ -16,7 +16,7 @@ worker:
   worker_id: null
   job_poll_interval_sec: 5
   resource_monitor_interval_sec: 3
-  send_proofs_to_coordinator: false
+  send_proofs_to_coordinator: true
 
 jobs:
   scheduler: fifo

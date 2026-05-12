@@ -441,6 +441,17 @@ class ZKProofWorker:
                 setup_only=False
             )
 
+            #copy proof to artifact dir for collection by coordinator
+            if os.path.exists(proof_stages.proof_path):
+                shutil.copy(
+                    proof_stages.proof_path,
+                    os.path.join(
+                        local_paths.artifact_dir,
+                        "proof.pf",
+                    ),
+                )
+
+
             settings_output_path = os.path.join(
                 local_paths.artifact_dir,
                 "ezkl_settings.json",
