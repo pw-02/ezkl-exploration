@@ -92,7 +92,6 @@ class Coordinator:
 
         dirs = {
             "run_dir": run_dir,
-            # "logs_dir": run_dir / "logs",
             "reports_dir": run_dir / "reports",
         }
 
@@ -100,7 +99,6 @@ class Coordinator:
             path.mkdir(parents=True, exist_ok=True)
 
         req.run_dir = str(dirs["run_dir"])
-        # req.logs_dir = str(dirs["logs_dir"])
         req.reports_dir = str(dirs["reports_dir"])
 
     def get_request_status(self, request_id: str) -> Dict:
@@ -201,7 +199,25 @@ class Coordinator:
             for worker_id in dead_workers:
                 self.worker_heartbeats.pop(worker_id, None)
                 self.worker_status.pop(worker_id, None)
+    
+    def _cleanup_request_transfer_files(self, request: InferenceRequest) -> None:
+        try:
+            self.file_transfer.delete_tree(request.request_id)
+            self.logger.info(
+                "Cleaned up transfer files for request %s",
+                request.request_id,
+            )
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to clean up transfer files for request %s: %s",
+                request.request_id,
+                exc,
+                exc_info=True,
+            )
+ 
 
+
+    
     def submit_job_result(
         self,
         job_id: str,
@@ -392,8 +408,9 @@ class Coordinator:
         else:
             parent_req.request_status = RequestStatus.COMPLETED
             self.logger.info("Request %s completed.", parent_req.request_id)
-
+        
         write_request_report(
             parent_req,
             out_dir=parent_req.reports_dir,
         )
+        self._cleanup_request_transfer_files(parent_req)

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+import shutil
 
 from omegaconf import DictConfig
 
@@ -33,6 +34,43 @@ class FileTransferConfig:
     s3_bucket: Optional[str]
     s3_prefix: str
 
+    def delete_tree(self, relative_path: str) -> None:
+        relative_path = relative_path.strip("/")
+
+        if not relative_path:
+            raise ValueError("Refusing to delete empty transfer path")
+
+        if self.backend == "filesystem":
+            path = Path(self.root_dir) / relative_path
+            shutil.rmtree(path, ignore_errors=True)
+            return
+
+        if self.backend == "s3":
+            import boto3
+
+            if not self.s3_bucket:
+                raise ValueError("s3_bucket must be set when backend=s3")
+
+            s3 = boto3.client("s3")
+            prefix = f"{self.s3_prefix.rstrip('/')}/{relative_path}/".lstrip("/")
+
+            paginator = s3.get_paginator("list_objects_v2")
+
+            for page in paginator.paginate(Bucket=self.s3_bucket, Prefix=prefix):
+                objects = [
+                    {"Key": item["Key"]}
+                    for item in page.get("Contents", [])
+                ]
+
+                if objects:
+                    s3.delete_objects(
+                        Bucket=self.s3_bucket,
+                        Delete={"Objects": objects},
+                    )
+
+            return
+
+        raise ValueError(f"Unsupported file transfer backend: {self.backend}")
 
 @dataclass(frozen=True)
 class ProvingCacheConfig:

@@ -364,7 +364,7 @@ def main(cfg: DictConfig) -> None:
             request_id = submit_workload(client, cfg, workload_cfg)
 
             logs_dir = request_logs_dir(cfg, request_id)
-            exp_log_path = logs_dir / "exp.log"
+            exp_log_path = logs_dir / "run.log"
 
             active_log.set_path(exp_log_path)
             save_request_metadata(cfg, workload_cfg, request_id)

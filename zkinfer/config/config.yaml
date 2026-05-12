@@ -11,12 +11,12 @@ coordinator:
   grpc_thread_pool_size: 4
   grpc_max_message_mb: 64
   runs_dir: experiments/runs
-  logs_dir: experiments/logs/coordinator
+  logs_dir: logs/coordinator
 
 worker:
   worker_id: null
   runs_dir: experiments/runs
-  logs_dir: experiments/logs/workers
+  logs_dir: logs/workers
   job_poll_interval_sec: 5
   resource_monitor_interval_sec: 3
   send_proofs_to_coordinator: true
