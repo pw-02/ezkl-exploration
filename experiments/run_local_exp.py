@@ -19,8 +19,9 @@ from zkinfer.client.api import ZKInferenceClient
 
 WORKLOADS = [
     "mnist_classifier",
-    "mnist_classifier",
-    "mnist_classifier",
+    "mnist_gan",
+    "mobilenet_v2",
+    "nano_gpt_4_layers_64_embd"
 ]
 
 
