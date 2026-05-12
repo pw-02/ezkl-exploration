@@ -5,7 +5,7 @@ defaults:
   - override hydra/job_logging: disabled
 
 execution:
-  split_mode: none #none, fixed, auto, single
+  split_mode: none #fixed, auto, none, single
   ops_per_chunk: 1
   simplify_model: true
 
@@ -20,7 +20,6 @@ launch:
   worker_startup_delay_sec: 1
   shutdown_when_done: true
   poll_completion_interval_sec: 5
-
 
 paths:
   runs_dir: experiments/runs

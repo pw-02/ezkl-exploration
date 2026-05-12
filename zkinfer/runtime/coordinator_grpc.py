@@ -33,14 +33,11 @@ def setup_logger(name: str) -> logging.Logger:
 
 
 def validate_config(cfg: DictConfig) -> None:
-    if cfg.file_transfer.type == "s3" and not cfg.file_transfer.s3_bucket:
-        raise ValueError("file_transfer.s3_bucket must be set when file_transfer.type=s3")
+    if cfg.storage.type not in {"filesystem", "s3"}:
+        raise ValueError("storage.type must be either 'filesystem' or 's3'")
 
-    if cfg.backend.proving_cache.type == "s3" and not cfg.backend.proving_cache.s3_bucket:
-        raise ValueError(
-            "backend.proving_cache.s3_bucket must be set when "
-            "backend.proving_cache.type=s3"
-        )
+    if cfg.storage.type == "s3" and not cfg.storage.s3_bucket:
+        raise ValueError("storage.s3_bucket must be set when storage.type=s3")
 
 
 def parse_optional_json_dict(value: str):
@@ -106,6 +103,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
     def GetNextJob(self, request, context):
         try:
             job = self.coordinator.get_next_job()
+
             if job is None:
                 return pb2.JobAssignment(job_available=False)
 
@@ -115,6 +113,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 job_id=job.job_id,
                 model_path=job.model_path,
                 input_path=job.input_path,
+                cache_path=job.cache_path or "",
             )
 
         except Exception as exc:
@@ -170,6 +169,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 status=request.status,
                 message=request.message,
             )
+
             return pb2.HeartbeatAck(success=True)
 
         except Exception as exc:
@@ -208,7 +208,7 @@ def create_grpc_server(
 
 
 @hydra.main(config_path="../config", config_name="config", version_base=None)
-def serve(cfg: DictConfig):
+def serve(cfg: DictConfig) -> None:
     validate_config(cfg)
 
     logger = setup_logger("coordinator")
@@ -220,7 +220,6 @@ def serve(cfg: DictConfig):
 
     coordinator = Coordinator(
         runtime_config=runtime_config,
-        reports_dir=cfg.paths.reports_dir,
         logger=logger,
     )
 
@@ -240,6 +239,7 @@ def serve(cfg: DictConfig):
     try:
         while True:
             time.sleep(3600)
+
     except KeyboardInterrupt:
         logger.warning("Shutting down coordinator...")
         server.stop(0)

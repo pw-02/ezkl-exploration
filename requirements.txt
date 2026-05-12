@@ -16,5 +16,6 @@ psutils
 boto3
 pyparsing
 protobuf==6.33.6
+onnxsim
 # torch
 # torchvision

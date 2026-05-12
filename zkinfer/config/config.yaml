@@ -1,3 +1,5 @@
+# config/config.yaml
+
 defaults:
   - _self_
   - backend: ezkl
@@ -24,26 +26,31 @@ heartbeat:
   interval_sec: 5
   timeout_sec: 45
 
-file_transfer:
+storage:
+  # filesystem | s3
   type: filesystem
-  root_dir: shared
-  s3_bucket: null
-  s3_prefix: zkinfer/jobs
 
-paths:
-  runs_dir: runs
-  logs_dir: logs
-  reports_dir: reports
-  artifacts_dir: artifacts
-  tmp_dir: tmp
+  # Used when type=filesystem
+  root_dir: .
+
+  # Per-run directory. Usually overridden by experiment launcher.
+  run_dir: runs/default
+
+  # Used when type=s3
+  s3_bucket: null
+  s3_prefix: zkinfer
 
 hydra:
   run:
     dir: .
+
   sweep:
     dir: .
+
   output_subdir: null
+
   job_logging:
     level: DISABLE
+
   hydra_logging:
     level: DISABLE

@@ -48,7 +48,12 @@ def main(cfg: DictConfig) -> None:
         logger.info("Job submitted. Request ID: %s", request_id)
 
     except grpc.RpcError as exc:
-        logger.error("gRPC error: %s code=%s", exc.details(), exc.code())
+        logger.error(
+            "gRPC error: %s code=%s",
+            exc.details(),
+            exc.code(),
+        )
+        raise
 
 
 if __name__ == "__main__":

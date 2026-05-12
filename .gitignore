@@ -2,3 +2,4 @@ experiments/runs
 *pycache*
 _ezkl_tmp/
 ezkl_smoke
+cache

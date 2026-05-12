@@ -63,7 +63,9 @@ def resolve_input_shape(
         elif idx == 0:
             resolved_shape.append(batch_size)
         else:
-            resolved_shape.append(seq_len if dim in ("sequence_length", "seq_len") else default_dim)
+            resolved_shape.append(
+                seq_len if dim in ("sequence_length", "seq_len") else default_dim
+            )
 
     return resolved_shape
 
@@ -537,19 +539,20 @@ def materialize_submodels_with_inputs(
 
         input_data = {"input_data": flattened_inputs}
         sub_model_hash = compute_bytes_md5_hex(sub_model.SerializeToString())
-        cache_key = f"{parent_model_hash}/{sub_model_hash}"
 
+        # Returns separate parent/submodel hashes so RequestBuilder can build:
+        # cache/ezkl/<model_name>_<parent_hash>/splits/<split_config>/<submodel_name>_<sub_hash>/
         models_with_inputs.append(
             (
                 partition.name or f"sub_model_{idx + 1}",
-                cache_key,
+                parent_model_hash,
+                sub_model_hash,
                 sub_model,
                 input_data,
             )
         )
 
     return models_with_inputs
-
 
 def split_onnx_model_with_inputs(
     onnx_model_path: str,
@@ -559,13 +562,31 @@ def split_onnx_model_with_inputs(
     simplify_model: bool = False,
     simplified_model_path: Optional[str] = None,
     simplify_input_shapes: Optional[Dict[str, List[int]]] = None,
+    model_name: Optional[str] = None,
 ):
+    split_mode = (split_mode or "none").lower()
+
     model_path_for_splitting = maybe_simplify_onnx_model(
         onnx_model_path=onnx_model_path,
         simplify_model=simplify_model,
         simplified_model_path=simplified_model_path,
         input_shapes=simplify_input_shapes,
     )
+
+    if split_mode == "none":
+        model = onnx.load(model_path_for_splitting)
+        input_data = load_json_input(input_data_path)
+        model_hash = compute_bytes_md5_hex(model.SerializeToString())
+
+        return [
+            (
+                model_name or "model",
+                model_hash,
+                model_hash,
+                model,
+                input_data,
+            )
+        ]
 
     tensor_values = collect_tensor_values_from_inference(
         onnx_model_path=model_path_for_splitting,
@@ -586,6 +607,7 @@ def split_onnx_model_with_inputs(
     )
 
 
+
 def get_model_info(onnx_model_path: str) -> Dict[str, Any]:
     model = onnx.load(onnx_model_path)
 
@@ -602,7 +624,6 @@ def get_model_info(onnx_model_path: str) -> Dict[str, Any]:
 if __name__ == "__main__":
     onnx_model_path = "examples/onnx/mnist_classifier/network.onnx"
 
-    # Set to None to generate an example input automatically.
     input_data_path = None
     # input_data_path = "examples/onnx/mnist_classifier/input.json"
 
@@ -617,7 +638,13 @@ if __name__ == "__main__":
         simplify_model=True,
     )
 
-    for idx, (name, _, model, input_data) in enumerate(split_models, start=1):
+    for idx, (
+        name,
+        parent_model_hash,
+        sub_model_hash,
+        model,
+        input_data,
+    ) in enumerate(split_models, start=1):
         model_file_path = os.path.join(cache_dir, f"model_{idx}.onnx")
         input_file_path = os.path.join(cache_dir, f"input_{idx}.json")
 
@@ -627,7 +654,11 @@ if __name__ == "__main__":
         with open(input_file_path, "w", encoding="utf-8") as file:
             json.dump(input_data, file, indent=4)
 
-        print(f"Saved {name}")
+        print(
+            f"Saved {name} | "
+            f"parent_hash={parent_model_hash} | "
+            f"sub_hash={sub_model_hash}"
+        )
 
     parent_model = onnx.load(onnx_model_path)
     parent_model_file_path = os.path.join(cache_dir, "model.onnx")

@@ -28,7 +28,9 @@ def setup_logger() -> logging.Logger:
 def create_run_dirs(cfg: DictConfig) -> Dict[str, Path]:
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     run_id = f"{timestamp}_{cfg.workload.name}"
-    run_dir = Path(cfg.paths.runs_dir) / run_id
+
+    runs_dir = Path(cfg.paths.runs_dir)
+    run_dir = runs_dir / run_id
 
     dirs = {
         "run_dir": run_dir,
@@ -86,14 +88,9 @@ class ManagedProcess:
 
         with open(self.log_path, "w", encoding="utf-8") as log_file:
             for line in self.proc.stdout:
-                prefixed = f"[{self.name}] {line}"
-
-                print(prefixed, end="")
+                print(f"[{self.name}] {line}", end="")
                 log_file.write(line)
                 log_file.flush()
-
-    def is_running(self) -> bool:
-        return self.proc is not None and self.proc.poll() is None
 
     def returncode(self) -> Optional[int]:
         if self.proc is None:
@@ -101,10 +98,7 @@ class ManagedProcess:
         return self.proc.poll()
 
     def stop(self, timeout_sec: int = 3) -> None:
-        if self.proc is None:
-            return
-
-        if self.proc.poll() is not None:
+        if self.proc is None or self.proc.poll() is not None:
             return
 
         self.logger.info("Stopping %s", self.name)
@@ -161,8 +155,6 @@ def make_env() -> dict:
 
     existing_pythonpath = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = f".:{existing_pythonpath}" if existing_pythonpath else "."
-
-    # Makes subprocess Python logs stream immediately.
     env["PYTHONUNBUFFERED"] = "1"
 
     return env
@@ -170,69 +162,42 @@ def make_env() -> dict:
 
 def build_common_overrides(
     cfg: DictConfig,
-    tmp_dir: Path,
-    logs_dir: Path,
-    reports_dir: Path,
-    artifacts_dir: Path,
-    shared_dir: Path,
+    run_dir: Path,
 ) -> List[str]:
     return [
         f"coordinator.host={cfg.launch.coordinator_host}",
         f"coordinator.port={cfg.launch.coordinator_port}",
-        f"paths.tmp_dir={tmp_dir}",
-        f"paths.logs_dir={logs_dir}",
-        f"paths.reports_dir={reports_dir}",
-        f"paths.artifacts_dir={artifacts_dir}",
-        f"file_transfer.root_dir={shared_dir}",
+        "storage.type=filesystem",
+        "storage.root_dir=.",
+        f"storage.run_dir={run_dir}",
+        f"jobs.scheduler={cfg.jobs.scheduler}",
     ]
 
 
 def build_coordinator_cmd(
     cfg: DictConfig,
-    tmp_dir: Path,
-    logs_dir: Path,
-    reports_dir: Path,
-    artifacts_dir: Path,
-    shared_dir: Path,
+    run_dir: Path,
 ) -> List[str]:
     return [
         sys.executable,
         "-u",
         "-m",
         "zkinfer.runtime.coordinator_grpc",
-        *build_common_overrides(
-            cfg,
-            tmp_dir,
-            logs_dir,
-            reports_dir,
-            artifacts_dir,
-            shared_dir,
-        ),
+        *build_common_overrides(cfg, run_dir),
     ]
 
 
 def build_worker_cmd(
     cfg: DictConfig,
     worker_id: str,
-    tmp_dir: Path,
-    logs_dir: Path,
-    reports_dir: Path,
-    artifacts_dir: Path,
-    shared_dir: Path,
+    run_dir: Path,
 ) -> List[str]:
     return [
         sys.executable,
         "-u",
         "-m",
         "zkinfer.runtime.worker",
-        *build_common_overrides(
-            cfg,
-            tmp_dir,
-            logs_dir,
-            reports_dir,
-            artifacts_dir,
-            shared_dir,
-        ),
+        *build_common_overrides(cfg, run_dir),
         f"worker.worker_id={worker_id}",
     ]
 
@@ -305,9 +270,6 @@ def main(cfg: DictConfig) -> None:
     run_dir = run_dirs["run_dir"]
     logs_dir = run_dirs["logs_dir"]
     reports_dir = run_dirs["reports_dir"]
-    artifacts_dir = run_dirs["artifacts_dir"]
-    shared_dir = run_dirs["shared_dir"]
-    tmp_dir = run_dirs["tmp_dir"]
 
     logger.info("Run directory: %s", run_dir)
 
@@ -315,19 +277,10 @@ def main(cfg: DictConfig) -> None:
     process_group = ProcessGroup(logger)
 
     try:
-        coordinator_cmd = build_coordinator_cmd(
-            cfg,
-            tmp_dir,
-            logs_dir,
-            reports_dir,
-            artifacts_dir,
-            shared_dir,
-        )
-
         process_group.add(
             ManagedProcess(
                 name="coordinator",
-                command=coordinator_cmd,
+                command=build_coordinator_cmd(cfg, run_dir),
                 logs_dir=logs_dir,
                 env=env,
                 logger=logger,
@@ -345,20 +298,10 @@ def main(cfg: DictConfig) -> None:
         for idx in range(cfg.launch.num_workers):
             worker_id = f"worker_{idx + 1}"
 
-            worker_cmd = build_worker_cmd(
-                cfg,
-                worker_id,
-                tmp_dir,
-                logs_dir,
-                reports_dir,
-                artifacts_dir,
-                shared_dir,
-            )
-
             process_group.add(
                 ManagedProcess(
                     name=worker_id,
-                    command=worker_cmd,
+                    command=build_worker_cmd(cfg, worker_id, run_dir),
                     logs_dir=logs_dir,
                     env=env,
                     logger=logger,

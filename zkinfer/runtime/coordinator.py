@@ -16,12 +16,10 @@ class Coordinator:
     def __init__(
         self,
         runtime_config: RuntimeConfig,
-        reports_dir: str,
         logger: logging.Logger,
     ):
         self.logger = logger
-        self.reports_dir = reports_dir
-
+        self.reports_dir = runtime_config.reports_dir
         self.file_transfer = runtime_config.file_transfer
         self.proving_cache = runtime_config.proving_cache
         self.jobs_config = runtime_config.jobs
@@ -65,13 +63,13 @@ class Coordinator:
         )
 
         req.request_status = RequestStatus.PREPARING
-
         req.proof_jobs = self.request_builder.build_jobs(
             request=req,
             file_transfer=self.file_transfer,
             proving_cache=self.proving_cache,
             max_retries=self.max_retries,
         )
+     
 
         self._enqueue_request(req)
 

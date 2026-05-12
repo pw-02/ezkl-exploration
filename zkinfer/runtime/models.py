@@ -45,6 +45,9 @@ class ProofJob:
     zk_proof: Optional[bytes] = None
     error_message: Optional[str] = None
     retry_count: int = 0
+    parent_model_hash: Optional[str] = None
+    model_hash: Optional[str] = None
+    cache_path: Optional[str] = None
 
     def __post_init__(self) -> None:
         self.job_id = f"{self.model_name}_{uuid.uuid4().hex[:8]}"

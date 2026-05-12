@@ -55,17 +55,7 @@ message JobAssignment {
   string model_path = 4;
   string input_path = 5;
 
-  string file_transfer_type = 6;
-  string file_transfer_root_dir = 7;
-  string file_transfer_s3_bucket = 8;
-  string file_transfer_s3_prefix = 9;
-
-  bool proving_cache_enabled = 10;
-  string proving_cache_type = 11;
-  bool proving_cache_overwrite = 12;
-  string proving_cache_root_dir = 13;
-  string proving_cache_s3_bucket = 14;
-  string proving_cache_s3_prefix = 15;
+  string cache_path = 6;
 }
 
 // ============================================================
