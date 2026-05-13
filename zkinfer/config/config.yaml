@@ -36,7 +36,7 @@ storage:
   transfer_prefix: storage/transfer
 
   # Shared persistent proving cache.
-  proving_cache_enabled: false
+  proving_cache_enabled: true
   proving_cache_prefix: storage/cache
   proving_cache_overwrite: false
 
