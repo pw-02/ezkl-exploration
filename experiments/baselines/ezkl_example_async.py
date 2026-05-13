@@ -409,8 +409,9 @@ async def main() -> None:
 
     logger = setup_logger(os.path.join(base_path, "debug.log"))
 
-    input_data_path = "experiments/models/mnist_classifier/input.json"
-    onnx_model_path = "experiments/models/mnist_classifier/network.onnx"
+    onnx_file = "experiments/models/nanoGPT/network.onnx"
+    input_file = "experiments/models/nanoGPT/input.json"
+
 
     settings_path = os.path.join(base_path, "settings.json")
     compiled_circuit_path = os.path.join(base_path, "circuit.json")
@@ -420,8 +421,8 @@ async def main() -> None:
     proof_path = os.path.join(base_path, "proof.json")
 
     metrics = await run_proof(
-        onnx_model_path=onnx_model_path,
-        input_data_path=input_data_path,
+        onnx_model_path=onnx_file,
+        input_data_path=input_file,
         settings_path=settings_path,
         compiled_circuit_path=compiled_circuit_path,
         witness_path=witness_path,

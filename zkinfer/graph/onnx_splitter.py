@@ -441,9 +441,12 @@ def save_submodels(
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
+    onnx_model_path = "experiments/models/nanoGPT/nano_gpt_4_layers_64_embd.onnx"
+    input_data_path = "experiments/models/nanoGPT/input.json"
+    
     split_models = split_onnx_model_with_inputs(
-        model_path="experiments/models/mini_lm/model_int8.onnx",
-        input_data_path=None,
+        model_path=onnx_model_path,
+        input_data_path=input_data_path,
         split_mode="fixed", #fixed, none, single_ops
         split_group_size=1,
         simplify_model=True,

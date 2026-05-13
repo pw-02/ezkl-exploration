@@ -4,6 +4,7 @@ import time
 from typing import Any, Dict, Optional, Tuple
 import json
 import math
+from venv import logger
 
 from zkinfer.storage.s3 import (
     download_file,
@@ -208,7 +209,7 @@ class EZKLProofStages:
     def get_vk_file_size_gb(self) -> float:
         return os.path.getsize(self.vk_path) / (1024 ** 3) if os.path.exists(self.vk_path) else 0.0
 
-    def calibrate_settings(self):
+    def calibrate_settings(self, run_calibrate: bool = True) -> Tuple[bool, float, float]:
         self._update_status("CALIBRATING")
 
         used_cache, s3_read_time = self._try_load_from_cache(
@@ -220,16 +221,16 @@ class EZKLProofStages:
             return True, s3_read_time, 0.0
 
         self.ezkl.gen_settings(self.onnx_model_path, self.settings_path)
-        #accuracy, resources
+        
+        if run_calibrate:
+            res = self.ezkl.calibrate_settings(
+                self.input_data_path,
+                self.onnx_model_path,
+                self.settings_path,
+                "resources",  #accuracy, resources
 
-        # self.ezkl.calibrate_settings(
-        #     self.input_data_path,
-        #     self.onnx_model_path,
-        #     self.settings_path,
-        #     "resources", 
-        #     scales=[7],
-        # )
-        # self._fix_logrows_after_calibration(margin=1)
+            )
+            self.logger.info("calibrate_settings result: %s", res)
 
         s3_write_time = self._upload_to_cache(self.settings_path, "settings.json")
 

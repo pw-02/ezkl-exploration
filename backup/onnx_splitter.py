@@ -208,10 +208,10 @@ def get_model_info(onnx_model_path: str) -> Dict:
 
 
 if __name__ == "__main__":
-    onnx_model_path = "examples/onnx/bert/bert_large_squad.onnx"
-    input_data_path = "examples/onnx/bert/bert_large_squad_input.json"
+    onnx_model_path = "experiments/models/nanoGPT/nano_gpt_4_layers_64_embd.onnx"
+    input_data_path = "experiments/models/nanoGPT/input.json"
 
-    cache_dir = "cache/debug_split"
+    cache_dir = "debug_split"
     os.makedirs(cache_dir, exist_ok=True)
 
     split_models = split_onnx_model_with_inputs(

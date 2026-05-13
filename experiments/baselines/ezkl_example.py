@@ -54,7 +54,7 @@ def calibrate_settings(
     input_data_path: str,
     settings_path: str,
     logger: logging.Logger,
-    run_calibrate: bool = False,
+    run_calibrate: bool = True,
 ) -> None:
     logger.info("CALIBRATING")
     logger.info("ONNX model: %s", onnx_model_path)
@@ -352,11 +352,11 @@ if __name__ == "__main__":
     base_path = "_ezkl_tmp"
     os.makedirs(base_path, exist_ok=True)
 
-    logger = setup_logger(os.path.join(base_path, "debug.log"))
+    logger = setup_logger(os.path.join(base_path, "debug.log"), level=logging.DEBUG)
 
     try:
-        onnx_model_path = "experiments/models/mnist_classifier/network.onnx"
-        input_data_path = "experiments/models/mnist_classifier/input.json"
+        onnx_file = "experiments/models/nanoGPT/network.onnx"
+        input_file = "experiments/models/nanoGPT/input.json"
 
         settings_path = os.path.join(base_path, "settings.json")
         compiled_circuit_path = os.path.join(base_path, "circuit.json")
@@ -370,8 +370,8 @@ if __name__ == "__main__":
         os.makedirs(srs_dir, exist_ok=True)
 
         metrics = run_proof(
-            onnx_model_path=onnx_model_path,
-            input_data_path=input_data_path,
+            onnx_model_path=onnx_file,
+            input_data_path=input_file,
             settings_path=settings_path,
             compiled_circuit_path=compiled_circuit_path,
             witness_path=witness_path,
