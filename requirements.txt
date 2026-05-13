@@ -19,3 +19,7 @@ protobuf==6.33.6
 onnxsim
 # torch
 # torchvision
+ transformers
+ optimum
+ accelerate
+ sentencepiece
