@@ -6,12 +6,15 @@ defaults:
 suite:
   workloads:
     - mnist_classifier
-    - mnist_gan
-    - mobilenet_v2
-    - nano_gpt_4_layers_64_embd
+    - mnist_classifier
+    - mnist_classifier
+
+    # - mnist_gan
+    # - mobilenet_v2
+    # - nano_gpt_4_layers_64_embd
 
 execution:
-  split_mode: none
+  split_mode: fixed #none, fixed, auto
   ops_per_chunk: 1
   simplify_model: false
 
@@ -23,7 +26,7 @@ launch:
   coordinator_host: localhost
   coordinator_port: 50051
   coordinator_ready_timeout_sec: 30
-  worker_startup_delay_sec: 1
+  worker_startup_delay_sec: 5
   shutdown_when_done: true
   poll_completion_interval_sec: 5
 
