@@ -4,6 +4,7 @@ import json
 import csv
 import ezkl
 import shutil
+
 def write_info_to_csv(report_file, info):
     header_written = os.path.exists(report_file)
 
@@ -14,9 +15,14 @@ def write_info_to_csv(report_file, info):
         writer.writerow(info)
 
 
-def gen_settings_file(tmp_folder,model_name, onnx_model_path, input_data_path):
+def gen_settings_file(tmp_folder,
+                      model_name, 
+                      onnx_model_path, 
+                      input_data_path, 
+                      run_args,
+                      run_calibration=False):
+    
     report_file = "ezkl_settings_report.csv"
-
 
     tmp_settings_file = f"{tmp_folder}/settings_{model_name}.json"
 
@@ -26,7 +32,14 @@ def gen_settings_file(tmp_folder,model_name, onnx_model_path, input_data_path):
         "input_data_path": input_data_path,
     }
 
-    ezkl.gen_settings(onnx_model_path, tmp_settings_file)
+    ezkl.gen_settings(onnx_model_path, tmp_settings_file, py_run_args=run_args)
+    if run_calibration:
+            res = ezkl.calibrate_settings(
+                input_data_path,
+                onnx_model_path,
+                tmp_settings_file,
+                "resources",
+            )
 
     with open(tmp_settings_file, "r") as f:
         ezkl_settings = json.load(f)
@@ -34,18 +47,9 @@ def gen_settings_file(tmp_folder,model_name, onnx_model_path, input_data_path):
 
     write_info_to_csv(report_file, info)
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
 
-    path = "tmp/debug_split"
+def gen_settings_files_for_all_models(path, run_args, run_calibration=False):
     error_count = 0
-
-    tmp_folder = "ezkl_tmp"
-    if os.path.exists(tmp_folder):
-            shutil.rmtree(tmp_folder)
-            # os.removedirs(tmp_folder)
-
-    os.makedirs(tmp_folder, exist_ok=True)
 
     model_files = sorted(
         [f for f in os.listdir(path) if f.startswith("model_") and f.endswith(".onnx")],
@@ -62,21 +66,64 @@ if __name__ == "__main__":
             input_data_path = os.path.join(path, input_file)
 
             if not os.path.exists(input_data_path):
-                raise FileNotFoundError(f"Missing input file: {input_data_path}")
+                print(f"Missing input file: {input_data_path}")
+                continue
 
             model_name = f"model_{idx}"
 
             gen_settings_file(
-                tmp_folder=tmp_folder,
+                tmp_folder="_ezkl_tmp",
                 model_name=model_name,
                 onnx_model_path=onnx_model_path,
                 input_data_path=input_data_path,
+                run_args=run_args,
+                run_calibration=run_calibration
             )
-
             print(f"Settings file generated successfully for {model_name}.")
-
         except Exception as e:
             error_count += 1
             print(f"Error processing {model_file}: {e}")
 
     print(f"Total errors encountered: {error_count}")
+
+def gen_settings_for_given_model_and_input(onnx_model_path, input_data_path, run_args, run_calibration=False, model_name = None):
+    try:
+
+        if not os.path.exists(input_data_path):
+            print(f"Missing input file: {input_data_path}")
+            return
+        if model_name is None:
+            model_name = os.path.basename(onnx_model_path).replace(".onnx", "")
+        
+        gen_settings_file(
+            tmp_folder="_ezkl_tmp",
+            model_name=model_name,
+            onnx_model_path=onnx_model_path,
+            input_data_path=input_data_path,
+            run_args=run_args,
+            run_calibration=run_calibration
+        )
+        print(f"Settings file generated successfully for {model_name}.")
+    except Exception as e:
+        print(f"Error processing {onnx_model_path}: {e}")
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    tmp_folder = "_ezkl_tmp"
+    if os.path.exists(tmp_folder):
+            shutil.rmtree(tmp_folder)
+    os.makedirs(tmp_folder, exist_ok=True)
+
+    run_args = ezkl.PyRunArgs()
+    run_args.input_visibility = "private"
+    run_args.param_visibility = "fixed"
+    run_args.output_visibility = "public"
+
+    run_calibration = False
+    # gen_settings_files_for_all_models(path="_tmp/split_output")
+    onnx_model_path = "experiments/models/mobile_net/network.onnx"
+    input_data_path = "experiments/models/mobile_net/input.json"
+    gen_settings_for_given_model_and_input(onnx_model_path, input_data_path, run_args, run_calibration)
+
+
+  

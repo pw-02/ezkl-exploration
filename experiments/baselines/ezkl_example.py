@@ -355,8 +355,8 @@ if __name__ == "__main__":
     logger = setup_logger(os.path.join(base_path, "debug.log"), level=logging.DEBUG)
 
     try:
-        onnx_file = "experiments/models/nanoGPT/network.onnx"
-        input_file = "experiments/models/nanoGPT/input.json"
+        onnx_file = "experiments/models/mobile_net/network.onnx"
+        input_file = "experiments/models/mobile_net/input.json"
 
         settings_path = os.path.join(base_path, "settings.json")
         compiled_circuit_path = os.path.join(base_path, "circuit.json")

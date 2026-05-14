@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import onnx
 import onnxruntime as ort
+from onnx import numpy_helper
 from onnx.utils import Extractor
 
 from zkinfer.storage.io import compute_bytes_md5_hex
@@ -48,6 +49,14 @@ def build_producer_map(model: onnx.ModelProto) -> Dict[str, onnx.NodeProto]:
     }
 
 
+def build_initializer_value_map(model: onnx.ModelProto) -> Dict[str, np.ndarray]:
+    return {
+        initializer.name: numpy_helper.to_array(initializer)
+        for initializer in model.graph.initializer
+        if initializer.name
+    }
+
+
 def trace_sources(
     tensor_names: Sequence[str],
     producer_map: Dict[str, onnx.NodeProto],
@@ -69,6 +78,7 @@ def trace_sources(
             return
 
         if tensor_name in initializers:
+            sources.add(tensor_name)
             return
 
         producer = producer_map.get(tensor_name)
@@ -306,9 +316,11 @@ def collect_tensor_values(
 def materialize_submodels(
     sub_models: Sequence[Tuple[ModelPartition, onnx.ModelProto]],
     tensor_values: Dict[str, np.ndarray],
+    parent_model: onnx.ModelProto,
     parent_hash: str,
 ) -> List[MaterializedSubmodel]:
     materialized = []
+    initializer_values = build_initializer_value_map(parent_model)
 
     for idx, (partition, sub_model) in enumerate(sub_models):
         input_values = []
@@ -318,10 +330,13 @@ def materialize_submodels(
             value = tensor_values.get(graph_input.name)
 
             if value is None:
+                value = initializer_values.get(graph_input.name)
+
+            if value is None:
                 missing_inputs.append(graph_input.name)
                 continue
 
-            input_values.append(value.flatten().tolist())
+            input_values.append(np.asarray(value).flatten().tolist())
 
         if missing_inputs:
             raise RuntimeError(
@@ -411,6 +426,7 @@ def split_onnx_model_with_inputs(
     return materialize_submodels(
         sub_models=sub_models,
         tensor_values=tensor_values,
+        parent_model=model,
         parent_hash=model_hash,
     )
 
@@ -441,16 +457,16 @@ def save_submodels(
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
-    onnx_model_path = "experiments/models/nanoGPT/nano_gpt_4_layers_64_embd.onnx"
-    input_data_path = "experiments/models/nanoGPT/input.json"
-    
+    onnx_file = "experiments/models/mobile_net/network.onnx"
+    input_file = "experiments/models/mobile_net/input.json"
+
     split_models = split_onnx_model_with_inputs(
-        model_path=onnx_model_path,
-        input_data_path=input_data_path,
-        split_mode="fixed", #fixed, none, single_ops
+        model_path=onnx_file,
+        input_data_path=input_file,
+        split_mode="fixed",
         split_group_size=1,
-        simplify_model=True,
+        simplify_model=False,
         input_shapes=None,
     )
 
-    save_submodels(split_models, "tmp/debug_split")
+    save_submodels(split_models, "_tmp/split_output")

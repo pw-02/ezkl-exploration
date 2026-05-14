@@ -48,9 +48,13 @@ class EZKLProofStages:
         self.proving_cache_s3_prefix = proving_cache_s3_prefix
 
         self.tmp_dir = local_tmp_dir or "tmp"
+        
 
-        home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or "."
-        self.srs_dir = srs_dir or os.path.join(home, ".ezkl", "srs")
+        # home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or "."
+        # self.srs_dir = srs_dir or os.path.join(home, ".ezkl", "srs")
+        # os.makedirs(self.srs_dir, exist_ok=True)
+        # self.srs_path: Optional[str] = None
+        self.srs_dir = srs_dir or "srs"
         os.makedirs(self.srs_dir, exist_ok=True)
         self.srs_path: Optional[str] = None
 
@@ -73,6 +77,7 @@ class EZKLProofStages:
         self.proof_path = os.path.join(self.tmp_dir, "proof.pf")
 
         self.ezkl_stting_dict = {}
+        
     
     def configure_ezkl_env(self, artifact_dir: str) -> None:
         # Used by EZKL/Halo2 to emit profiling artifacts

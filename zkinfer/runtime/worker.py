@@ -16,7 +16,7 @@ from omegaconf import DictConfig
 
 import zkinfer.proto.zkservice_pb2 as pb
 import zkinfer.proto.zkservice_pb2_grpc as pb_grpc
-from zkinfer.backends.ezkl.prover import EZKLProofStages
+from zkinfer.backends.ezkl.ezkl_prover import EZKLProofStages
 from zkinfer.config.runtime import RuntimeConfig, build_runtime_config
 from zkinfer.profiling.msm_fft_parser import (
     read_csv_first_row,

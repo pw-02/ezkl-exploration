@@ -7,3 +7,5 @@ cache
 tmp
 storage
 logs
+_ezkl_tmp
+srs
