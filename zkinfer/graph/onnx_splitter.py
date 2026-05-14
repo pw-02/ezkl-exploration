@@ -461,6 +461,7 @@ if __name__ == "__main__":
         "experiments/models/mnist_classifier/mnist_classifier.onnx": "experiments/models/mnist_classifier/input.json",
         "experiments/models/mnist_gan/mnist_gan.onnx": "experiments/models/mnist_gan/input.json",
         "experiments/models/mobilenet/mobilenet.onnx": "experiments/models/mobilenet/input.json",
+        "experiments/models/mobilenet/mobilenetv2_050_Opset18.onnx": "experiments/models/mobilenet/input.json",
         "experiments/models/nanoGPT/nano_gpt_4_layers_64_embd.onnx": "experiments/models/nanoGPT/input.json",
     }
 
