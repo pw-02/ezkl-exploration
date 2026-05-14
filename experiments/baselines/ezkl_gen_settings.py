@@ -31,8 +31,10 @@ def gen_settings_file(tmp_folder,
         "onnx_model_path": onnx_model_path,
         "input_data_path": input_data_path,
     }
-
-    ezkl.gen_settings(onnx_model_path, tmp_settings_file, py_run_args=run_args)
+    if run_args is not None:
+        ezkl.gen_settings(onnx_model_path, tmp_settings_file, py_run_args=run_args)
+    else:
+        ezkl.gen_settings(onnx_model_path, tmp_settings_file)
     if run_calibration:
             res = ezkl.calibrate_settings(
                 input_data_path,
@@ -114,15 +116,17 @@ if __name__ == "__main__":
             shutil.rmtree(tmp_folder)
     os.makedirs(tmp_folder, exist_ok=True)
 
-    run_args = ezkl.PyRunArgs()
-    run_args.input_visibility = "private"
-    run_args.param_visibility = "fixed"
-    run_args.output_visibility = "public"
+    # run_args = ezkl.PyRunArgs()
+    # run_args.input_visibility = "private"
+    # run_args.param_visibility = "private"
+    # run_args.output_visibility = "public"
+
+    run_args = None
 
     run_calibration = False
     # gen_settings_files_for_all_models(path="_tmp/split_output")
-    onnx_model_path = "experiments/models/mobile_net/network.onnx"
-    input_data_path = "experiments/models/mobile_net/input.json"
+    onnx_model_path = "experiments/models/llama/tiny_llama_6_layers_128_embd.onnx"
+    input_data_path = "experiments/models/llama/input.json"
     gen_settings_for_given_model_and_input(onnx_model_path, input_data_path, run_args, run_calibration)
 
 
