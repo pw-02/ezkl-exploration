@@ -65,7 +65,7 @@ def setup_logger(active_log: ActiveRunLog) -> logging.Logger:
     logger.handlers.clear()
 
     formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)s] exp: %(message)s"
+        "%(asctime)s [%(levelname)s] %(message)s"
     )
 
     console = logging.StreamHandler(sys.stdout)
@@ -89,7 +89,7 @@ class ManagedProcess:
     active_log: ActiveRunLog
     proc: Optional[subprocess.Popen] = None
     _tee_thread: Optional[threading.Thread] = None
-    write_subprocess_output_to_console: bool = False
+    write_subprocess_output_to_console: bool = True
 
     def start(self) -> None:
         self.logger.info("Starting %s: %s", self.name, " ".join(self.command))
@@ -115,7 +115,8 @@ class ManagedProcess:
         assert self.proc.stdout is not None
 
         for line in self.proc.stdout:
-            prefixed = f"[{self.name}] {line}"
+            # prefixed = f"[{self.name}] {line}"
+            prefixed = f"[{line}"
             if self.write_subprocess_output_to_console:
                 print(prefixed, end="")
             self.active_log.write(prefixed)
@@ -250,7 +251,7 @@ def wait_for_request_or_crash(
         process_group.raise_if_any_failed()
         status = client.get_request_status(request_id)
 
-        logger.info(
+        logger.debug(
             "Request %s | status=%s | completed=%s/%s | failed=%s",
             request_id,
             status.status,
