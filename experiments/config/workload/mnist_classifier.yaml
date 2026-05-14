@@ -1,5 +1,5 @@
 name: mnist_classifier
-onnx_file: experiments/models/mnist_classifier/mnist_classifier_simplified.onnx
+onnx_file: experiments/models/mnist_classifier/mnist_classifier.onnx
 input_file: experiments/models/mnist_classifier/input.json
 
 input_shapes:
