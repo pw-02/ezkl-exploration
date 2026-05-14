@@ -3,11 +3,12 @@ defaults:
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
 
+# python experiments/run_local_exp.py suite.workloads='[mnist_classifier,mobilenet_v2]'
 suite:
   workloads:
     # - mnist_classifier
-    - mnist_gan
-    # - mobilenet_v2
+    # - mnist_gan
+    - mobilenet_v2
     # - nano_gpt_4_layers_64_embd
 
 execution:

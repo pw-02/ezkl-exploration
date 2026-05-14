@@ -26,7 +26,7 @@ jobs:
   max_retries: 0
 
 heartbeat:
-  interval_sec: 30
+  interval_sec: 15
   timeout_sec: 60
 
 storage:
