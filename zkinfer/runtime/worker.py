@@ -353,6 +353,7 @@ class ZKProofWorker:
         return EZKLProofStages(
             input_data_path=local_paths.input_path,
             onnx_model_path=local_paths.model_path,
+            artifact_dir=local_paths.artifact_dir,
             proving_cache_enabled=self.cfg.proving_cache.enabled,
             proving_cache_overwrite=self.cfg.proving_cache.overwrite,
             proving_cache_type=self.cfg.proving_cache.backend,
@@ -384,8 +385,6 @@ class ZKProofWorker:
                 artifact_dir=local_paths.artifact_dir,
                 status_file=status_file,
             )
-
-            os.environ["EZKL_LOG_DIR"] = local_paths.artifact_dir
 
             proof_stages = self.build_proof_stages(
                 local_paths=local_paths,

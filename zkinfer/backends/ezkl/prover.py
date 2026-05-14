@@ -19,6 +19,7 @@ class EZKLProofStages:
         self,
         input_data_path: str,
         onnx_model_path: str,
+        artifact_dir: str,
         proving_cache_enabled: bool,
         proving_cache_overwrite: bool,
         proving_cache_type: str,
@@ -38,7 +39,7 @@ class EZKLProofStages:
         self.onnx_model_path = onnx_model_path
         self.logger = logger or logging.getLogger("ezkl")
         self.status_file = status_file
-
+        self.configure_ezkl_env(artifact_dir)
         self.proving_cache_enabled = proving_cache_enabled
         self.proving_cache_overwrite = proving_cache_overwrite
         self.proving_cache_type = proving_cache_type
@@ -72,6 +73,11 @@ class EZKLProofStages:
         self.proof_path = os.path.join(self.tmp_dir, "proof.pf")
 
         self.ezkl_stting_dict = {}
+    
+    def configure_ezkl_env(self, artifact_dir: str) -> None:
+        # Used by EZKL/Halo2 to emit profiling artifacts
+        # such as FFT/MSM/circuit reports.
+        os.environ["EZKL_LOG_DIR"] = artifact_dir
 
     @property
     def use_s3_cache(self) -> bool:

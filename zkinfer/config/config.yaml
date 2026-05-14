@@ -26,8 +26,8 @@ jobs:
   max_retries: 0
 
 heartbeat:
-  interval_sec: 5
-  timeout_sec: 45
+  interval_sec: 30
+  timeout_sec: 60
 
 storage:
   backend: filesystem # filesystem | s3

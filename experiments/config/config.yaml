@@ -5,10 +5,10 @@ defaults:
 
 suite:
   workloads:
-    # - mnist_classifier
+    - mnist_classifier
     # - mnist_gan
     # - mobilenet_v2
-    - nano_gpt_4_layers_64_embd
+    # - nano_gpt_4_layers_64_embd
 
 execution:
   split_mode: none #none, fixed, auto
