@@ -1,5 +1,5 @@
 name: mnist_gan
-onnx_file: experiments/models/mnist_gan/network.onnx
+onnx_file: experiments/models/mnist_gan/mnist_gan.onnx
 input_file: experiments/models/mnist_gan/input.json
 
 input_shapes:

@@ -1,3 +1,6 @@
+    export PYTHONPATH=.:$PYTHONPATH
+
+    
     1  clear
     2  git clone https://github.com/pw-02/ezkl-exploration.git
     3  mkdir -p ~/miniconda3
