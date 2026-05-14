@@ -124,10 +124,10 @@ if __name__ == "__main__":
     run_args = None
 
     run_calibration = False
-    # gen_settings_files_for_all_models(path="_tmp/split_output")
-    onnx_model_path = "experiments/models/llama/tiny_llama_6_layers_128_embd.onnx"
-    input_data_path = "experiments/models/llama/input.json"
-    gen_settings_for_given_model_and_input(onnx_model_path, input_data_path, run_args, run_calibration)
+    gen_settings_files_for_all_models(path="_tmp/split__nanoGPT", run_args=run_args, run_calibration=run_calibration)
+    # onnx_model_path = "experiments/models/llama/tiny_llama_6_layers_128_embd.onnx"
+    # input_data_path = "experiments/models/llama/input.json"
+    # gen_settings_for_given_model_and_input(onnx_model_path, input_data_path, run_args, run_calibration)
 
 
   
