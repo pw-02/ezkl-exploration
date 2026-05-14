@@ -457,16 +457,23 @@ def save_submodels(
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
-    onnx_file = "experiments/models/mobile_net/network.onnx"
-    input_file = "experiments/models/mobile_net/input.json"
+    onnx_file_input_mapping = {
+        "experiments/models/mnist_classifier/mnist_classifier.onnx": "experiments/models/mnist_classifier/input.json",
+        "experiments/models/mnist_gan/mnist_gan.onnx": "experiments/models/mnist_gan/input.json",
+        "experiments/models/mobilenet/mobilenet.onnx": "experiments/models/mobilenet/input.json",
+        "experiments/models/nanoGPT/nano_gpt_4_layers_64_embd.onnx": "experiments/models/nanoGPT/input.json",
+    }
 
-    split_models = split_onnx_model_with_inputs(
-        model_path=onnx_file,
-        input_data_path=input_file,
-        split_mode="fixed",
-        split_group_size=1,
-        simplify_model=False,
-        input_shapes=None,
-    )
+    for onnx_file, input_file in onnx_file_input_mapping.items():
+        #get name after second to last slash
+        model_name = onnx_file.split("/")[-2]
+        split_models = split_onnx_model_with_inputs(
+            model_path=onnx_file,
+            input_data_path=input_file,
+            split_mode="None",
+            split_group_size=1,
+            simplify_model=True,
+            input_shapes=None,
+        )
 
-    save_submodels(split_models, "_tmp/split_output")
+        save_submodels(split_models, f"_tmp/split__{model_name}")
