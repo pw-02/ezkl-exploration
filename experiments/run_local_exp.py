@@ -358,37 +358,50 @@ def main(cfg: DictConfig) -> None:
         client = ZKInferenceClient(
             target=f"{cfg.launch.coordinator_host}:{cfg.launch.coordinator_port}"
         )
+        failed_workloads = []
 
         for workload_name in cfg.suite.workloads:
-            workload_cfg = load_workload_cfg(workload_name)
+            try:
+                workload_cfg = load_workload_cfg(workload_name)
 
-            logger.info("=" * 80)
-            logger.info("Running workload: %s", workload_cfg.name)
-            logger.info("Workload config:\n%s", OmegaConf.to_yaml(workload_cfg))
+                logger.info("=" * 80)
+                logger.info("Running workload: %s", workload_cfg.name)
+                logger.info("Workload config:\n%s", OmegaConf.to_yaml(workload_cfg))
 
-            request_id = submit_workload(client, cfg, workload_cfg)
+                request_id = submit_workload(client, cfg, workload_cfg)
 
-            logs_dir = request_logs_dir(cfg, request_id)
-            exp_log_path = logs_dir / "run.log"
+                logs_dir = request_logs_dir(cfg, request_id)
+                exp_log_path = logs_dir / "run.log"
 
-            active_log.set_path(exp_log_path)
-            save_request_metadata(cfg, workload_cfg, request_id)
+                active_log.set_path(exp_log_path)
+                save_request_metadata(cfg, workload_cfg, request_id)
 
-            logger.info("Submitted request: %s", request_id)
-            logger.info("Writing workload log to %s", exp_log_path)
+                logger.info("Submitted request: %s", request_id)
+                logger.info("Writing workload log to %s", exp_log_path)
 
-            wait_for_request_or_crash(
-                client=client,
-                request_id=request_id,
-                poll_interval_sec=cfg.launch.poll_completion_interval_sec,
-                process_group=process_group,
-                logger=logger,
-            )
+                wait_for_request_or_crash(
+                    client=client,
+                    request_id=request_id,
+                    poll_interval_sec=cfg.launch.poll_completion_interval_sec,
+                    process_group=process_group,
+                    logger=logger,
+                )
 
-            logger.info("Finished workload: %s", workload_cfg.name)
-            active_log.close()
+                logger.info("Finished workload: %s", workload_cfg.name)
 
-        logger.info("All workloads completed.")
+            except Exception as exc:
+                logger.exception("Workload failed: %s", workload_name)
+                failed_workloads.append((workload_name, str(exc)))
+
+            finally:
+                active_log.close()
+
+        if failed_workloads:
+            logger.warning("Suite completed with %d failed workloads:", len(failed_workloads))
+            for name, error in failed_workloads:
+                logger.warning("- %s: %s", name, error)
+        else:
+            logger.info("All workloads completed.")
 
     finally:
         active_log.close()
