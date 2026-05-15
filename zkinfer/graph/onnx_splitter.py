@@ -20,9 +20,16 @@ from zkinfer.utils.onnx import (
 )
 
 logger = logging.getLogger(__name__)
-PASSTHROUGH_OPS = {"Identity", "Constant", "Cast","Reshape", "Flatten", "Transpose", "Squeeze", "Unsqueeze", "Slice", "Concat"}
+# PASSTHROUGH_OPS = {"Identity", "Constant", "Cast","Reshape", "Flatten", "Transpose", "Squeeze", "Unsqueeze", "Slice", "Concat"}
 # PASSTHROUGH_OPS = {"Identity", "Constant", "Cast", "Unsqueeze", "Slice"}
-# PASSTHROUGH_OPS = {"Identity", "Constant"}
+PASSTHROUGH_OPS = {
+    "Identity",
+    "Constant",
+    "Shape",
+    "Gather",
+    "Unsqueeze",
+    "Concat",
+}
 @dataclass(frozen=True)
 class ModelPartition:
     name: str
@@ -90,6 +97,13 @@ def set_graph_input_shapes_from_values(model, tensor_values):
 
     return model
 
+def remove_unused_graph_inputs(model):
+    used = {name for node in model.graph.node for name in node.input if name}
+    kept = [x for x in model.graph.input if x.name in used]
+
+    del model.graph.input[:]
+    model.graph.input.extend(kept)
+    return model
 
 def trace_sources(
     tensor_names: Sequence[str],
@@ -363,6 +377,8 @@ def materialize_submodels(
     for idx, (partition, sub_model) in enumerate(sub_models):
         sub_model = set_graph_input_shapes_from_values(sub_model, tensor_values)
         sub_model = freeze_reshape_shapes_from_values(sub_model, tensor_values)
+        # sub_model = remove_unused_graph_inputs(sub_model)
+
 
         del sub_model.graph.value_info[:]
         input_values = []
@@ -504,10 +520,10 @@ if __name__ == "__main__":
 
     onnx_file_input_mapping = {
         "experiments/models/mnist_classifier/mnist_classifier.onnx": "experiments/models/mnist_classifier/input.json",
-        "experiments/models/mnist_gan/mnist_gan.onnx": "experiments/models/mnist_gan/input.json",
-        "experiments/models/mobilenet/mobilenetv2_050_Opset18.onnx": "experiments/models/mobilenet/input.json",
-        "experiments/models/nanoGPT/nano_gpt_4_layers_64_embd.onnx": "experiments/models/nanoGPT/input.json",
-        # "experiments/models/pythia-14m/model_static.onnx": "experiments/models/pythia-14m/input.json",
+        # "experiments/models/mnist_gan/mnist_gan.onnx": "experiments/models/mnist_gan/input.json",
+        # "experiments/models/mobilenet/mobilenetv2_050_Opset18.onnx": "experiments/models/mobilenet/input.json",
+        # "experiments/models/nanoGPT/nano_gpt_4_layers_64_embd.onnx": "experiments/models/nanoGPT/input.json",
+        # # "experiments/models/pythia-14m/model_static.onnx": "experiments/models/pythia-14m/input.json",
     }
 
     tmp_dir = "_tmp"

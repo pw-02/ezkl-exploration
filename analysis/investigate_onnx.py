@@ -1,38 +1,49 @@
 import onnx
-from onnx import TensorProto, numpy_helper
+from collections import defaultdict
 
-def dtype_name(t):
-    return TensorProto.DataType.Name(t)
+FULL = "experiments/models/mnist_classifier/mnist_classifier.onnx"
+SPLIT = "_tmp/split_mnist_classifier/model_9.onnx"
 
-def dump(path):
+def index_model(path):
     m = onnx.load(path)
-    print("\n==", path, "==")
+    producers = {}
+    consumers = defaultdict(list)
 
-    print("\nInputs:")
+    for i, node in enumerate(m.graph.node):
+        for out in node.output:
+            producers[out] = (i, node)
+        for inp in node.input:
+            consumers[inp].append((i, node))
+
+    return m, producers, consumers
+
+def show_node(i, node):
+    print(f"{i}: {node.name} {node.op_type}")
+    print("  inputs :", list(node.input))
+    print("  outputs:", list(node.output))
+
+def inspect(path):
+    m, producers, consumers = index_model(path)
+    print("\n====================")
+    print(path)
+    print("====================")
+
+    print("\nGraph inputs:")
     for x in m.graph.input:
-        tt = x.type.tensor_type
-        dims = [
-            d.dim_value if d.HasField("dim_value") else d.dim_param
-            for d in tt.shape.dim
-        ]
-        print(x.name, dtype_name(tt.elem_type), dims)
-
-    print("\nInitializers:")
-    init_map = {i.name: i for i in m.graph.initializer}
-    for i in m.graph.initializer:
-        arr = numpy_helper.to_array(i)
-        print(i.name, dtype_name(i.data_type), list(i.dims), arr.tolist() if arr.size <= 20 else "")
+        print(" ", x.name, x.type)
 
     print("\nNodes:")
-    for idx, n in enumerate(m.graph.node):
-        print(idx, n.name or "<unnamed>", n.op_type)
-        print("  inputs :", list(n.input))
-        print("  outputs:", list(n.output))
-        if n.op_type == "Reshape":
-            shape_name = n.input[1]
-            print("  Reshape shape input:", shape_name)
-            if shape_name in init_map:
-                print("  shape value:", numpy_helper.to_array(init_map[shape_name]))
+    for i, n in enumerate(m.graph.node):
+        show_node(i, n)
 
-dump("_tmp/split_mnist_classifier/model_9.onnx")
-dump("_tmp/split_mnist_classifier/model_10.onnx")
+    print("\nInputs that have no producer inside this model:")
+    for x in m.graph.input:
+        name = x.name
+        print("\nINPUT:", name)
+        print("  produced inside split?", name in producers)
+        print("  consumed by:")
+        for item in consumers.get(name, []):
+            show_node(*item)
+
+inspect(FULL)
+inspect(SPLIT)
