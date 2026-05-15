@@ -124,13 +124,21 @@ if __name__ == "__main__":
     run_args = None
 
     run_calibration = False
-    gen_settings_files_for_all_models(path="_tmp/split_nanoGPT", run_args=run_args, run_calibration=run_calibration)
-    
-    onnx_model_path = "_tmp/split_nanoGPT/model_1.onnx"
-    input_data_path = "_tmp/split_nanoGPT/input_1.json"
-    #get model name from onnx_model_path
-    model_name = os.path.basename(onnx_model_path).replace(".onnx", "")
-    gen_settings_for_given_model_and_input(onnx_model_path, input_data_path, run_args, run_calibration, model_name=model_name)
+    paths = [
+        "_tmp/split_mnist_classifier",
+        "_tmp/split_mnist_gan",
+        "_tmp/split_mobilenet",
+        "_tmp/split_nanoGPT",
+    ]
+    for path in paths:
+        gen_settings_files_for_all_models(path=path, run_args=run_args, run_calibration=run_calibration)
+        
+
+    # onnx_model_path = "_tmp/split_nanoGPT/model_1.onnx"
+    # input_data_path = "_tmp/split_nanoGPT/input_1.json"
+    # #get model name from onnx_model_path
+    # model_name = os.path.basename(onnx_model_path).replace(".onnx", "")
+    # gen_settings_for_given_model_and_input(onnx_model_path, input_data_path, run_args, run_calibration, model_name=model_name)
 
 
   

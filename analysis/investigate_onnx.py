@@ -1,12 +1,12 @@
 import onnx
-from onnx import TensorProto
+from onnx import TensorProto, numpy_helper
 
 def dtype_name(t):
     return TensorProto.DataType.Name(t)
 
 def dump(path):
-    print("\n===", path, "===")
     m = onnx.load(path)
+    print("\n==", path, "==")
 
     print("\nInputs:")
     for x in m.graph.input:
@@ -18,43 +18,21 @@ def dump(path):
         print(x.name, dtype_name(tt.elem_type), dims)
 
     print("\nInitializers:")
-    for init in m.graph.initializer[:20]:
-        print(init.name, dtype_name(init.data_type), list(init.dims))
+    init_map = {i.name: i for i in m.graph.initializer}
+    for i in m.graph.initializer:
+        arr = numpy_helper.to_array(i)
+        print(i.name, dtype_name(i.data_type), list(i.dims), arr.tolist() if arr.size <= 20 else "")
 
-    print("\nFirst 20 nodes:")
-    for i, n in enumerate(m.graph.node[:20], 1):
-        print(i, n.name or "<unnamed>", n.op_type)
+    print("\nNodes:")
+    for idx, n in enumerate(m.graph.node):
+        print(idx, n.name or "<unnamed>", n.op_type)
         print("  inputs :", list(n.input))
         print("  outputs:", list(n.output))
+        if n.op_type == "Reshape":
+            shape_name = n.input[1]
+            print("  Reshape shape input:", shape_name)
+            if shape_name in init_map:
+                print("  shape value:", numpy_helper.to_array(init_map[shape_name]))
 
-dump("experiments/models/nanoGPT/nano_gpt_4_layers_64_embd.onnx")
-dump("_tmp/split_nanoGPT/model_1.onnx")
-import onnx
-
-def dump_meta(path):
-    m = onnx.load(path)
-    print("\n==", path)
-    print("ir_version:", m.ir_version)
-    print("opsets:", [(o.domain, o.version) for o in m.opset_import])
-    print("producer:", m.producer_name, m.producer_version)
-    print("value_info count:", len(m.graph.value_info))
-    print("doc:", repr(m.graph.doc_string))
-
-    for i in m.graph.input:
-        print("input raw:", i)
-
-dump_meta("experiments/models/nanoGPT/nano_gpt_4_layers_64_embd.onnx")
-dump_meta("_tmp/split_nanoGPT/model_1.onnx")
-
-import onnx
-
-parent = onnx.load("experiments/models/nanoGPT/nano_gpt_4_layers_64_embd.onnx")
-m = onnx.load("_tmp/split_nanoGPT/model_1.onnx")
-
-m.producer_name = parent.producer_name
-m.producer_version = parent.producer_version
-
-del m.graph.value_info[:]
-
-onnx.checker.check_model(m)
-onnx.save(m, "_tmp/split_nanoGPT/model_1_clean.onnx")
+dump("_tmp/split_mnist_classifier/model_9.onnx")
+dump("_tmp/split_mnist_classifier/model_10.onnx")
