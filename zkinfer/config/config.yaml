@@ -19,7 +19,7 @@ worker:
   logs_dir: logs/workers
   job_poll_interval_sec: 5
   resource_monitor_interval_sec: 3
-  send_proofs_to_coordinator: true
+  send_proofs_to_coordinator: false
 
 jobs:
   scheduler: fifo

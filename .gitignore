@@ -13,4 +13,4 @@ _ezkl_model_stats_tmp
 _tmp
 ezkl_settings_report.csv
 experiments/results
-onnx_graphs
+_onnx_graphs
