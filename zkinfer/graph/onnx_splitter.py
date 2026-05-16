@@ -20,8 +20,7 @@ from zkinfer.utils.onnx import (
 )
 
 logger = logging.getLogger(__name__)
-# PASSTHROUGH_OPS = {"Identity", "Constant", "Cast","Reshape", "Flatten", "Transpose", "Squeeze", "Unsqueeze", "Slice", "Concat"}
-# PASSTHROUGH_OPS = {"Identity", "Constant", "Cast", "Unsqueeze", "Slice"}
+
 PASSTHROUGH_OPS = {
     "Identity",
     "Constant",
@@ -519,9 +518,9 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     onnx_file_input_mapping = {
-        "experiments/models/mnist_classifier/mnist_classifier.onnx": "experiments/models/mnist_classifier/input.json",
+        # "experiments/models/mnist_classifier/mnist_classifier.onnx": "experiments/models/mnist_classifier/input.json",
         # "experiments/models/mnist_gan/mnist_gan.onnx": "experiments/models/mnist_gan/input.json",
-        # "experiments/models/mobilenet/mobilenetv2_050_Opset18.onnx": "experiments/models/mobilenet/input.json",
+        "experiments/models/mobilenet/mobilenetv2_050_Opset18.onnx": "experiments/models/mobilenet/input.json",
         # "experiments/models/nanoGPT/nano_gpt_4_layers_64_embd.onnx": "experiments/models/nanoGPT/input.json",
         # # "experiments/models/pythia-14m/model_static.onnx": "experiments/models/pythia-14m/input.json",
     }
@@ -535,8 +534,8 @@ if __name__ == "__main__":
         split_models = split_onnx_model_with_inputs(
             model_path=onnx_file,
             input_data_path=input_file,
-            split_mode="single",
-            split_group_size=1,
+            split_mode="fixed",
+            split_group_size=2,
             simplify_model=False,
             input_shapes=None,
         )

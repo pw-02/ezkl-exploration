@@ -123,11 +123,11 @@ if __name__ == "__main__":
 
     run_args = None
 
-    run_calibration = True
+    run_calibration = False
     paths = [
-        "_tmp/split_mnist_classifier",
+        # "_tmp/split_mnist_classifier",
         # "_tmp/split_mnist_gan",
-        # "_tmp/split_mobilenet",
+        "_tmp/split_mobilenet",
         # "_tmp/split_nanoGPT",
     ]
     for path in paths:
