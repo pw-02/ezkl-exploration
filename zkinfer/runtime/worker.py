@@ -393,11 +393,13 @@ class ZKProofWorker:
 
             ezkl_metrics, ezkl_settings = proof_stages.run_all(setup_only=False)
 
-            if os.path.exists(proof_stages.proof_path):
-                shutil.copy(
-                    proof_stages.proof_path,
-                    os.path.join(local_paths.artifact_dir, "proof.pf"),
-                )
+            #disabling proof upload for now to save time and space during development - can re-enable later if needed
+
+            # if os.path.exists(proof_stages.proof_path):
+            #     shutil.copy(
+            #         proof_stages.proof_path,
+            #         os.path.join(local_paths.artifact_dir, "proof.pf"),
+            #     )
 
             settings_output_path = os.path.join(
                 local_paths.artifact_dir,
