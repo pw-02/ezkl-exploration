@@ -127,8 +127,8 @@ if __name__ == "__main__":
     paths = [
         # "_tmp/split_mnist_classifier",
         # "_tmp/split_mnist_gan",
-        "_tmp/split_mobilenet",
-        # "_tmp/split_nanoGPT",
+        # "_tmp/split_mobilenet",
+         "_tmp/split_nanoGPT",
     ]
     for path in paths:
         gen_settings_files_for_all_models(path=path, run_args=run_args, run_calibration=run_calibration)
