@@ -13,7 +13,7 @@ suite:
 
 execution:
   split_mode: fixed #none, fixed, auto
-  ops_per_chunk: 8
+  ops_per_chunk: 10
   simplify_model: true
 
 jobs:
