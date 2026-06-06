@@ -12,7 +12,7 @@ suite:
     - mobilenet_v2
 
 execution:
-  split_mode: none #none, fixed, auto
+  split_mode: fixed #none, fixed, auto
   ops_per_chunk: 2
   simplify_model: false
 
