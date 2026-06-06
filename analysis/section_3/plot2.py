@@ -26,6 +26,19 @@ MODEL_ALIASES = {
 }
 
 
+# Paper-friendly matplotlib defaults.
+plt.rcParams.update({
+    "font.family": "serif",
+    "font.size": 9,
+    "axes.titlesize": 9,
+    "axes.labelsize": 9,
+    "xtick.labelsize": 8,
+    "ytick.labelsize": 8,
+    "legend.fontsize": 8,
+
+})
+
+
 def parse_group_size(parts):
     for part in parts:
         p = part.lower()
@@ -60,6 +73,12 @@ def slugify(text: str) -> str:
     text = text.lower()
     text = re.sub(r"[^a-z0-9]+", "_", text)
     return text.strip("_")
+
+
+def safe_group_slug(group_size) -> str:
+    if str(group_size) == "|V|":
+        return "full"
+    return slugify(str(group_size))
 
 
 def numeric_col(df: pd.DataFrame, col: str) -> pd.Series:
@@ -154,7 +173,8 @@ def load_jobs(root: Path, model_filter: str, group_size_filter: str) -> pd.DataF
 
     if not rows:
         raise RuntimeError(
-            f"No matching jobs found for model='{model_filter}', group_size='{group_size_filter}' under {root}"
+            f"No matching jobs found for model='{model_filter}', "
+            f"group_size='{group_size_filter}' under {root}"
         )
 
     return pd.DataFrame(rows)
@@ -162,7 +182,7 @@ def load_jobs(root: Path, model_filter: str, group_size_filter: str) -> pd.DataF
 
 def seconds_formatter(x, _pos):
     if x >= 1000:
-        return f"{x/1000:.1f}k"
+        return f"{x / 1000:.1f}k"
     return f"{x:.0f}"
 
 
@@ -195,59 +215,92 @@ def print_summary(df: pd.DataFrame) -> None:
     print(f"  p95:    {q('memory_gb', 0.95):.2f}")
     print(f"  max:    {df['memory_gb'].max():.2f}")
 
-def plot_sorted_tails(df: pd.DataFrame, output_dir: Path, file_ext: str, log_y: bool) -> None:
+
+def style_axis(ax) -> None:
+    ax.grid(axis="y", linewidth=0.35, color="0.88")
+    ax.set_axisbelow(True)
+
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(0.45)
+    ax.spines["bottom"].set_linewidth(0.45)
+
+    ax.tick_params(axis="both", length=2.0, width=0.45, pad=1.5)
+    ax.margins(x=0.005)
+
+
+def plot_series(ax, x, y, plot_kind: str) -> None:
+    if plot_kind == "bar":
+        ax.bar(
+            x,
+            y,
+            width=0.95,
+            color="0.72",
+            edgecolor="none",
+            linewidth=0.0,
+        )
+    elif plot_kind == "line":
+        ax.plot(
+            x,
+            y,
+            color="0.15",
+            linewidth=1.05,
+        )
+        ax.fill_between(
+            x,
+            y,
+            color="0.88",
+            linewidth=0.0,
+        )
+    else:
+        raise ValueError(f"Unsupported plot_kind: {plot_kind}")
+
+
+def plot_sorted_tails(
+    df: pd.DataFrame,
+    output_dir: Path,
+    file_ext: str,
+    log_y: bool,
+    plot_kind: str,
+) -> None:
     model = df["model"].iloc[0]
     group_size = df["group_size"].iloc[0]
 
     time_sorted = df.sort_values("job_time_s").reset_index(drop=True)
     mem_sorted = df.sort_values("memory_gb").reset_index(drop=True)
 
-    x_time = range(1, len(time_sorted) + 1)
-    x_mem = range(1, len(mem_sorted) + 1)
+    x_time = list(range(1, len(time_sorted) + 1))
+    x_mem = list(range(1, len(mem_sorted) + 1))
 
-    # Single-column, side-by-side, but taller and more readable.
-    fig, axes = plt.subplots(1, 2, figsize=(3.45, 2.05))
-
-    bar_style = {
-        "width": 0.95,
-        "color": "0.45",        # dark neutral gray
-        "edgecolor": "0.15",
-        "linewidth": 0.10,
-    }
+    # Single-column figure.
+    fig, axes = plt.subplots(1, 2, figsize=(3.45, 1.85))
 
     ax = axes[0]
-    ax.bar(x_time, time_sorted["job_time_s"], **bar_style)
-    ax.set_title("Prover time", fontsize=8.5, fontweight="bold", pad=2)
-    ax.set_xlabel("Jobs", fontsize=8, fontweight="bold")
-    ax.set_ylabel("Time (s)", fontsize=8, fontweight="bold")
+    plot_series(ax, x_time, time_sorted["job_time_s"].to_numpy(), plot_kind)
+    ax.set_title("Prover time", pad=2)
+    ax.set_xlabel("Sorted jobs")
+    ax.set_ylabel("Time (s)")
     ax.yaxis.set_major_formatter(FuncFormatter(seconds_formatter))
     if log_y:
         ax.set_yscale("log")
+    style_axis(ax)
 
     ax = axes[1]
-    ax.bar(x_mem, mem_sorted["memory_gb"], **bar_style)
-    ax.set_title("Peak memory", fontsize=8.5, fontweight="bold", pad=2)
-    ax.set_xlabel("Jobs", fontsize=8, fontweight="bold")
-    ax.set_ylabel("Memory (GB)", fontsize=8, fontweight="bold")
+    plot_series(ax, x_mem, mem_sorted["memory_gb"].to_numpy(), plot_kind)
+    ax.set_title("Peak memory", pad=2)
+    ax.set_xlabel("Sorted jobs")
+    ax.set_ylabel("Memory (GB)")
     ax.yaxis.set_major_formatter(FuncFormatter(memory_formatter))
     if log_y:
         ax.set_yscale("log")
+    style_axis(ax)
 
-    for ax in axes:
-        ax.grid(axis="y", linewidth=0.35, alpha=0.35)
-        ax.set_axisbelow(True)
+    fig.tight_layout(pad=0.15, w_pad=0.75)
 
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.spines["left"].set_linewidth(0.7)
-        ax.spines["bottom"].set_linewidth(0.7)
-
-        ax.tick_params(axis="both", labelsize=7.5, length=2.5, pad=1.5)
-        ax.margins(x=0.005)
-
-    fig.tight_layout(pad=0.2, w_pad=0.8)
-
-    out_path = output_dir / f"{slugify(model)}_g{group_size}_sorted_job_tail.{file_ext}"
+    out_path = (
+        output_dir
+        / f"{slugify(model)}_g{safe_group_slug(group_size)}_sorted_job_tail.{file_ext}"
+    )
     fig.savefig(out_path, bbox_inches="tight", dpi=300)
     plt.close(fig)
 
@@ -299,6 +352,13 @@ def main():
         action="store_true",
         help="Use log scale for y-axes",
     )
+    parser.add_argument(
+        "--plot-kind",
+        choices=["line", "bar"],
+        default="line",
+        help="Use a line/fill plot or a bar plot. Default is line.",
+    )
+
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -309,7 +369,14 @@ def main():
     print(f"Wrote per-job CSV to {args.output_csv}")
 
     print_summary(df)
-    plot_sorted_tails(df, args.output_dir, args.format, args.log_y)
+
+    plot_sorted_tails(
+        df=df,
+        output_dir=args.output_dir,
+        file_ext=args.format,
+        log_y=args.log_y,
+        plot_kind=args.plot_kind,
+    )
 
 
 if __name__ == "__main__":
