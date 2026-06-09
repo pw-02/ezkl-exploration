@@ -8,11 +8,11 @@ suite:
   workloads:
     # - mnist_classifier, 
     # - mnist_gan
-    # - mobilenet_v2
-    - mnist_gan
+     - mobilenet_v2
+    # - mnist_gan
 
 execution:
-  split_mode: none #none, fixed, auto
+  split_mode: fixed #none, fixed, auto
   ops_per_chunk: 2
   simplify_model: false
 
@@ -29,7 +29,7 @@ launch:
   poll_completion_interval_sec: 5
 
 paths:
-  runs_dir: experiments/runs
+  runs_dir: results
 
 hydra:
   run:
