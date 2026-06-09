@@ -3,7 +3,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional
+import re
 
+def slugify(value: object, max_len: int = 64) -> str:
+    text = str(value).strip().lower()
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    text = text.strip("-")
+    return text[:max_len].strip("-") or "na"
 
 class JobStatus(str, Enum):
     PREPARING = "PREPARING"
@@ -62,6 +68,26 @@ class ProofJob:
 
     # Shared cache/transfer prefix used by the worker/prover.
     cache_path: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+
+        name = slugify(self.name, max_len=48)
+        split_mode = slugify(self.split_mode, max_len=24)
+        scheduler = slugify(self.scheduler, max_len=24)
+
+        simplify_tag = "simplified" if self.simplify_model else "raw"
+
+        self.request_id = (
+            f"{name}"
+            f"__split-{split_mode}"
+            f"__ops-{self.ops_per_chunk}"
+            f"__sched-{scheduler}"
+            f"__{simplify_tag}"
+            f"__{timestamp}"
+    )
+
+
 
     def __post_init__(self) -> None:
         self.job_id = f"{self.model_name}_{uuid.uuid4().hex[:8]}"

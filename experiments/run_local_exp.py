@@ -312,6 +312,18 @@ def save_request_metadata(
     OmegaConf.save(config=cfg, f=logs_dir / "exp_config.yaml")
     OmegaConf.save(config=workload_cfg, f=logs_dir / "workload_config.yaml")
 
+def wait_for_port_closed(host: str, port: int, timeout_sec: int, logger: logging.Logger) -> None:
+    deadline = time.time() + timeout_sec
+
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                time.sleep(0.25)
+        except OSError:
+            logger.info("Coordinator port %s:%s is closed", host, port)
+            return
+
+    logger.warning("Coordinator port %s:%s still appears open after shutdown timeout", host, port)
 
 @hydra.main(config_path="./config", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
@@ -394,6 +406,7 @@ def main(cfg: DictConfig) -> None:
             except Exception as exc:
                 logger.exception("Workload failed: %s", workload_name)
                 failed_workloads.append((workload_name, str(exc)))
+                # raise
 
             finally:
                 active_log.close()
@@ -404,12 +417,18 @@ def main(cfg: DictConfig) -> None:
                 logger.warning("- %s: %s", name, error)
         else:
             logger.info("All workloads completed.")
-
     finally:
         active_log.close()
         process_group.stop_all()
-        logger.info("Suite finished.")
 
+        wait_for_port_closed(
+            host=cfg.launch.coordinator_host,
+            port=cfg.launch.coordinator_port,
+            timeout_sec=10,
+            logger=logger,
+        )
+
+        logger.info("Suite finished.")
 
 if __name__ == "__main__":
     main()
