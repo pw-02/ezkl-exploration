@@ -7,8 +7,8 @@ defaults:
 suite:
   workloads:
     # - mnist_classifier, 
-    # - mnist_gan
-     - mobilenet_v2
+     - mnist_gan
+    #  - mobilenet_v2
     # - mnist_gan
 
 execution:
