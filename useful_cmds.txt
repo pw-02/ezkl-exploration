@@ -1,6 +1,9 @@
 export PYTHONPATH=.:$PYTHONPATH
 pkill -u "$USER" -f 'python|python3'
 
+python experiments/run_local_exp.py -m \
+  suite.workloads='[mnist_gan]' \
+  execution.ops_per_chunk=1,2,4,8
     
     1  clear
     2  git clone https://github.com/pw-02/ezkl-exploration.git
