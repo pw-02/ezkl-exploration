@@ -8,12 +8,12 @@ suite:
   workloads:
     # - mnist_classifier, 
     # - mnist_gan
-     - mobilenet_v2
+     - mnist_classifier
     # - mnist_gan
 
 execution:
   split_mode: fixed #none, fixed, auto
-  ops_per_chunk: 2
+  ops_per_chunk: 1
   simplify_model: false
 
 jobs:

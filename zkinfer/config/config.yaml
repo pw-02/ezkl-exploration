@@ -8,8 +8,8 @@ defaults:
 coordinator:
   host: localhost
   port: 50051
-  grpc_thread_pool_size: 4
-  grpc_max_message_mb: 64
+  grpc_thread_pool_size: 1
+  grpc_max_message_mb: 128
   runs_dir: experiments/runs
   logs_dir: logs/coordinator
 
