@@ -80,18 +80,18 @@ class ProofJob:
 
         self.request_id = (
             f"{name}"
-            f"__split-{split_mode}"
-            f"__ops-{self.ops_per_chunk}"
-            f"__sched-{scheduler}"
-            f"__{simplify_tag}"
-            f"__{timestamp}"
+            f"_split-{split_mode}"
+            f"_ops-{self.ops_per_chunk}"
+            f"_sched-{scheduler}"
+            f"_{simplify_tag}"
+            f"_{timestamp}"
     )
 
 
 
-    def __post_init__(self) -> None:
-        self.job_id = f"{self.model_name}_{uuid.uuid4().hex[:8]}"
-        self.job_name = f"{self.inference_request_name}_{self.model_name}"
+    # def __post_init__(self) -> None:
+    #     self.job_id = f"{self.model_name}_{uuid.uuid4().hex[:8]}"
+    #     self.job_name = f"{self.inference_request_name}_{self.model_name}"
 
 
 @dataclass
