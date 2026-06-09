@@ -29,8 +29,7 @@ launch:
   poll_completion_interval_sec: 5
 
 paths:
-  runs_dir: experiments/runs
-
+  runs_dir: results
 hydra:
   run:
     dir: .
