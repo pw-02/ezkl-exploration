@@ -12,7 +12,7 @@ suite:
     # - mnist_gan
 
 execution:
-  split_mode: fixed #none, fixed, auto
+  split_mode: none #none, fixed, auto
   ops_per_chunk: 1
   simplify_model: false
 
