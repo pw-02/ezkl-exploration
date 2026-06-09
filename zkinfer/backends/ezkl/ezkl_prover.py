@@ -220,7 +220,7 @@ class EZKLProofStages:
     def get_vk_file_size_gb(self) -> float:
         return os.path.getsize(self.vk_path) / (1024 ** 3) if os.path.exists(self.vk_path) else 0.0
 
-    def calibrate_settings(self, run_calibrate: bool = False) -> Tuple[bool, float, float]:
+    def calibrate_settings(self, run_calibrate: bool = True) -> Tuple[bool, float, float]:
         self._update_status("CALIBRATING")
 
         used_cache, s3_read_time = self._try_load_from_cache(
