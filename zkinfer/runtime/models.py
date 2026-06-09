@@ -70,28 +70,8 @@ class ProofJob:
     cache_path: Optional[str] = None
 
     def __post_init__(self) -> None:
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-
-        name = slugify(self.name, max_len=48)
-        split_mode = slugify(self.split_mode, max_len=24)
-        scheduler = slugify(self.scheduler, max_len=24)
-
-        simplify_tag = "simplified" if self.simplify_model else "raw"
-
-        self.request_id = (
-            f"{name}"
-            f"_split-{split_mode}"
-            f"_ops-{self.ops_per_chunk}"
-            f"_sched-{scheduler}"
-            f"_{simplify_tag}"
-            f"_{timestamp}"
-    )
-
-
-
-    # def __post_init__(self) -> None:
-    #     self.job_id = f"{self.model_name}_{uuid.uuid4().hex[:8]}"
-    #     self.job_name = f"{self.inference_request_name}_{self.model_name}"
+        self.job_id = f"{self.model_name}_{uuid.uuid4().hex[:8]}"
+        self.job_name = f"{self.inference_request_name}_{self.model_name}"
 
 
 @dataclass
@@ -130,9 +110,29 @@ class InferenceRequest:
     logs_dir: Optional[str] = None
     reports_dir: Optional[str] = None
 
+    # def __post_init__(self) -> None:
+    #     now = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+    #     self.request_id = f"{self.name}_{now}_{uuid.uuid4().hex[:8]}"
+
     def __post_init__(self) -> None:
+        
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
-        self.request_id = f"{self.name}_{now}_{uuid.uuid4().hex[:8]}"
+
+        name = slugify(self.name, max_len=48)
+        split_mode = slugify(self.split_mode, max_len=24)
+        scheduler = slugify(self.scheduler, max_len=24)
+
+        simplify_tag = "simplified" if self.simplify_model else "raw"
+
+        self.request_id = (
+            f"{name}"
+            f"_split-{split_mode}"
+            f"_ops-{self.ops_per_chunk}"
+            f"_sched-{scheduler}"
+            f"_{simplify_tag}"
+            f"_{now}"
+    )
+
 
     def all_jobs_finished(self) -> bool:
         return all(
