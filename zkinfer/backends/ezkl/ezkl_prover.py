@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional, Tuple
 import json
 import math
 from venv import logger
-
+from pathlib import Path
 from zkinfer.storage.s3 import (
     download_file,
     upload_file,
@@ -219,6 +219,84 @@ class EZKLProofStages:
 
     def get_vk_file_size_gb(self) -> float:
         return os.path.getsize(self.vk_path) / (1024 ** 3) if os.path.exists(self.vk_path) else 0.0
+    
+    def calibrate_settings_with_fallback(self) -> Tuple[bool, float, float]:
+        """
+        Generate EZKL settings.
+
+        First tries:
+            gen_settings -> calibrate_settings -> upload cache
+
+        If calibration fails:
+            regenerate settings without calibration -> upload cache
+
+        Returns:
+            (used_cache, s3_read_time, s3_write_time)
+        """
+        self._update_status("CALIBRATING")
+
+        used_cache, s3_read_time = self._try_load_from_cache(
+            self.settings_path,
+            "settings.json",
+        )
+
+        if used_cache:
+            self.ezkl_stting_dict = self._load_settings()
+            return True, s3_read_time, 0.0
+
+        def generate_settings_only() -> None:
+            self.ezkl.gen_settings(
+                self.onnx_model_path,
+                self.settings_path,
+            )
+
+        def generate_and_calibrate() -> None:
+            generate_settings_only()
+
+            res = self.ezkl.calibrate_settings(
+                self.input_data_path,
+                self.onnx_model_path,
+                self.settings_path,
+                "resources",  # or "accuracy"
+            )
+
+            self.logger.info("calibrate_settings result: %s", res)
+
+            # If your ezkl version returns None on success, remove this block.
+            if res is False:
+                raise RuntimeError("ezkl.calibrate_settings returned False")
+
+        try:
+            generate_and_calibrate()
+            self.logger.info("Settings generated with calibration enabled.")
+
+        except Exception as exc:
+            self.logger.warning(
+                "Calibration failed, retrying settings generation without calibration. Error: %s",
+                exc,
+                exc_info=True,
+            )
+
+            # Optional but safer: remove possibly corrupted/partial settings file.
+            try:
+                Path(self.settings_path).unlink(missing_ok=True)
+            except Exception:
+                self.logger.warning(
+                    "Failed to remove partial settings file before retrying.",
+                    exc_info=True,
+                )
+
+            generate_settings_only()
+            self.logger.info("Settings generated without calibration.")
+
+        s3_write_time = self._upload_to_cache(
+            self.settings_path,
+            "settings.json",
+        )
+
+        self.ezkl_stting_dict = self._load_settings()
+
+        return False, 0.0, s3_write_time
 
     def calibrate_settings(self, run_calibrate: bool = True) -> Tuple[bool, float, float]:
         self._update_status("CALIBRATING")
@@ -358,7 +436,7 @@ class EZKLProofStages:
         metrics: Dict[str, Any] = {}
 
         stages = [
-            ("ezkl_calibrate_settings", self.calibrate_settings),
+            ("ezkl_calibrate_settings", self.calibrate_settings_with_fallback),
             ("ezkl_compile_circuit", self.compile_circuit),
         ]
 
