@@ -1,11 +1,10 @@
+import json
 import logging
+import math
 import os
 import time
-from typing import Any, Dict, Optional, Tuple
-import json
-import math
-from venv import logger
 from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
 import ezkl
 from zkinfer.storage.s3 import (
@@ -33,16 +32,7 @@ class EZKLProofStages:
         srs_dir: Optional[str] = None,
         logger: Optional[logging.Logger] = None,
     ):
-        import ezkl
-
-
-
         self.ezkl = ezkl
-
-        run_args = self.ezkl.PyRunArgs()
-        run_args.input_visibility = "public"
-        run_args.param_visibility = "fixed"
-        run_args.output_visibility = "public"
 
         self.input_data_path = input_data_path
         self.onnx_model_path = onnx_model_path
@@ -57,12 +47,6 @@ class EZKLProofStages:
         self.proving_cache_s3_prefix = proving_cache_s3_prefix
 
         self.tmp_dir = local_tmp_dir or "tmp"
-        
-
-        # home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or "."
-        # self.srs_dir = srs_dir or os.path.join(home, ".ezkl", "srs")
-        # os.makedirs(self.srs_dir, exist_ok=True)
-        # self.srs_path: Optional[str] = None
         self.srs_dir = srs_dir or "srs"
         os.makedirs(self.srs_dir, exist_ok=True)
         self.srs_path: Optional[str] = None
@@ -85,12 +69,10 @@ class EZKLProofStages:
         self.witness_path = os.path.join(self.tmp_dir, "witness.json")
         self.proof_path = os.path.join(self.tmp_dir, "proof.pf")
 
-        self.ezkl_stting_dict = {}
-        
-    
+        self.ezkl_settings_dict: Dict[str, Any] = {}
+
     def configure_ezkl_env(self, artifact_dir: str) -> None:
-        # Used by EZKL/Halo2 to emit profiling artifacts
-        # such as FFT/MSM/circuit reports.
+        # Used by EZKL/Halo2 to emit profiling artifacts such as FFT/MSM/circuit reports.
         os.environ["EZKL_LOG_DIR"] = artifact_dir
 
     @property
@@ -185,11 +167,7 @@ class EZKLProofStages:
             raise ValueError("settings.json missing run_args.logrows")
 
         commitment = str(run_args.get("commitment", "KZG")).lower()
-
-        if commitment == "ipa":
-            filename = f"ipa{logrows}.srs"
-        else:
-            filename = f"kzg{logrows}.srs"
+        filename = f"ipa{logrows}.srs" if commitment == "ipa" else f"kzg{logrows}.srs"
 
         os.makedirs(self.srs_dir, exist_ok=True)
         return os.path.join(self.srs_dir, filename)
@@ -228,7 +206,7 @@ class EZKLProofStages:
 
     def get_vk_file_size_gb(self) -> float:
         return os.path.getsize(self.vk_path) / (1024 ** 3) if os.path.exists(self.vk_path) else 0.0
-    
+
     def calibrate_settings_with_fallback(self) -> Tuple[bool, float, float]:
         """
         Generate EZKL settings.
@@ -250,7 +228,7 @@ class EZKLProofStages:
         )
 
         if used_cache:
-            self.ezkl_stting_dict = self._load_settings()
+            self.ezkl_settings_dict = self._load_settings()
             return True, s3_read_time, 0.0
 
         def generate_settings_only() -> None:
@@ -271,7 +249,6 @@ class EZKLProofStages:
 
             self.logger.info("calibrate_settings result: %s", res)
 
-            # If your ezkl version returns None on success, remove this block.
             if res is False:
                 raise RuntimeError("ezkl.calibrate_settings returned False")
 
@@ -286,7 +263,6 @@ class EZKLProofStages:
                 exc_info=True,
             )
 
-            # Optional but safer: remove possibly corrupted/partial settings file.
             try:
                 Path(self.settings_path).unlink(missing_ok=True)
             except Exception:
@@ -303,8 +279,7 @@ class EZKLProofStages:
             "settings.json",
         )
 
-        self.ezkl_stting_dict = self._load_settings()
-
+        self.ezkl_settings_dict = self._load_settings()
         return False, 0.0, s3_write_time
 
     def calibrate_settings(self, run_calibrate: bool = True) -> Tuple[bool, float, float]:
@@ -315,25 +290,22 @@ class EZKLProofStages:
             "settings.json",
         )
         if used_cache:
-            self.ezkl_stting_dict = self._load_settings()
+            self.ezkl_settings_dict = self._load_settings()
             return True, s3_read_time, 0.0
 
         self.ezkl.gen_settings(self.onnx_model_path, self.settings_path)
-        
+
         if run_calibrate:
             res = self.ezkl.calibrate_settings(
                 self.input_data_path,
                 self.onnx_model_path,
                 self.settings_path,
-                "resources",  #accuracy, resources
-
+                "resources",
             )
             self.logger.info("calibrate_settings result: %s", res)
 
         s3_write_time = self._upload_to_cache(self.settings_path, "settings.json")
-
-        self.ezkl_stting_dict = self._load_settings()
-
+        self.ezkl_settings_dict = self._load_settings()
         return False, 0.0, s3_write_time
 
     def compile_circuit(self):
@@ -499,4 +471,4 @@ class EZKLProofStages:
             metrics["ezkl_proof_time(s)"] = time.perf_counter() - start
 
         self._update_status("DONE")
-        return metrics, self.ezkl_stting_dict
+        return metrics, self.ezkl_settings_dict
