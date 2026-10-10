@@ -1,15 +1,17 @@
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional
-import re
+
 
 def slugify(value: object, max_len: int = 64) -> str:
     text = str(value).strip().lower()
     text = re.sub(r"[^a-z0-9]+", "-", text)
     text = text.strip("-")
     return text[:max_len].strip("-") or "na"
+
 
 class JobStatus(str, Enum):
     PREPARING = "PREPARING"
@@ -79,7 +81,6 @@ class ProofJob:
 class InferenceRequest:
     name: str
 
-
     onnx_model_path: str
     input_data_path: str
 
@@ -112,19 +113,14 @@ class InferenceRequest:
     logs_dir: Optional[str] = None
     reports_dir: Optional[str] = None
 
-    # def __post_init__(self) -> None:
-    #     now = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
-    #     self.request_id = f"{self.name}_{now}_{uuid.uuid4().hex[:8]}"
-
     def __post_init__(self) -> None:
-        
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
 
         name = slugify(self.name, max_len=48)
         split_mode = slugify(self.split_mode, max_len=24)
         scheduler = slugify(self.scheduler, max_len=24)
-
         simplify_tag = "simplified" if self.simplify_model else "raw"
+        unique_suffix = uuid.uuid4().hex[:8]
 
         self.request_id = (
             f"{name}"
@@ -133,8 +129,8 @@ class InferenceRequest:
             f"_sched-{scheduler}"
             f"_{simplify_tag}"
             f"_{now}"
-    )
-
+            f"_{unique_suffix}"
+        )
 
     def all_jobs_finished(self) -> bool:
         return all(
