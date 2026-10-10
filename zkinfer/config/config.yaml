@@ -5,10 +5,11 @@ defaults:
   - backend: ezkl
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
+
 coordinator:
   host: localhost
   port: 50051
-  grpc_thread_pool_size: 1
+  grpc_thread_pool_size: 8
   grpc_max_message_mb: 128
   runs_dir: experiments/runs
   logs_dir: logs/coordinator
@@ -23,9 +24,9 @@ worker:
 
 jobs:
   scheduler: lpt
-  max_retries: 0
+  max_retries: 1
   # Skip model transfer and proving, but retain real input materialization,
-  # S3 staging, scheduling, worker downloads, and JSON parsing.
+  # shared-storage staging, scheduling, worker downloads, and JSON parsing.
   transfer_only: false
 
 heartbeat:
@@ -33,7 +34,9 @@ heartbeat:
   timeout_sec: 60
 
 storage:
-  backend: s3 # filesystem | s3
+  # Keep the default runnable on a single machine. Override with
+  # storage.backend=s3 storage.s3_bucket=<bucket> for distributed runs.
+  backend: filesystem # filesystem | s3
 
   # Shared storage for coordinator <-> worker communication.
   transfer_prefix: storage/transfer
