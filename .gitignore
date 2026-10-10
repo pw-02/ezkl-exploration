@@ -1,20 +1,39 @@
-experiments/runs
-experiments/logs
-*pycache*
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environment and editor state
+.env
+.venv/
+.vscode/
+
+# zkInfer runtime outputs
+logs/
+storage/
+experiments/runs/
+experiments/logs/
+experiments/results/
+e2e_runs/
+verification_benchmark/
+transfer_only/
+
+# EZKL / proving artifacts
+srs/
+cache/
+tmp/
+_tmp/
 _ezkl_tmp/
-ezkl_smoke
-cache
-tmp
-storage
-logs
-_ezkl_tmp
-srs
-_ezkl_model_stats_tmp
-_tmp
+_ezkl_model_stats_tmp/
+ezkl_smoke/
 ezkl_settings_report.csv
-experiments/results
-onnx_graphs
-results
-figures
-transfer_only
-e2e_runs
+
+# Generated reports and figures
+results/
+figures/
+onnx_graphs/
+*.csv
+*.log
