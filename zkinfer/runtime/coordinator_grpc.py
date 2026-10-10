@@ -1,6 +1,7 @@
 import json
 import logging
 import sys
+import threading
 import time
 from concurrent import futures
 from typing import Dict, Optional
@@ -32,7 +33,7 @@ def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
     logger.addHandler(console)
 
     if log_file:
-        file_handler = logging.FileHandler(log_file,mode="w",encoding="utf-8")
+        file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
@@ -245,17 +246,32 @@ def create_grpc_server(
     return server
 
 
+def run_dead_worker_monitor(
+    coordinator: Coordinator,
+    stop_event: threading.Event,
+    logger: logging.Logger,
+) -> None:
+    interval_sec = max(1, int(coordinator.heartbeat_config.interval_sec))
+
+    while not stop_event.wait(interval_sec):
+        try:
+            coordinator.check_for_dead_workers()
+        except Exception:
+            logger.exception("Dead-worker monitor failed")
+
+
 @hydra.main(config_path="../config", config_name="config", version_base=None)
 def serve(cfg: DictConfig) -> None:
     validate_config(cfg)
 
-
     runtime_config = build_runtime_config(cfg=cfg, process_role="coordinator")
-    logger = setup_logger("coordinator", log_file=f"{runtime_config.coordinator.logs_dir}/coordinator.log")
+    logger = setup_logger(
+        "coordinator",
+        log_file=f"{runtime_config.coordinator.logs_dir}/coordinator.log",
+    )
 
     logger.info("Starting ZK Coordinator gRPC Service")
     logger.debug("Loaded config:\n%s", OmegaConf.to_yaml(cfg, resolve=True))
-
 
     coordinator = Coordinator(
         runtime_config=runtime_config,
@@ -268,10 +284,18 @@ def serve(cfg: DictConfig) -> None:
     )
 
     server = create_grpc_server(cfg, service)
+    stop_event = threading.Event()
+    monitor_thread = threading.Thread(
+        target=run_dead_worker_monitor,
+        args=(coordinator, stop_event, logger),
+        name="dead-worker-monitor",
+        daemon=True,
+    )
 
     bind_address = f"{cfg.coordinator.host}:{cfg.coordinator.port}"
     server.add_insecure_port(bind_address)
     server.start()
+    monitor_thread.start()
 
     logger.info("Coordinator gRPC server running at %s", bind_address)
 
@@ -281,7 +305,11 @@ def serve(cfg: DictConfig) -> None:
 
     except KeyboardInterrupt:
         logger.warning("Shutting down coordinator...")
+
+    finally:
+        stop_event.set()
         server.stop(0)
+        monitor_thread.join(timeout=5)
 
 
 if __name__ == "__main__":
