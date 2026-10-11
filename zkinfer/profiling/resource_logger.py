@@ -36,7 +36,6 @@ def ensure_parent_dir(path: str) -> None:
 def resolve_process(pid: Optional[int]) -> Optional[psutil.Process]:
     if pid is None:
         return None
-
     try:
         process = psutil.Process(pid)
         process.cpu_percent(interval=None)
@@ -47,29 +46,18 @@ def resolve_process(pid: Optional[int]) -> Optional[psutil.Process]:
 
 
 def read_stage(status_file: Optional[str]) -> str:
-    """Return the most recently published proof stage for this task.
-
-    EZKLProofStages writes a tiny status file whenever it enters a new stage.
-    Reading that file here keeps the resource logger independent from EZKL
-    while making every resource sample directly attributable to a stage.
-    """
     if not status_file:
         return "UNKNOWN"
-
     try:
         with open(status_file, "r", encoding="utf-8") as file:
-            stage = file.read().strip()
-            return stage or "UNKNOWN"
+            return file.read().strip() or "UNKNOWN"
     except (FileNotFoundError, OSError):
-        # The logger is intentionally started before proving, so the first
-        # sample may arrive before the status file has been created.
         return "UNKNOWN"
 
 
 def system_row(ts: str, stage: str, num_logical_cpus: int) -> dict:
     memory_info = psutil.virtual_memory()
     cpu_percent = psutil.cpu_percent(interval=None)
-
     return {
         "timestamp": ts,
         "stage": stage,
@@ -84,28 +72,45 @@ def system_row(ts: str, stage: str, num_logical_cpus: int) -> dict:
     }
 
 
+def _process_tree(process: psutil.Process, include_children: bool) -> list[psutil.Process]:
+    processes = [process]
+    if include_children:
+        try:
+            processes.extend(process.children(recursive=True))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return processes
+
+
 def process_row(
     ts: str,
     stage: str,
     process: psutil.Process,
     num_logical_cpus: int,
+    include_children: bool,
 ) -> Optional[dict]:
     try:
-        cpu_percent = process.cpu_percent(interval=None)
-
+        cpu_percent = 0.0
+        memory_bytes = 0
+        processes = _process_tree(process, include_children)
+        for proc in processes:
+            try:
+                cpu_percent += proc.cpu_percent(interval=None)
+                memory_bytes += proc.memory_info().rss
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
         return {
             "timestamp": ts,
             "stage": stage,
-            "type": "process",
+            "type": "process_tree" if include_children else "process",
             "pid": process.pid,
             "cpu_percent": cpu_percent,
             "cpu_machine_percent": cpu_percent / num_logical_cpus,
             "num_logical_cpus": num_logical_cpus,
-            "memory_gb": process.memory_info().rss / (1024**3),
+            "memory_gb": memory_bytes / (1024**3),
             "total_memory_gb": "",
             "memory_percent": "",
         }
-
     except psutil.NoSuchProcess:
         return None
 
@@ -115,24 +120,24 @@ def run(
     interval: float,
     pid: Optional[int],
     status_file: Optional[str] = None,
+    include_children: bool = False,
 ) -> None:
     ensure_parent_dir(output_file)
-
-    # The prover already writes <job output>/status.txt. Derive it by default
-    # so existing callers automatically gain phase-labelled traces.
     if status_file is None:
         status_file = os.path.join(os.path.dirname(output_file), "status.txt")
 
     process = resolve_process(pid)
     num_logical_cpus = psutil.cpu_count(logical=True) or 1
-
     psutil.cpu_percent(interval=None)
     if process is not None:
-        process.cpu_percent(interval=None)
+        for proc in _process_tree(process, include_children):
+            try:
+                proc.cpu_percent(interval=None)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
 
     with open(output_file, "a", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=FIELDNAMES)
-
         if file.tell() == 0:
             writer.writeheader()
 
@@ -140,17 +145,14 @@ def run(
             time.sleep(interval)
             ts = timestamp()
             stage = read_stage(status_file)
-
             writer.writerow(system_row(ts, stage, num_logical_cpus))
 
             if process is not None:
-                row = process_row(ts, stage, process, num_logical_cpus)
+                row = process_row(ts, stage, process, num_logical_cpus, include_children)
                 if row is None:
                     print("Process exited.", file=sys.stderr)
                     break
-
                 writer.writerow(row)
-
             file.flush()
 
 
@@ -159,9 +161,11 @@ def parse_args():
     parser.add_argument("--output_file", required=True)
     parser.add_argument("--interval", type=float, default=3)
     parser.add_argument("--pid", type=int)
+    parser.add_argument("--status_file")
     parser.add_argument(
-        "--status_file",
-        help="Path to the task status file. Defaults to status.txt beside output_file.",
+        "--include_children",
+        action="store_true",
+        help="Aggregate CPU/RSS for the monitored process and its child processes.",
     )
     return parser.parse_args()
 
@@ -173,6 +177,7 @@ def main() -> None:
         interval=args.interval,
         pid=args.pid,
         status_file=args.status_file,
+        include_children=args.include_children,
     )
 
 
