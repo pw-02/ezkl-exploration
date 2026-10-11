@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -28,22 +28,26 @@ class LocalProverTask:
     request_id: str
     job_id: str
     setup_key: str
-
     model_path: str
     input_path: str
     setup_cache_dir: str
     tmp_dir: str
     output_dir: str
-
     output_prefix: str
     output_backend: str
     output_s3_bucket: str = ""
-
     transfer_only: bool = False
     resource_monitor_interval_sec: int = 3
     model_materialize_time_s: float = 0.0
     input_materialize_time_s: float = 0.0
     transfer_metrics: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "LocalProverTask":
+        return cls(**data)
 
 
 @dataclass(frozen=True)
@@ -52,14 +56,32 @@ class ProverTaskResult:
     metrics: Dict[str, Any]
     message: str = ""
 
+    def to_dict(self) -> Dict[str, Any]:
+        ref = self.artifact_manifest_ref
+        return {
+            "artifact_manifest_ref": ref.to_dict() if ref else None,
+            "metrics": self.metrics,
+            "message": self.message,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ProverTaskResult":
+        ref_data = data.get("artifact_manifest_ref")
+        ref = ArtifactRef.from_dict(ref_data) if ref_data else None
+        if ref is not None and ref.is_empty:
+            ref = None
+        return cls(
+            artifact_manifest_ref=ref,
+            metrics=data.get("metrics") or {},
+            message=data.get("message") or "",
+        )
+
 
 class ProverTaskRunner:
-    """Run one proof job using only local paths.
+    """Execute one proof using local paths only.
 
-    This object is intentionally stateless with respect to the distributed
-    system. It does not talk to the coordinator and it does not own scheduling
-    or cache policy. The node supervisor materializes inputs/cache first,
-    invokes this runner, and then reports the result.
+    This runner is intended to execute inside an isolated OS process. It has no
+    coordinator or cache-management responsibilities.
     """
 
     def __init__(self, logger: Optional[logging.Logger] = None):
@@ -73,32 +95,26 @@ class ProverTaskRunner:
             return self._run_transfer_only(task)
 
         status_file = os.path.join(task.output_dir, "status.txt")
-        resource_proc, resource_usage_file = self._start_resource_logger(task)
+        resource_proc, resource_usage_file = self._start_resource_logger(task, status_file)
 
         try:
             proof_stages = self._build_proof_stages(task, status_file)
             ezkl_metrics, _ = proof_stages.run_all(setup_only=False)
-
             metrics = self._collect_metrics(
                 task=task,
                 resource_usage_file=resource_usage_file,
                 proof_stages=proof_stages,
                 ezkl_metrics=ezkl_metrics,
             )
-
-            manifest_ref, publish_metrics = self._publish_job_artifacts(
-                task=task,
-                proof_stages=proof_stages,
-            )
+            manifest_ref, publish_metrics = self._publish_job_artifacts(task, proof_stages)
             metrics.update(self._flatten_transfer_metrics(task.transfer_metrics))
             metrics.update(self._flatten_output_metrics(publish_metrics))
-
+            metrics["prover_process_pid"] = os.getpid()
             return ProverTaskResult(
                 artifact_manifest_ref=manifest_ref,
                 metrics=metrics,
                 message="Proof computation completed successfully",
             )
-
         finally:
             self._stop_process(resource_proc)
 
@@ -107,7 +123,6 @@ class ProverTaskRunner:
         with open(task.input_path, "r", encoding="utf-8") as file:
             json.load(file)
         input_parse_time_s = time.perf_counter() - parse_start
-
         metrics = {
             "node_id": task.node_id,
             "transfer_only": True,
@@ -115,16 +130,12 @@ class ProverTaskRunner:
             "input_materialize_time(s)": task.input_materialize_time_s,
             "input_parse_time(s)": input_parse_time_s,
             "input_transfer_bytes": os.path.getsize(task.input_path),
+            "prover_process_pid": os.getpid(),
         }
         metrics.update(self._flatten_transfer_metrics(task.transfer_metrics))
+        return ProverTaskResult(None, metrics, "Transfer-only benchmark completed")
 
-        return ProverTaskResult(
-            artifact_manifest_ref=None,
-            metrics=metrics,
-            message="Transfer-only benchmark completed",
-        )
-
-    def _start_resource_logger(self, task: LocalProverTask):
+    def _start_resource_logger(self, task: LocalProverTask, status_file: str):
         resource_usage_file = os.path.join(task.output_dir, "resource_usage.csv")
         process = subprocess.Popen(
             [
@@ -137,6 +148,9 @@ class ProverTaskRunner:
                 str(os.getpid()),
                 "--interval",
                 str(task.resource_monitor_interval_sec),
+                "--status_file",
+                status_file,
+                "--include_children",
             ]
         )
         return process, resource_usage_file
@@ -200,13 +214,23 @@ class ProverTaskRunner:
             **ezkl_metrics,
         }
 
-    def _publish_file(self, local_path: str, task: LocalProverTask, artifact_name: str) -> Tuple[str, Dict[str, Any]]:
+    @staticmethod
+    def _same_path(a: str | Path, b: str | Path) -> bool:
+        try:
+            return Path(a).resolve() == Path(b).resolve()
+        except OSError:
+            return os.path.abspath(str(a)) == os.path.abspath(str(b))
+
+    def _publish_file(
+        self, local_path: str, task: LocalProverTask, artifact_name: str
+    ) -> Tuple[str, Dict[str, Any]]:
         started = time.perf_counter()
         size_bytes = os.path.getsize(local_path)
         if task.output_backend == "filesystem":
             output_path = os.path.join(task.output_prefix, artifact_name)
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            shutil.copy2(local_path, output_path)
+            if not self._same_path(local_path, output_path):
+                shutil.copy2(local_path, output_path)
             return output_path, {
                 "artifact": artifact_name,
                 "backend": "filesystem",
@@ -227,13 +251,10 @@ class ProverTaskRunner:
                 "bytes_written": 0,
                 "publish_time(s)": time.perf_counter() - started,
             }
-
         raise ValueError(f"Unsupported output backend: {task.output_backend}")
 
     def _publish_job_artifacts(
-        self,
-        task: LocalProverTask,
-        proof_stages: EZKLProofStages,
+        self, task: LocalProverTask, proof_stages: EZKLProofStages
     ) -> Tuple[ArtifactRef, Dict[str, Any]]:
         artifact_sources = {
             "proof.pf": proof_stages.proof_path,
@@ -241,7 +262,6 @@ class ProverTaskRunner:
             "vk.json": proof_stages.vk_path,
             "settings.json": proof_stages.settings_path,
         }
-
         for artifact_name, source_path in artifact_sources.items():
             if not source_path or not os.path.exists(source_path):
                 raise FileNotFoundError(
@@ -260,24 +280,23 @@ class ProverTaskRunner:
         for artifact_name, source_path in artifact_sources.items():
             output_path = os.path.join(task.output_dir, artifact_name)
             source = Path(source_path).resolve()
-
             try:
                 source.relative_to(tmp_dir)
                 source_is_temporary = True
             except ValueError:
                 source_is_temporary = False
 
-            if source_is_temporary:
-                shutil.move(str(source), output_path)
-            else:
-                shutil.copy2(str(source), output_path)
+            if not self._same_path(source, output_path):
+                if source_is_temporary:
+                    shutil.move(str(source), output_path)
+                else:
+                    shutil.copy2(str(source), output_path)
 
             published_uri, file_metrics = self._publish_file(output_path, task, artifact_name)
             publish_metrics["artifacts"][artifact_name] = file_metrics
             publish_metrics["output_bytes_uploaded"] += int(file_metrics.get("bytes_uploaded", 0) or 0)
             publish_metrics["output_bytes_written"] += int(file_metrics.get("bytes_written", 0) or 0)
             publish_metrics["output_publish_time(s)"] += float(file_metrics.get("publish_time(s)", 0.0) or 0.0)
-
             artifact_metadata[artifact_name] = {
                 "file": artifact_name,
                 "local_path": output_path,
@@ -298,7 +317,6 @@ class ProverTaskRunner:
             "transfer_metrics": task.transfer_metrics,
             "output_publish_metrics": publish_metrics,
         }
-
         manifest_path = os.path.join(task.output_dir, "manifest.json")
         with open(manifest_path, "w", encoding="utf-8") as file:
             json.dump(manifest, file, indent=4)
@@ -321,7 +339,6 @@ class ProverTaskRunner:
         model = metrics.get("model", {}) or {}
         input_metrics = metrics.get("input", {}) or {}
         setup = metrics.get("setup", {}) or {}
-        setup_publish = metrics.get("setup_publish", {}) or {}
         return {
             "transfer_model_cache_hit": bool(model.get("cache_hit", False)),
             "transfer_input_cache_hit": bool(input_metrics.get("cache_hit", False)),
@@ -331,11 +348,8 @@ class ProverTaskRunner:
             "transfer_input_bytes_from_local_cache": int(input_metrics.get("bytes_from_local_cache", 0) or 0),
             "transfer_setup_bytes_downloaded": int(setup.get("bytes_downloaded", 0) or 0),
             "transfer_setup_bytes_from_local_cache": int(setup.get("bytes_from_local_cache", 0) or 0),
-            "transfer_setup_hydrate_time(s)": float(setup.get("hydrate_time(s)", 0.0) or 0.0),
+            "transfer_setup_restore_time(s)": float(setup.get("restore_time(s)", 0.0) or 0.0),
             "transfer_pk_decompress_time(s)": float(setup.get("pk_decompress_time(s)", 0.0) or 0.0),
-            "transfer_setup_bytes_uploaded": int(setup_publish.get("bytes_uploaded", 0) or 0),
-            "transfer_setup_publish_time(s)": float(setup_publish.get("publish_time(s)", 0.0) or 0.0),
-            "transfer_pk_compress_time(s)": float(setup_publish.get("pk_compress_time(s)", 0.0) or 0.0),
         }
 
     @staticmethod
