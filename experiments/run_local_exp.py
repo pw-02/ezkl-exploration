@@ -272,7 +272,6 @@ def submit_workload(
         input_data_path=workload_cfg.input_file,
         split_mode=cfg.execution.split_mode,
         ops_per_chunk=cfg.execution.ops_per_chunk,
-        scheduler=cfg.jobs.scheduler,
         simplify_model=cfg.execution.get("simplify_model", False),
         input_shapes=workload_cfg.get("input_shapes", None),
     )
