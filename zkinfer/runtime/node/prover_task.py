@@ -7,9 +7,10 @@ import shutil
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Iterator, Optional, Tuple
 
 from zkinfer.backends.ezkl.ezkl_prover import EZKLProofStages
 from zkinfer.profiling.msm_fft_parser import (
@@ -19,7 +20,7 @@ from zkinfer.profiling.msm_fft_parser import (
 )
 from zkinfer.profiling.resource_parser import parse_resource_usage_file
 from zkinfer.runtime.data_plane import ArtifactRef
-from zkinfer.runtime.node.phase_admission import PhaseAdmissionGate
+from zkinfer.runtime.node.phase_admission import ResourceAdmissionController
 from zkinfer.storage.s3 import upload_file
 
 
@@ -38,12 +39,17 @@ class LocalProverTask:
     output_backend: str
     output_s3_bucket: str = ""
     transfer_only: bool = False
-    resource_monitor_interval_sec: int = 3
+    resource_monitor_interval_sec: int = 1
     model_materialize_time_s: float = 0.0
     input_materialize_time_s: float = 0.0
     transfer_metrics: Dict[str, Any] = field(default_factory=dict)
-    phase_gate_dir: str = ""
-    heavy_phase_limit: int = 1
+    phase_admission_dir: str = ""
+    phase_admission_enabled: bool = True
+    phase_memory_reserve_gb: float = 8.0
+    phase_cpu_budget_percent: float = 100.0
+    phase_profile_percentile: float = 0.90
+    phase_fallback_cpu_percent: float = 100.0
+    predicted_peak_memory_gb: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -80,34 +86,89 @@ class ProverTaskResult:
         )
 
 
-class PhaseAwareEZKLProofStages(EZKLProofStages):
-    """EZKL stages with node-local admission around memory-heavy phases."""
+class ResourceAwareEZKLProofStages(EZKLProofStages):
+    """EZKL stages guarded by node-local resource reservations.
 
-    def __init__(self, *args, phase_gate: PhaseAdmissionGate, **kwargs):
+    The controller predicts each stage's memory/CPU demand from prior runs of
+    the same setup key. There are no configured job-count or heavy-phase-count
+    limits in the normal admission path.
+    """
+
+    def __init__(
+        self,
+        *args,
+        admission: ResourceAdmissionController,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
-        self.phase_gate = phase_gate
-        self.phase_admission_wait_s = 0.0
+        self.admission = admission
+        self.admission_metrics: Dict[str, Any] = {
+            "phase_admission_enabled": admission.enabled,
+            "phase_admission_wait_time(s)": 0.0,
+        }
 
-    def _hold_heavy_phase(self, stage: str):
-        return self.phase_gate.hold(stage)
+    @staticmethod
+    def _metric_stage(stage: str) -> str:
+        return stage.lower().replace("-", "_")
+
+    @contextmanager
+    def _admit(self, stage: str) -> Iterator[Dict[str, Any]]:
+        # Waiting is explicit in the resource trace instead of being attributed
+        # to the previous EZKL phase.
+        self._update_status(f"WAITING_FOR_{stage}")
+        with self.admission.hold(stage) as info:
+            metric_stage = self._metric_stage(stage)
+            wait_time = float(info.get("wait_time_s") or 0.0)
+            self.admission_metrics["phase_admission_wait_time(s)"] += wait_time
+            self.admission_metrics[
+                f"phase_admission_{metric_stage}_wait_time(s)"
+            ] = self.admission_metrics.get(
+                f"phase_admission_{metric_stage}_wait_time(s)", 0.0
+            ) + wait_time
+            self.admission_metrics[
+                f"phase_admission_{metric_stage}_predicted_memory(GB)"
+            ] = float(info.get("memory_gb") or 0.0)
+            self.admission_metrics[
+                f"phase_admission_{metric_stage}_predicted_cpu_machine(%)"
+            ] = float(info.get("cpu_percent") or 0.0)
+            self.admission_metrics[
+                f"phase_admission_{metric_stage}_estimate_samples"
+            ] = int(info.get("samples") or 0)
+            self.admission_metrics[
+                f"phase_admission_{metric_stage}_estimate_source"
+            ] = str(info.get("source") or "fallback")
+            yield info
+
+    def calibrate_settings_with_fallback(self):
+        with self._admit("CALIBRATING"):
+            return super().calibrate_settings_with_fallback()
+
+    def compile_circuit(self):
+        with self._admit("COMPILING"):
+            return super().compile_circuit()
+
+    def get_srs(self):
+        with self._admit("GETTING_SRS"):
+            return super().get_srs()
+
+    def gen_witness(self):
+        with self._admit("GENERATING_WITNESS"):
+            return super().gen_witness()
 
     def gen_keys(self):
-        with self._hold_heavy_phase("KEY_GEN") as wait_s:
-            self.phase_admission_wait_s += wait_s
+        with self._admit("KEY_GEN"):
             return super().gen_keys()
 
     def compute_proof(self):
-        with self._hold_heavy_phase("PROVING") as wait_s:
-            self.phase_admission_wait_s += wait_s
+        with self._admit("PROVING"):
             return super().compute_proof()
 
     def setup_and_compute_proof(self) -> Dict[str, float]:
-        # The fused Rust call transitions from key generation directly into
-        # proving without returning to Python. Reserve one heavy-phase token for
-        # the whole fused region; stage logging still distinguishes KEY_GEN and
-        # PROVING in resource_usage.csv.
-        with self._hold_heavy_phase("FUSED_KEYGEN_PROVE") as wait_s:
-            self.phase_admission_wait_s += wait_s
+        # The fused Rust operation does not return to Python between keygen and
+        # proving. Reserve the larger of their historical resource envelopes for
+        # the combined region while the Rust status file still records the exact
+        # KEY_GEN -> PROVING transition.
+        with self._admit("FUSED_KEYGEN_PROVE"):
             return super().setup_and_compute_proof()
 
 
@@ -134,7 +195,7 @@ class ProverTaskRunner:
         try:
             proof_stages = self._build_proof_stages(task, status_file)
             ezkl_metrics, _ = proof_stages.run_all(setup_only=False)
-            ezkl_metrics["phase_admission_wait_time(s)"] = proof_stages.phase_admission_wait_s
+            ezkl_metrics.update(proof_stages.admission_metrics)
 
             metrics = self._collect_metrics(
                 task=task,
@@ -167,6 +228,7 @@ class ProverTaskRunner:
             "input_parse_time(s)": input_parse_time_s,
             "input_transfer_bytes": os.path.getsize(task.input_path),
             "prover_process_pid": os.getpid(),
+            "phase_admission_enabled": False,
         }
         metrics.update(self._flatten_transfer_metrics(task.transfer_metrics))
         return ProverTaskResult(None, metrics, "Transfer-only benchmark completed")
@@ -187,6 +249,8 @@ class ProverTaskRunner:
                 "--status_file",
                 status_file,
                 "--include_children",
+                "--exclude_pid",
+                str(os.getpid()),
             ]
         )
         return process, resource_usage_file
@@ -205,13 +269,19 @@ class ProverTaskRunner:
         self,
         task: LocalProverTask,
         status_file: str,
-    ) -> PhaseAwareEZKLProofStages:
-        phase_gate_dir = task.phase_gate_dir or os.path.join(task.tmp_dir, "phase-gate")
-        gate = PhaseAdmissionGate(
-            root_dir=phase_gate_dir,
-            limit=task.heavy_phase_limit,
+    ) -> ResourceAwareEZKLProofStages:
+        admission_dir = task.phase_admission_dir or os.path.join(task.tmp_dir, "phase-admission")
+        admission = ResourceAdmissionController(
+            root_dir=admission_dir,
+            setup_key=task.setup_key,
+            enabled=task.phase_admission_enabled,
+            memory_reserve_gb=task.phase_memory_reserve_gb,
+            cpu_budget_percent=task.phase_cpu_budget_percent,
+            fallback_memory_gb=task.predicted_peak_memory_gb,
+            fallback_cpu_percent=task.phase_fallback_cpu_percent,
+            profile_percentile=task.phase_profile_percentile,
         )
-        return PhaseAwareEZKLProofStages(
+        return ResourceAwareEZKLProofStages(
             input_data_path=task.input_path,
             onnx_model_path=task.model_path,
             artifact_dir=task.output_dir,
@@ -224,7 +294,7 @@ class ProverTaskRunner:
             status_file=status_file,
             local_tmp_dir=task.tmp_dir,
             logger=self.logger,
-            phase_gate=gate,
+            admission=admission,
         )
 
     def _collect_metrics(
@@ -248,6 +318,7 @@ class ProverTaskRunner:
 
         return {
             "node_id": task.node_id,
+            "predicted_peak_memory(GB)": task.predicted_peak_memory_gb,
             "model_materialize_time(s)": task.model_materialize_time_s,
             "input_materialize_time(s)": task.input_materialize_time_s,
             **resource_metrics,
