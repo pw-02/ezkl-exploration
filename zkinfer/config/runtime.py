@@ -17,13 +17,13 @@ class CoordinatorConfig:
 
 
 @dataclass(frozen=True)
-class WorkerConfig:
-    worker_id: Optional[str]
+class NodeConfig:
+    node_id: Optional[str]
     runs_dir: str
     logs_dir: str
     job_poll_interval_sec: int
     resource_monitor_interval_sec: int
-    send_proofs_to_coordinator: bool
+    max_concurrent_jobs: int
     local_cache_dir: str
     local_cache_max_bytes: int
 
@@ -37,7 +37,6 @@ class FileTransferConfig:
 
     def delete_tree(self, relative_path: str) -> None:
         relative_path = relative_path.strip("/")
-
         if not relative_path:
             raise ValueError("Refusing to delete empty transfer path")
 
@@ -105,7 +104,7 @@ class StateStoreConfig:
 @dataclass(frozen=True)
 class RuntimeConfig:
     coordinator: CoordinatorConfig
-    worker: WorkerConfig
+    node: NodeConfig
     file_transfer: FileTransferConfig
     artifact_store: ArtifactStoreConfig
     proving_cache: ProvingCacheConfig
@@ -127,10 +126,13 @@ def _gb_to_bytes(value) -> int:
 
 def _resolve_transfer_config(cfg: DictConfig) -> FileTransferConfig:
     backend = cfg.storage.backend
-
     if backend == "filesystem":
-        root_dir = _resolve_path(cfg.storage.transfer_prefix)
-        return FileTransferConfig(backend="filesystem", root_dir=str(root_dir), s3_bucket=None, s3_prefix="")
+        return FileTransferConfig(
+            backend="filesystem",
+            root_dir=str(_resolve_path(cfg.storage.transfer_prefix)),
+            s3_bucket=None,
+            s3_prefix="",
+        )
 
     if backend == "s3":
         base_prefix = cfg.storage.s3_prefix.rstrip("/")
@@ -151,8 +153,12 @@ def _resolve_artifact_store_config(cfg: DictConfig) -> ArtifactStoreConfig:
     artifact_prefix = cfg.storage.get("artifact_prefix", "storage/artifacts")
 
     if backend == "filesystem":
-        root_dir = _resolve_path(artifact_prefix)
-        return ArtifactStoreConfig(backend="filesystem", root_dir=str(root_dir), s3_bucket=None, s3_prefix="")
+        return ArtifactStoreConfig(
+            backend="filesystem",
+            root_dir=str(_resolve_path(artifact_prefix)),
+            s3_bucket=None,
+            s3_prefix="",
+        )
 
     if backend == "s3":
         base_prefix = cfg.storage.s3_prefix.rstrip("/")
@@ -170,14 +176,12 @@ def _resolve_artifact_store_config(cfg: DictConfig) -> ArtifactStoreConfig:
 
 def _resolve_proving_cache_config(cfg: DictConfig) -> ProvingCacheConfig:
     backend = cfg.storage.backend
-
     if backend == "filesystem":
-        root_dir = _resolve_path(cfg.storage.proving_cache_prefix)
         return ProvingCacheConfig(
             enabled=cfg.storage.proving_cache_enabled,
             backend="filesystem",
             overwrite=cfg.storage.proving_cache_overwrite,
-            root_dir=str(root_dir),
+            root_dir=str(_resolve_path(cfg.storage.proving_cache_prefix)),
             s3_bucket=None,
             s3_prefix="",
         )
@@ -209,18 +213,16 @@ def _resolve_state_store_config(cfg: DictConfig) -> StateStoreConfig:
 def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) -> RuntimeConfig:
     if cfg.storage.backend not in {"filesystem", "s3"}:
         raise ValueError("storage.backend must be either 'filesystem' or 's3'")
-
     if cfg.storage.backend == "s3" and not cfg.storage.s3_bucket:
         raise ValueError("storage.s3_bucket must be set when storage.backend=s3")
-
-    if process_role not in {None, "coordinator", "worker"}:
-        raise ValueError("process_role must be one of: coordinator, worker, None")
+    if process_role not in {None, "coordinator", "node"}:
+        raise ValueError("process_role must be one of: coordinator, node, None")
 
     coordinator_runs_dir = _resolve_path(cfg.coordinator.runs_dir)
-    worker_runs_dir = _resolve_path(cfg.worker.runs_dir)
     coordinator_logs_dir = _resolve_path(cfg.coordinator.logs_dir)
-    worker_logs_dir = _resolve_path(cfg.worker.logs_dir)
-    worker_cache_dir = _resolve_path(cfg.worker.get("local_cache_dir", "storage/worker_cache"))
+    node_runs_dir = _resolve_path(cfg.node.runs_dir)
+    node_logs_dir = _resolve_path(cfg.node.logs_dir)
+    node_cache_dir = _resolve_path(cfg.node.get("local_cache_dir", "storage/node_cache"))
 
     file_transfer = _resolve_transfer_config(cfg)
     artifact_store = _resolve_artifact_store_config(cfg)
@@ -231,7 +233,6 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
         coordinator_runs_dir.mkdir(parents=True, exist_ok=True)
         coordinator_logs_dir.mkdir(parents=True, exist_ok=True)
         Path(state_store.db_path).parent.mkdir(parents=True, exist_ok=True)
-
         if file_transfer.backend == "filesystem":
             Path(file_transfer.root_dir).mkdir(parents=True, exist_ok=True)
         if artifact_store.backend == "filesystem":
@@ -239,10 +240,10 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
         if proving_cache.backend == "filesystem":
             Path(proving_cache.root_dir).mkdir(parents=True, exist_ok=True)
 
-    elif process_role == "worker":
-        worker_runs_dir.mkdir(parents=True, exist_ok=True)
-        worker_logs_dir.mkdir(parents=True, exist_ok=True)
-        worker_cache_dir.mkdir(parents=True, exist_ok=True)
+    elif process_role == "node":
+        node_runs_dir.mkdir(parents=True, exist_ok=True)
+        node_logs_dir.mkdir(parents=True, exist_ok=True)
+        node_cache_dir.mkdir(parents=True, exist_ok=True)
         if proving_cache.backend == "filesystem":
             Path(proving_cache.root_dir).mkdir(parents=True, exist_ok=True)
 
@@ -255,15 +256,15 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
             runs_dir=str(coordinator_runs_dir),
             logs_dir=str(coordinator_logs_dir),
         ),
-        worker=WorkerConfig(
-            worker_id=cfg.worker.worker_id,
-            runs_dir=str(worker_runs_dir),
-            logs_dir=str(worker_logs_dir),
-            job_poll_interval_sec=cfg.worker.job_poll_interval_sec,
-            resource_monitor_interval_sec=cfg.worker.resource_monitor_interval_sec,
-            send_proofs_to_coordinator=cfg.worker.send_proofs_to_coordinator,
-            local_cache_dir=str(worker_cache_dir),
-            local_cache_max_bytes=_gb_to_bytes(cfg.worker.get("local_cache_max_gb", 100)),
+        node=NodeConfig(
+            node_id=cfg.node.node_id,
+            runs_dir=str(node_runs_dir),
+            logs_dir=str(node_logs_dir),
+            job_poll_interval_sec=cfg.node.job_poll_interval_sec,
+            resource_monitor_interval_sec=cfg.node.resource_monitor_interval_sec,
+            max_concurrent_jobs=int(cfg.node.get("max_concurrent_jobs", 1)),
+            local_cache_dir=str(node_cache_dir),
+            local_cache_max_bytes=_gb_to_bytes(cfg.node.get("local_cache_max_gb", 100)),
         ),
         file_transfer=file_transfer,
         artifact_store=artifact_store,
