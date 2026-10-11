@@ -3,7 +3,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 
 def slugify(value: object, max_len: int = 64) -> str:
@@ -31,14 +31,49 @@ class RequestStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
+@dataclass(frozen=True)
+class ArtifactRef:
+    """Reference to a large data-plane object or prefix.
+
+    gRPC carries this small descriptor. Workers fetch/store the actual bytes
+    directly through the referenced storage backend.
+    """
+
+    backend: str
+    uri: str
+    sha256: str = ""
+    size_bytes: int = 0
+    s3_bucket: str = ""
+
+    def is_empty(self) -> bool:
+        return not self.backend or not self.uri
+
+
+@dataclass(frozen=True)
+class WorkerResources:
+    worker_id: str
+    memory_budget_gb: float = 0.0
+    reserved_memory_gb: float = 0.0
+    free_slots: int = 1
+    cached_artifact_keys: Sequence[str] = field(default_factory=tuple)
+
+    @property
+    def available_memory_gb(self) -> float:
+        if self.memory_budget_gb <= 0:
+            return float("inf")
+        return max(0.0, self.memory_budget_gb - self.reserved_memory_gb)
+
+
 @dataclass
 class ProofJob:
     inference_request_name: str
     model_name: str
     inference_request_id: str
 
-    model_path: str
-    input_path: str
+    model_ref: ArtifactRef
+    input_ref: ArtifactRef
+    cache_ref: ArtifactRef
+    output_prefix_ref: ArtifactRef
 
     profiling_file_path: Optional[str] = None
 
@@ -47,6 +82,8 @@ class ProofJob:
     profiling_data: Dict = field(default_factory=dict)
 
     predicted_duration: float = 0.0
+    predicted_peak_memory_gb: float = 0.0
+    artifact_key: str = ""
     max_retries: int = 0
 
     job_id: str = field(init=False)
@@ -62,6 +99,8 @@ class ProofJob:
     completed_time: Optional[datetime] = None
 
     zk_proof: Optional[bytes] = None
+    artifact_manifest_ref: Optional[ArtifactRef] = None
+    assigned_worker_id: Optional[str] = None
     error_message: Optional[str] = None
 
     retry_count: int = 0
@@ -69,12 +108,23 @@ class ProofJob:
     parent_model_hash: Optional[str] = None
     model_hash: Optional[str] = None
 
-    # Shared cache/transfer prefix used by the worker/prover.
-    cache_path: Optional[str] = None
+    @property
+    def model_path(self) -> str:
+        return self.model_ref.uri
+
+    @property
+    def input_path(self) -> str:
+        return self.input_ref.uri
+
+    @property
+    def cache_path(self) -> str:
+        return self.cache_ref.uri
 
     def __post_init__(self) -> None:
         self.job_id = f"{self.model_name}_{uuid.uuid4().hex[:8]}"
         self.job_name = f"{self.inference_request_name}_{self.model_name}"
+        if not self.artifact_key:
+            self.artifact_key = self.model_hash or self.cache_ref.uri or self.model_name
 
 
 @dataclass
