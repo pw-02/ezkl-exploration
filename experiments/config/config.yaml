@@ -3,38 +3,58 @@ defaults:
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
 
-# Example A/B comparison:
-# python experiments/run_local_exp.py \
-#   suite.workloads='[mnist_gan,mobilenet_v2]' \
-#   node.phase_admission.enabled=true
-# python experiments/run_local_exp.py \
-#   suite.workloads='[mnist_gan,mobilenet_v2]' \
-#   node.phase_admission.enabled=false
-
 suite:
   workloads:
     - mnist_gan
 
 execution:
-  split_mode: fixed # none | fixed | auto
-  ops_per_chunk: 1
+  partitioning:
+    # whole_model    : one proof job for the complete model
+    # single_operator: one proof job per meaningful ONNX operator
+    # fixed_size     : consecutive meaningful operators grouped into fixed-size jobs
+    mode: fixed_size
+    # Used only when mode=fixed_size.
+    operators_per_partition: 1
   simplify_model: true
 
 jobs:
+  # fifo | lpt | cache_aware | resource_aware
+  # fifo: request-fair queue order
+  # lpt: longest predicted job first within the selected request
+  # cache_aware: prefer setup already present on the polling node
+  # resource_aware: use stage resource profiles plus cache locality
   scheduler: lpt
 
-# One local NodeSupervisor represents this machine. 
-# With phase admission enabled, stage overlap is chosen
-# from historical per-stage CPU/RSS demand and current node capacity.
 node:
   node_id: local-node
+
+  # null = no fixed job-count cap; stage/resource admission controls overlap.
+  # 1    = sequential baseline: at most one active proof job on this node.
+  # N    = at most N active proof jobs.
+  max_active_jobs: null
+
+  # Sampling interval for resource_usage.csv. Stage transitions have exact
+  # timestamps independent of this interval.
+  resource_monitor_interval_sec: 0.25
+
   phase_admission:
+    # false is appropriate for isolated Section 3 characterization runs.
     enabled: false
     memory_reserve_gb: 8
     cpu_budget_percent: 100
     profile_percentile: 0.90
     fallback_cpu_percent: 100
-    emergency_process_limit: null
+
+storage:
+  # Shared warm/cold setup state: settings, compiled circuit, PK/VK and profile.
+  setup_cache_enabled: true
+  setup_cache_overwrite: false
+
+  # The local experiment launcher deletes storage/artifacts after the complete
+  # suite when true. experiments/runs is never deleted by this setting.
+  # Set false when you intentionally want data-plane artifacts to persist.
+  delete_artifacts_after_run: true
+  artifact_dir: storage/artifacts
 
 launch:
   coordinator_host: localhost
