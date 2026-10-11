@@ -1,3 +1,4 @@
+import importlib
 import importlib.util
 import json
 import logging
@@ -105,10 +106,18 @@ class EZKLProofStages:
         if self._fused_ezkl is not None:
             return self._fused_ezkl
 
-        extension_path = getattr(self.ezkl, "__file__", None)
+        try:
+            native_ezkl = importlib.import_module("ezkl.ezkl")
+        except ImportError as exc:
+            raise RuntimeError(
+                "Cannot import the native EZKL extension. Rebuild/install the custom "
+                "pw-02/ezkl wheel containing the fused setup+prove binding."
+            ) from exc
+
+        extension_path = getattr(native_ezkl, "__file__", None)
         if not extension_path:
             raise RuntimeError(
-                "Cannot locate the EZKL extension module. Rebuild/install the custom "
+                "Cannot locate the native EZKL extension module. Rebuild/install the custom "
                 "pw-02/ezkl wheel containing the fused setup+prove binding."
             )
 
@@ -124,7 +133,7 @@ class EZKLProofStages:
         except Exception as exc:
             raise RuntimeError(
                 "The installed EZKL extension does not expose the fused setup+prove "
-                "module. Rebuild the wheel from pw-02/ezkl:dzkml-v10.29."
+                "module. Rebuild the wheel from pw-02/ezkl:sacdad27."
             ) from exc
 
         if not hasattr(module, "setup_and_prove"):
