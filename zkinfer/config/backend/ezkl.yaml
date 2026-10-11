@@ -1,13 +1,7 @@
-# config/backend/ezkl.yaml
+# EZKL backend selection.
+#
+# Runtime storage/cache policy is configured once under zkinfer/config/config.yaml
+# (storage.setup_cache_*). Keeping it out of the backend group avoids two
+# apparently authoritative cache configurations.
 
 name: ezkl
-
-proving_cache:
-  # Reuse proving artifacts across runs.
-  enabled: true
-
-  # Force regeneration even if cache exists.
-  overwrite: false
-
-  # Cache namespace under storage/cache/
-  namespace: ezkl
