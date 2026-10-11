@@ -47,6 +47,12 @@ class RequestBuilder:
 
             model_file_path = os.path.join(job_dir, "model.onnx")
             input_file_path = os.path.join(job_dir, "input.json")
+            output_prefix = self._build_output_prefix(
+                request=request,
+                file_transfer=file_transfer,
+                model_name=item.name,
+                model_hash=item.sub_hash,
+            )
 
             cache_path = self._build_cache_path(
                 request=request,
@@ -54,14 +60,6 @@ class RequestBuilder:
                 model_name=item.name,
                 parent_model_hash=item.parent_hash,
                 model_hash=item.sub_hash,
-            )
-
-            output_prefix = os.path.join(
-                file_transfer.root_dir,
-                request.request_id,
-                "artifacts",
-                "jobs",
-                f"{item.name}_{item.sub_hash[:8]}",
             )
 
             if transfer_only:
@@ -100,10 +98,7 @@ class RequestBuilder:
 
             model_ref = self._artifact_ref(file_transfer, model_file_path)
             input_ref = self._artifact_ref(file_transfer, input_file_path)
-            cache_ref = self._artifact_ref(
-                proving_cache,
-                cache_path,
-            )
+            cache_ref = self._artifact_ref(proving_cache, cache_path)
             output_prefix_ref = self._artifact_ref(file_transfer, output_prefix)
 
             job = ProofJob(
@@ -131,11 +126,7 @@ class RequestBuilder:
             jobs.append(job)
 
             pending_input_uploads.append(
-                (
-                    job,
-                    item.input_data,
-                    input_file_path,
-                )
+                (job, item.input_data, input_file_path)
             )
 
         self._save_inputs(
@@ -153,6 +144,27 @@ class RequestBuilder:
             uri=uri,
             s3_bucket=config.s3_bucket or "",
         )
+
+    def _build_output_prefix(
+        self,
+        request,
+        file_transfer: FileTransferConfig,
+        model_name: str,
+        model_hash: str,
+    ) -> str:
+        job_leaf = f"{model_name}_{model_hash[:8]}"
+
+        if file_transfer.backend == "filesystem":
+            base = request.run_dir or file_transfer.root_dir
+            return os.path.join(base, "artifacts", "jobs", job_leaf)
+
+        # Keep durable proof outputs separate from the temporary transfer tree,
+        # because the coordinator deletes transfer/<request_id> after completion.
+        artifact_root = file_transfer.root_dir.replace("/transfer", "/artifacts")
+        if artifact_root == file_transfer.root_dir:
+            artifact_root = os.path.join(file_transfer.root_dir, "artifacts")
+
+        return os.path.join(artifact_root, request.request_id, "jobs", job_leaf)
 
     def _save_inputs(
         self,
@@ -206,7 +218,9 @@ class RequestBuilder:
                     job.input_write_time = future.result()
 
         input_upload_wall_time = time.perf_counter() - upload_start
-        input_upload_service_time = sum(job.input_write_time for job, _, _ in pending_input_uploads)
+        input_upload_service_time = sum(
+            job.input_write_time for job, _, _ in pending_input_uploads
+        )
 
         preparation_metrics["input_upload_wall_time(s)"] = input_upload_wall_time
         preparation_metrics["input_upload_service_time(s)"] = input_upload_service_time
