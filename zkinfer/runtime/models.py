@@ -122,7 +122,9 @@ class InferenceRequest:
     input_data_path: str
     split_mode: str
     ops_per_chunk: int
-    scheduler_policy: str
+    # Snapshot of the coordinator-wide policy used for this request. Clients do
+    # not choose this value independently.
+    scheduler: str
     simplify_model: bool = False
     input_shapes: Optional[Dict] = None
     request_id: str = field(init=False)
@@ -142,7 +144,7 @@ class InferenceRequest:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
         name = slugify(self.name, max_len=48)
         split_mode = slugify(self.split_mode, max_len=24)
-        scheduler = slugify(self.scheduler_policy, max_len=24)
+        scheduler = slugify(self.scheduler, max_len=24)
         simplify_tag = "simplified" if self.simplify_model else "raw"
         unique_suffix = uuid.uuid4().hex[:8]
         self.request_id = (
