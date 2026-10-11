@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Run a local zkInfer experiment suite.
 
-This launcher reflects the current architecture: one NodeSupervisor represents
-this machine and may run multiple isolated prover subprocesses locally. It does
-not start multiple fake distributed workers on the same host.
+One NodeSupervisor represents this machine and may run multiple isolated prover
+subprocesses. Experiment-facing names are deliberately descriptive; this module
+translates them into the runtime RPC fields where necessary.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -23,6 +24,13 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from zkinfer.client.api import ZKInferenceClient
+
+
+PARTITION_MODE_TO_RUNTIME = {
+    "whole_model": "none",
+    "single_operator": "single_ops",
+    "fixed_size": "fixed",
+}
 
 
 class ActiveRunLog:
@@ -164,6 +172,9 @@ def common_overrides(cfg: DictConfig) -> List[str]:
         f"coordinator.host={cfg.launch.coordinator_host}",
         f"coordinator.port={cfg.launch.coordinator_port}",
         f"jobs.scheduler={cfg.jobs.scheduler}",
+        f"storage.artifact_prefix={cfg.storage.artifact_dir}",
+        f"storage.setup_cache_enabled={str(bool(cfg.storage.setup_cache_enabled)).lower()}",
+        f"storage.setup_cache_overwrite={str(bool(cfg.storage.setup_cache_overwrite)).lower()}",
     ]
 
 
@@ -181,16 +192,16 @@ def node_command(cfg: DictConfig) -> List[str]:
     phase = cfg.node.phase_admission
     overrides = [
         f"node.node_id={cfg.node.node_id}",
+        f"node.resource_monitor_interval_sec={cfg.node.resource_monitor_interval_sec}",
         f"node.phase_admission.enabled={str(bool(phase.enabled)).lower()}",
         f"node.phase_admission.memory_reserve_gb={phase.memory_reserve_gb}",
         f"node.phase_admission.cpu_budget_percent={phase.cpu_budget_percent}",
         f"node.phase_admission.profile_percentile={phase.profile_percentile}",
         f"node.phase_admission.fallback_cpu_percent={phase.fallback_cpu_percent}",
     ]
-    if phase.get("emergency_process_limit", None) is not None:
-        overrides.append(
-            f"node.phase_admission.emergency_process_limit={phase.emergency_process_limit}"
-        )
+    if cfg.node.get("max_active_jobs", None) is not None:
+        overrides.append(f"node.max_active_jobs={int(cfg.node.max_active_jobs)}")
+
     return [
         sys.executable,
         "-u",
@@ -261,6 +272,17 @@ def load_workload_cfg(workload_name: str) -> DictConfig:
     return OmegaConf.load(path)
 
 
+def _runtime_partition_mode(cfg: DictConfig) -> str:
+    mode = str(cfg.execution.partitioning.mode)
+    try:
+        return PARTITION_MODE_TO_RUNTIME[mode]
+    except KeyError as exc:
+        choices = ", ".join(PARTITION_MODE_TO_RUNTIME)
+        raise ValueError(
+            f"Unsupported partitioning.mode={mode!r}; choose one of: {choices}"
+        ) from exc
+
+
 def submit_workload(
     client: ZKInferenceClient,
     cfg: DictConfig,
@@ -270,8 +292,8 @@ def submit_workload(
         name=workload_cfg.name,
         onnx_model_path=workload_cfg.onnx_file,
         input_data_path=workload_cfg.input_file,
-        split_mode=cfg.execution.split_mode,
-        ops_per_chunk=cfg.execution.ops_per_chunk,
+        split_mode=_runtime_partition_mode(cfg),
+        ops_per_chunk=int(cfg.execution.partitioning.operators_per_partition),
         simplify_model=cfg.execution.get("simplify_model", False),
         input_shapes=workload_cfg.get("input_shapes", None),
     )
@@ -284,9 +306,31 @@ def save_request_metadata(
 ) -> Path:
     logs_dir = Path(cfg.paths.runs_dir) / request_id / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
-    OmegaConf.save(config=cfg, f=logs_dir / "exp_config.yaml")
+    OmegaConf.save(config=cfg, f=logs_dir / "experiment_config.yaml")
     OmegaConf.save(config=workload_cfg, f=logs_dir / "workload_config.yaml")
+    (logs_dir / "runtime_partitioning.txt").write_text(
+        f"mode={_runtime_partition_mode(cfg)}\n"
+        f"operators_per_partition={int(cfg.execution.partitioning.operators_per_partition)}\n",
+        encoding="utf-8",
+    )
     return logs_dir
+
+
+def cleanup_artifact_store(cfg: DictConfig, logger: logging.Logger) -> None:
+    if not bool(cfg.storage.delete_artifacts_after_run):
+        logger.info("Retaining data-plane artifacts after experiment run")
+        return
+
+    artifact_dir = Path(str(cfg.storage.artifact_dir)).resolve()
+    if not artifact_dir.exists():
+        return
+
+    shutil.rmtree(artifact_dir)
+    logger.info(
+        "Deleted data-plane artifact store after experiment: %s. "
+        "experiments/runs and the setup cache were retained.",
+        artifact_dir,
+    )
 
 
 @hydra.main(config_path="./config", config_name="config", version_base=None)
@@ -364,6 +408,7 @@ def main(cfg: DictConfig) -> None:
             int(cfg.launch.coordinator_port),
             10,
         )
+        cleanup_artifact_store(cfg, logger)
 
 
 if __name__ == "__main__":
