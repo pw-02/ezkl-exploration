@@ -25,7 +25,7 @@ message InferenceRequest {
   int32 ops_per_chunk = 5;
 
   // Coordinator scheduling policy.
-  string scheduler = 6;      // fifo | lpt
+  string scheduler = 6;      // fifo | lpt | resource_aware
 
   // Optional ONNX simplification before splitting.
   bool simplify_model = 7;
@@ -60,11 +60,39 @@ message RequestStatusResponse {
 }
 
 // ============================================================
+// ARTIFACTS
+// ============================================================
+
+message ArtifactRef {
+  // filesystem | s3
+  string backend = 1;
+
+  // Filesystem path or S3 object key/prefix. Large payloads are passed by
+  // reference through ArtifactRef rather than through gRPC message bodies.
+  string uri = 2;
+
+  // Optional integrity metadata. Empty when unknown or not yet materialized.
+  string sha256 = 3;
+  uint64 size_bytes = 4;
+
+  // Set for S3 refs. Empty for filesystem refs.
+  string s3_bucket = 5;
+}
+
+// ============================================================
 // WORKER REQUESTS
 // ============================================================
 
 message WorkerRequest {
   string worker_id = 1;
+
+  // Worker-side capacity/status used by resource-aware scheduling.
+  double memory_budget_gb = 2;
+  double reserved_memory_gb = 3;
+  int32 free_slots = 4;
+
+  // Artifact keys already present locally or cheaply available at the worker.
+  repeated string cached_artifact_keys = 5;
 }
 
 message JobAssignment {
@@ -73,10 +101,14 @@ message JobAssignment {
   string request_id = 2;
   string job_id = 3;
 
-  string model_path = 4;
-  string input_path = 5;
+  ArtifactRef model = 4;
+  ArtifactRef input = 5;
+  ArtifactRef cache = 6;
+  ArtifactRef output_prefix = 7;
 
-  string cache_path = 6;
+  double predicted_duration_s = 8;
+  double predicted_peak_memory_gb = 9;
+  string artifact_key = 10;
 }
 
 // ============================================================
@@ -88,12 +120,17 @@ message JobResult {
   string request_id = 2;
   string job_id = 3;
 
-  bytes proof = 4;
+  string status = 4;
+  string message = 5;
+  string perf_metrics_json = 6;
 
-  string status = 5;
-  string message = 6;
+  // Manifest describing proof.pf, witness.json, vk.json, settings.json, and
+  // other job outputs. The manifest is stored in the data plane.
+  ArtifactRef artifact_manifest = 7;
 
-  string perf_metrics_json = 7;
+  // Legacy optional inline proof path. Kept for compatibility, but normal
+  // distributed execution should return artifact_manifest instead.
+  bytes proof = 8;
 }
 
 message StatusAck {
@@ -123,37 +160,14 @@ message HeartbeatAck {
 // ============================================================
 
 service ZKJobService {
-
   // User API
-  rpc SubmitInferenceRequest (
-    InferenceRequest
-  ) returns (
-    InferenceRequestAck
-  );
-
-  rpc GetRequestStatus (
-    RequestStatusRequest
-  ) returns (
-    RequestStatusResponse
-  );
+  rpc SubmitInferenceRequest (InferenceRequest) returns (InferenceRequestAck);
+  rpc GetRequestStatus (RequestStatusRequest) returns (RequestStatusResponse);
 
   // Worker API
-  rpc GetNextJob (
-    WorkerRequest
-  ) returns (
-    JobAssignment
-  );
-
-  rpc SubmitJobResult (
-    JobResult
-  ) returns (
-    StatusAck
-  );
+  rpc GetNextJob (WorkerRequest) returns (JobAssignment);
+  rpc SubmitJobResult (JobResult) returns (StatusAck);
 
   // Monitoring
-  rpc SendHeartbeat (
-    HeartbeatRequest
-  ) returns (
-    HeartbeatAck
-  );
+  rpc SendHeartbeat (HeartbeatRequest) returns (HeartbeatAck);
 }
