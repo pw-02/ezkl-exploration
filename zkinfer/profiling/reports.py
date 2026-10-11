@@ -43,7 +43,7 @@ def _duration_seconds(start, end) -> Optional[float]:
 def _load_existing_resource_profile(job) -> Dict[str, Any]:
     profiling_path = getattr(job, "profiling_file_path", None)
     setup_ref = getattr(job, "setup_cache_ref", None)
-    if not profiling_path or setup_ref is None:
+    if not profiling_path or setup_ref is None or setup_ref.is_empty:
         return {}
 
     backend = getattr(setup_ref, "backend", "filesystem") or "filesystem"
@@ -58,6 +58,13 @@ def write_job_report(
     perf_metrics: Optional[Dict[str, Any]] = None,
     out_dir: str = "reports",
 ) -> Dict[str, Any]:
+    """Append one canonical derived row for a completed/failed proof job.
+
+    Raw time-series and transition files stay with the job under
+    ``experiments/runs/<request>/artifacts/jobs/<job>``. ``job_report.csv`` is
+    the single request-level table of derived per-job scalar metrics; the old
+    duplicate ``perf_metrics.csv`` is intentionally no longer written.
+    """
     perf_metrics = perf_metrics or {}
     os.makedirs(out_dir, exist_ok=True)
 
@@ -103,8 +110,6 @@ def write_job_report(
         "transfer_only": perf_metrics.get("transfer_only", False),
     }
 
-    # Preserve stage/resource/data-movement measurements without hard-coding
-    # every field emitted by the prover runtime.
     for key, value in perf_metrics.items():
         if (
             key.startswith("stage_")
@@ -114,15 +119,7 @@ def write_job_report(
         ):
             report[key] = value
 
-    # Human-readable per-request reports contain one row per run. The profile
-    # persisted in the reusable setup cache additionally keeps bounded history
-    # so later requests can schedule from multiple prior observations.
     write_dict_to_csv(report, os.path.join(out_dir, "job_report.csv"))
-    if perf_metrics:
-        write_dict_to_csv(
-            {"request_id": job.inference_request_id, "job_id": job.job_id, **perf_metrics},
-            os.path.join(out_dir, "perf_metrics.csv"),
-        )
 
     if report["job_status"] == "COMPLETED" and getattr(job, "profiling_file_path", None):
         existing_profile = _load_existing_resource_profile(job)
@@ -150,7 +147,7 @@ def write_request_report(request, out_dir: str = "reports") -> Dict[str, Any]:
         "onnx_model_path": request.onnx_model_path,
         "input_data_path": request.input_data_path,
         "split_mode": request.split_mode,
-        "ops_per_chunk": request.ops_per_chunk,
+        "operators_per_partition": request.ops_per_chunk,
         "scheduler": request.scheduler,
         "num_proof_jobs": len(request.proof_jobs),
         "created_time": request.created_time.isoformat() if request.created_time else None,
