@@ -74,7 +74,7 @@ class NodeSupervisor:
     """One node-level agent per machine or instance.
 
     The supervisor owns local cache, resource reporting, admission control, and
-    local prover subprocesses.  Prover workers themselves are stateless local
+    local prover subprocesses. Prover workers themselves are stateless local
     tasks that only receive local filesystem paths.
     """
 
@@ -259,8 +259,9 @@ class NodeSupervisor:
             local_task = self.prepare_local_task(lease)
             result = self.runner.run(local_task)
 
+            setup_publish_metrics = {}
             if not self.cfg.jobs.transfer_only:
-                self.cache.publish_setup_cache(
+                setup_publish_metrics = self.cache.publish_setup_cache_with_metrics(
                     local_task.setup_cache_dir,
                     from_pb_artifact(lease.setup_cache),
                 )
@@ -269,6 +270,7 @@ class NodeSupervisor:
                 "node_id": self.node_id,
                 "node_cache_bytes": self.cache.total_bytes(),
                 **result.metrics,
+                **self._flatten_setup_publish_metrics(setup_publish_metrics),
             }
             self.submit_job_result(
                 lease=lease,
@@ -292,27 +294,43 @@ class NodeSupervisor:
                 shutil.rmtree(local_task.tmp_dir, ignore_errors=True)
 
     def prepare_local_task(self, lease) -> LocalProverTask:
+        prepare_started = time.perf_counter()
         request_dir = Path(self.cfg.node.runs_dir) / lease.request_id
         tmp_dir = request_dir / "tmp" / lease.job_id
         output_dir = request_dir / "artifacts" / "jobs" / lease.job_id
         tmp_dir.mkdir(parents=True, exist_ok=True)
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        model_metrics = {}
         model_materialize_time_s = 0.0
         if self.cfg.jobs.transfer_only:
             model_path = ""
         else:
-            start = time.perf_counter()
-            model_path = self.cache.materialize(from_pb_artifact(lease.model), filename_hint="model.onnx")
-            model_materialize_time_s = time.perf_counter() - start
+            model_path, model_metrics = self.cache.materialize_with_metrics(
+                from_pb_artifact(lease.model),
+                filename_hint="model.onnx",
+            )
+            model_materialize_time_s = float(model_metrics.get("materialize_time(s)", 0.0) or 0.0)
 
-        start = time.perf_counter()
-        input_path = self.cache.materialize(from_pb_artifact(lease.input), filename_hint="input.json")
-        input_materialize_time_s = time.perf_counter() - start
+        input_path, input_metrics = self.cache.materialize_with_metrics(
+            from_pb_artifact(lease.input),
+            filename_hint="input.json",
+        )
+        input_materialize_time_s = float(input_metrics.get("materialize_time(s)", 0.0) or 0.0)
 
         setup_key = lease.setup_key or lease.job_id
-        setup_cache_dir = self.cache.hydrate_setup_cache(from_pb_artifact(lease.setup_cache), setup_key)
+        setup_cache_dir, setup_metrics = self.cache.hydrate_setup_cache_with_metrics(
+            from_pb_artifact(lease.setup_cache),
+            setup_key,
+        )
         output_ref = from_pb_artifact(lease.output_prefix)
+
+        transfer_metrics = {
+            "model": model_metrics,
+            "input": input_metrics,
+            "setup": setup_metrics,
+            "prepare_local_task_time(s)": time.perf_counter() - prepare_started,
+        }
 
         return LocalProverTask(
             node_id=self.node_id,
@@ -331,7 +349,18 @@ class NodeSupervisor:
             resource_monitor_interval_sec=self.cfg.node.resource_monitor_interval_sec,
             model_materialize_time_s=model_materialize_time_s,
             input_materialize_time_s=input_materialize_time_s,
+            transfer_metrics=transfer_metrics,
         )
+
+    @staticmethod
+    def _flatten_setup_publish_metrics(metrics: Dict) -> Dict[str, float | int]:
+        return {
+            "transfer_setup_bytes_uploaded": int(metrics.get("bytes_uploaded", 0) or 0),
+            "transfer_setup_publish_time(s)": float(metrics.get("publish_time(s)", 0.0) or 0.0),
+            "transfer_pk_compress_time(s)": float(metrics.get("pk_compress_time(s)", 0.0) or 0.0),
+            "transfer_setup_publish_eviction_count": int(metrics.get("eviction_count", 0) or 0),
+            "transfer_setup_publish_evicted_bytes": int(metrics.get("evicted_bytes", 0) or 0),
+        }
 
     def run(self) -> None:
         self.connect()
