@@ -16,9 +16,8 @@ message InferenceRequest {
   string input_data_path = 3;
   string split_mode = 4;
   int32 ops_per_chunk = 5;
-  string scheduler = 6;
-  bool simplify_model = 7;
-  string input_shapes = 8;
+  bool simplify_model = 6;
+  string input_shapes = 7;
 }
 
 message InferenceRequestAck {
@@ -41,29 +40,23 @@ message RequestStatusResponse {
 }
 
 message ArtifactRef {
-  string backend = 1;     // filesystem | s3
-  string uri = 2;         // filesystem path or S3 object key/prefix
-  string sha256 = 3;      // optional for immutable file refs
-  uint64 size_bytes = 4;  // optional for immutable file refs
-  string s3_bucket = 5;   // empty for filesystem refs
+  string backend = 1;
+  string uri = 2;
+  string sha256 = 3;
+  uint64 size_bytes = 4;
+  string s3_bucket = 5;
 }
 
 message NodeStatus {
   string node_id = 1;
-
   double memory_total_gb = 2;
   double memory_available_gb = 3;
   double cpu_total_cores = 4;
   double cpu_available_cores = 5;
-
   double cache_limit_gb = 6;
   double cache_used_gb = 7;
-
-  // Local safety cap, not the primary scheduling abstraction.
-  int32 max_concurrent_jobs = 8;
-
-  repeated string active_job_ids = 9;
-  repeated string cached_setup_keys = 10;
+  repeated string active_job_ids = 8;
+  repeated string cached_setup_keys = 9;
 }
 
 message JobLease {
@@ -71,12 +64,10 @@ message JobLease {
   string lease_id = 2;
   string request_id = 3;
   string job_id = 4;
-
   ArtifactRef model = 5;
   ArtifactRef input = 6;
   ArtifactRef setup_cache = 7;
   ArtifactRef output_prefix = 8;
-
   double predicted_duration_s = 9;
   double predicted_peak_memory_gb = 10;
   string setup_key = 11;
@@ -111,9 +102,6 @@ message HeartbeatAck {
 service ZKJobService {
   rpc SubmitInferenceRequest (InferenceRequest) returns (InferenceRequestAck);
   rpc GetRequestStatus (RequestStatusRequest) returns (RequestStatusResponse);
-
-  // Node-agent pull API. The coordinator chooses one feasible job for this node
-  // and returns a lease, or no work if nothing fits the reported node state.
   rpc PollNode (NodeStatus) returns (JobLease);
   rpc SubmitJobResult (NodeJobResult) returns (StatusAck);
   rpc SendNodeHeartbeat (NodeHeartbeat) returns (HeartbeatAck);
