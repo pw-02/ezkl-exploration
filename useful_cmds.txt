@@ -1,0 +1,84 @@
+export PYTHONPATH=.:$PYTHONPATH
+pkill -u "$USER" -f 'python|python3'
+
+python experiments/run_local_exp.py -m \
+  suite.workloads='[mnist_gan]' \
+  execution.ops_per_chunk=1,2,4,8
+    
+    1  clear
+    2  git clone https://github.com/pw-02/ezkl-exploration.git
+    3  mkdir -p ~/miniconda3
+    4  wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda3/miniconda.sh
+    5  bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
+    6  rm ~/miniconda3/miniconda.sh
+    7  source ~/miniconda3/bin/activate
+    8  conda init --all
+    9  clear
+   12  cd ezkl-exploration
+   13    1  conda create -n dzkml python=3.10
+    2  ls
+    3  cd ezkl-exploration
+    4  ls
+    5  pip install -r requirements.txt
+    6  ls
+    7  python grpc_api/coordinator_server.py
+    8  import sys
+    9  print(sys.path)
+   10  export PYTHONPATH=.:$PYTHONPATH
+   11  python grpc_api/coordinator_server.py
+   12  git pull
+   13  python grpc_api/coordinator_server.py
+   14  history
+
+export PYTHONPATH=.:$PYTHONPATH
+nohup python zkInfer/coordinator.py | tee coordinator.log &
+nohup python zkInfer/submit_job.py | tee worker.log &
+zkInfer/worker.py
+python zkInfer/submit_job.py 
+
+
+#multi-run
+python experiments/run_local_exp.py -m \
+  workload=mnist_classifier,mnist_gan,mobilenet_v2,nano_gpt_4_layers_64_embd \
+  launch.num_workers=1 \
+  launch.shutdown_when_done=true
+
+
+
+
+scp -i us-west-2-kp.pem -r  ubuntu@ec2-35-95-241-206.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/ "C:\Users\pw\Desktop\"
+
+cd ezkl-exploration
+tmux new -s coordinator
+conda activate dzkml
+export PYTHONPATH=.:$PYTHONPATH
+python zkInfer/coordinator.py
+
+cd ezkl-exploration
+tmux new -s worker1
+conda activate dzkml
+export PYTHONPATH=.:$PYTHONPATH
+python zkInfer/worker.py
+
+cd ezkl-exploration
+tmux new -s worker2
+conda activate dzkml
+export PYTHONPATH=.:$PYTHONPATH
+python zkInfer/worker.py
+
+conda activate dzkml
+cd ezkl-exploration
+export PYTHONPATH=.:$PYTHONPATH
+python zkInfer/submit_job.py 
+
+
+tmux attach -t coordinator
+tmux attach -t worker1
+tmux attach -t worker2
+
+scp -i us-west-2-kp.pem -r ubuntu@ec2-35-87-99-93.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/ "C:\Users\pw\Desktop\dzkml\m6a4xlarge"
+scp -i us-west-2-kp.pem -r ubuntu@ec2-35-94-137-102.us-west-2.compute.amazonaws.com:/home/ubuntu/ezkl-exploration/reports/* "C:\Users\pw\Desktop\dzkml-t"
+aws s3 cp s3://dzkml/onnxmodels/bert_large_squad.onnx .
+aws s3 cp s3://dzkml/onnxmodels/distilbert_squad.onnx .
+
+#commit
