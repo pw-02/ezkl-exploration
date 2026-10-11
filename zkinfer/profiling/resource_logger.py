@@ -11,6 +11,7 @@ import psutil
 
 FIELDNAMES = [
     "timestamp",
+    "elapsed_s",
     "stage",
     "type",
     "pid",
@@ -24,7 +25,9 @@ FIELDNAMES = [
 
 
 def timestamp() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    # Microsecond wall-clock timestamps make short zkML phases distinguishable
+    # while elapsed_s below provides a monotonic time base for plotting.
+    return datetime.now().isoformat(timespec="microseconds")
 
 
 def ensure_parent_dir(path: str) -> None:
@@ -55,11 +58,12 @@ def read_stage(status_file: Optional[str]) -> str:
         return "UNKNOWN"
 
 
-def system_row(ts: str, stage: str, num_logical_cpus: int) -> dict:
+def system_row(ts: str, elapsed_s: float, stage: str, num_logical_cpus: int) -> dict:
     memory_info = psutil.virtual_memory()
     cpu_percent = psutil.cpu_percent(interval=None)
     return {
         "timestamp": ts,
+        "elapsed_s": elapsed_s,
         "stage": stage,
         "type": "system",
         "pid": "",
@@ -98,6 +102,7 @@ def _process_tree(
 
 def process_row(
     ts: str,
+    elapsed_s: float,
     stage: str,
     process: psutil.Process,
     num_logical_cpus: int,
@@ -115,6 +120,7 @@ def process_row(
                 continue
         return {
             "timestamp": ts,
+            "elapsed_s": elapsed_s,
             "stage": stage,
             "type": "process_tree" if include_children else "process",
             "pid": process.pid,
@@ -151,6 +157,7 @@ def run(
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
 
+    started = time.perf_counter()
     with open(output_file, "a", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=FIELDNAMES)
         if file.tell() == 0:
@@ -159,12 +166,14 @@ def run(
 
         while True:
             ts = timestamp()
+            elapsed_s = time.perf_counter() - started
             stage = read_stage(status_file)
-            writer.writerow(system_row(ts, stage, num_logical_cpus))
+            writer.writerow(system_row(ts, elapsed_s, stage, num_logical_cpus))
 
             if process is not None:
                 row = process_row(
                     ts,
+                    elapsed_s,
                     stage,
                     process,
                     num_logical_cpus,
