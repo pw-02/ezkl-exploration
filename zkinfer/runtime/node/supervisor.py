@@ -74,8 +74,8 @@ class NodeSupervisor:
     """One control agent per machine.
 
     The coordinator assigns whole proof jobs. Each proof executes in an isolated
-    subprocess. Local overlap is controlled by predicted per-stage memory and CPU
-    demand rather than a fixed worker count.
+    subprocess. ``max_active_jobs`` can impose an explicit whole-job concurrency
+    baseline; otherwise local overlap is controlled by stage resource admission.
     """
 
     def __init__(self, runtime_config: RuntimeConfig, logger: Optional[logging.Logger] = None):
@@ -94,10 +94,10 @@ class NodeSupervisor:
             or self.cfg.file_transfer.s3_bucket
             or "",
         )
-        self.phase_admission_dir = self.cache.root_dir / "phase_admission"
+        self.phase_admission_dir = Path(self.cfg.node.runtime_state_dir)
         self.phase_admission_dir.mkdir(parents=True, exist_ok=True)
         self.resource_profiles = HistoricalResourceProfiles(
-            self.phase_admission_dir / "profiles"
+            self.phase_admission_dir / "resource_profiles"
         )
         self.admission_probe = ResourceAdmissionController(
             root_dir=str(self.phase_admission_dir),
@@ -186,8 +186,8 @@ class NodeSupervisor:
         return {job_id: self._read_task_stage(task) for job_id, task in items}
 
     def can_accept_more_work(self) -> bool:
-        emergency_limit = self.phase_cfg.emergency_process_limit
-        if emergency_limit is not None and self.active_job_count() >= emergency_limit:
+        max_active_jobs = self.cfg.node.max_active_jobs
+        if max_active_jobs is not None and self.active_job_count() >= max_active_jobs:
             return False
 
         memory = psutil.virtual_memory()
