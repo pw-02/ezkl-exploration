@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Summarize zkInfer phase-aware admission experiments.
+"""Summarize zkInfer resource-aware phase-admission experiments.
 
 Point this script at one or more request report directories (or parent
-directories containing them). It reads job_report.csv, perf_metrics.csv and
-request_report.csv and emits one row per request plus a stage-level table.
+directories containing them). It emits request-level summaries plus one row per
+measured job stage, including the admission estimate that was used for that
+stage when available.
 
 Example:
 
     python analysis/analyze_phase_admission.py \
-        experiments/runs/baseline \
-        experiments/runs/phase-aware \
+        --label off=experiments/runs/admission-off \
+        --label on=experiments/runs/admission-on \
         --output-dir analysis/phase_results
 
-Use distinct experiment labels in directory names, or pass --label NAME=PATH.
-The script does not infer causality; it exposes the measurements needed to
-compare local concurrency limits and heavy-phase limits.
+The intended comparison holds hardware/workload/scheduler fixed and toggles
+node.phase_admission.enabled.
 """
 
 from __future__ import annotations
@@ -93,6 +93,12 @@ def numeric(value) -> float:
         return 0.0
 
 
+def boolean(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
 def request_summary(label: str, report_dir: Path) -> Dict[str, object]:
     request = read_single_row(report_dir / "request_report.csv")
     transfer_path = report_dir / "transfer_overhead_report.json"
@@ -103,12 +109,16 @@ def request_summary(label: str, report_dir: Path) -> Dict[str, object]:
 
     perf_path = report_dir / "perf_metrics.csv"
     perf = pd.read_csv(perf_path) if perf_path.is_file() else pd.DataFrame()
+    admission_enabled = False
+    if not perf.empty and "phase_admission_enabled" in perf:
+        admission_enabled = any(boolean(value) for value in perf["phase_admission_enabled"])
 
     return {
         "experiment": label,
         "report_dir": str(report_dir),
         "request_id": request.get("request_id", report_dir.parent.name),
         "status": request.get("request_status", ""),
+        "phase_admission_enabled": admission_enabled,
         "num_jobs": numeric(request.get("num_proof_jobs")),
         "e2e_time_s": numeric(request.get("total_elapsed_time(s)")),
         "request_runtime_s": numeric(request.get("request_runtime(s)")),
@@ -140,31 +150,56 @@ def stage_rows(label: str, report_dir: Path) -> Iterable[Dict[str, object]]:
         return []
     frame = pd.read_csv(perf_path)
     rows: List[Dict[str, object]] = []
+    stage_names = set()
+    for column in frame.columns:
+        if column.startswith("stage_") and column.endswith("_max_memory(GB)"):
+            stage_names.add(column[len("stage_") : -len("_max_memory(GB)")])
+
     for _, job in frame.iterrows():
         job_id = job.get("job_id", "")
-        stage_names = set()
-        for column in frame.columns:
-            if column.startswith("stage_") and column.endswith("_max_memory(GB)"):
-                stage_names.add(column[len("stage_") : -len("_max_memory(GB)")])
         for stage in sorted(stage_names):
             prefix = f"stage_{stage}_"
             sample_count = numeric(job.get(prefix + "samples"))
             if sample_count <= 0:
                 continue
+
+            admission_prefix = f"phase_admission_{stage}_"
+            predicted_memory = numeric(
+                job.get(admission_prefix + "predicted_memory(GB)")
+            )
+            predicted_cpu = numeric(
+                job.get(admission_prefix + "predicted_cpu_machine(%)")
+            )
+            actual_memory = numeric(job.get(prefix + "max_memory(GB)"))
+            actual_cpu = numeric(job.get(prefix + "avg_cpu_machine(%)"))
             rows.append(
                 {
                     "experiment": label,
                     "request_id": job.get("request_id", report_dir.parent.name),
                     "job_id": job_id,
                     "stage": stage,
-                    "samples": sample_count,
-                    "max_memory_gb": numeric(job.get(prefix + "max_memory(GB)")),
-                    "avg_cpu_raw_pct": numeric(job.get(prefix + "avg_cpu_raw(%)")),
-                    "avg_cpu_machine_pct": numeric(
-                        job.get(prefix + "avg_cpu_machine(%)")
+                    "phase_admission_enabled": boolean(
+                        job.get("phase_admission_enabled", False)
                     ),
-                    "phase_admission_wait_time_s": numeric(
-                        job.get("phase_admission_wait_time(s)")
+                    "samples": sample_count,
+                    "actual_max_memory_gb": actual_memory,
+                    "predicted_memory_gb": predicted_memory,
+                    "memory_prediction_error_gb": (
+                        actual_memory - predicted_memory if predicted_memory > 0 else 0.0
+                    ),
+                    "actual_avg_cpu_machine_pct": actual_cpu,
+                    "predicted_cpu_machine_pct": predicted_cpu,
+                    "cpu_prediction_error_pct": (
+                        actual_cpu - predicted_cpu if predicted_cpu > 0 else 0.0
+                    ),
+                    "admission_wait_time_s": numeric(
+                        job.get(admission_prefix + "wait_time(s)")
+                    ),
+                    "estimate_samples": numeric(
+                        job.get(admission_prefix + "estimate_samples")
+                    ),
+                    "estimate_source": job.get(
+                        admission_prefix + "estimate_source", ""
                     ),
                 }
             )
