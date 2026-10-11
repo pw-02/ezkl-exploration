@@ -3,7 +3,8 @@
 
 This is intentionally request-level batching: every input becomes an ordinary
 zkInfer request, so the normal coordinator fairness, cache-aware placement, and
-node phase-admission policies remain in effect.
+node phase-admission policies remain in effect. All requests keep the same
+logical model name so setup-cache identities remain reusable across the batch.
 """
 
 from __future__ import annotations
@@ -58,7 +59,7 @@ def main() -> None:
     for index, input_path in enumerate(inputs, start=1):
         request_started = time.perf_counter()
         request_id = client.submit_inference_request(
-            name=f"{args.name}-batch-{index}",
+            name=args.name,
             onnx_model_path=args.model,
             input_data_path=input_path,
             split_mode=args.split_mode,
@@ -68,6 +69,7 @@ def main() -> None:
         )
         submitted.append(
             {
+                "batch_index": index,
                 "request_id": request_id,
                 "input_path": input_path,
                 "submit_offset_s": time.perf_counter() - batch_started,
