@@ -48,47 +48,60 @@ message ArtifactRef {
   string s3_bucket = 5;   // empty for filesystem refs
 }
 
-message WorkerRequest {
-  string worker_id = 1;
-  double memory_budget_gb = 2;
-  double reserved_memory_gb = 3;
-  int32 free_slots = 4;
-  repeated string cached_artifact_keys = 5;
+message NodeStatus {
+  string node_id = 1;
+
+  double memory_total_gb = 2;
+  double memory_available_gb = 3;
+  double cpu_total_cores = 4;
+  double cpu_available_cores = 5;
+
+  double cache_limit_gb = 6;
+  double cache_used_gb = 7;
+
+  // Local safety cap, not the primary scheduling abstraction.
+  int32 max_concurrent_jobs = 8;
+
+  repeated string active_job_ids = 9;
+  repeated string cached_setup_keys = 10;
 }
 
-message JobAssignment {
+message JobLease {
   bool job_available = 1;
-  string request_id = 2;
-  string job_id = 3;
-  ArtifactRef model = 4;
-  ArtifactRef input = 5;
-  ArtifactRef setup_cache = 6;
-  ArtifactRef output_prefix = 7;
-  double predicted_duration_s = 8;
-  double predicted_peak_memory_gb = 9;
-  string artifact_key = 10;
+  string lease_id = 2;
+  string request_id = 3;
+  string job_id = 4;
+
+  ArtifactRef model = 5;
+  ArtifactRef input = 6;
+  ArtifactRef setup_cache = 7;
+  ArtifactRef output_prefix = 8;
+
+  double predicted_duration_s = 9;
+  double predicted_peak_memory_gb = 10;
+  string setup_key = 11;
 }
 
-message JobResult {
-  string worker_id = 1;
-  string request_id = 2;
-  string job_id = 3;
-  string status = 4;
-  string message = 5;
-  string perf_metrics_json = 6;
-  ArtifactRef artifact_manifest = 7;
+message NodeJobResult {
+  string node_id = 1;
+  string lease_id = 2;
+  string request_id = 3;
+  string job_id = 4;
+  string status = 5;
+  string message = 6;
+  string perf_metrics_json = 7;
+  ArtifactRef artifact_manifest = 8;
 }
 
 message StatusAck {
   bool ok = 1;
 }
 
-message HeartbeatRequest {
-  string worker_id = 1;
-  string request_id = 2;
-  string job_id = 3;
-  string status = 4;
-  string message = 5;
+message NodeHeartbeat {
+  string node_id = 1;
+  repeated string active_job_ids = 2;
+  string status = 3;
+  string message = 4;
 }
 
 message HeartbeatAck {
@@ -98,7 +111,10 @@ message HeartbeatAck {
 service ZKJobService {
   rpc SubmitInferenceRequest (InferenceRequest) returns (InferenceRequestAck);
   rpc GetRequestStatus (RequestStatusRequest) returns (RequestStatusResponse);
-  rpc GetNextJob (WorkerRequest) returns (JobAssignment);
-  rpc SubmitJobResult (JobResult) returns (StatusAck);
-  rpc SendHeartbeat (HeartbeatRequest) returns (HeartbeatAck);
+
+  // Node-agent pull API. The coordinator chooses one feasible job for this node
+  // and returns a lease, or no work if nothing fits the reported node state.
+  rpc PollNode (NodeStatus) returns (JobLease);
+  rpc SubmitJobResult (NodeJobResult) returns (StatusAck);
+  rpc SendNodeHeartbeat (NodeHeartbeat) returns (HeartbeatAck);
 }
