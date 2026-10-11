@@ -87,22 +87,31 @@ def main() -> None:
             item = remaining.pop(request_id)
             item["status"] = status.status
             item["message"] = status.message
+            item["total_jobs"] = int(status.total_jobs)
+            item["completed_jobs"] = int(status.completed_jobs)
+            item["failed_jobs"] = int(status.failed_jobs)
             item["completion_offset_s"] = time.perf_counter() - batch_started
         if remaining:
             time.sleep(max(0.1, args.poll_interval))
 
     makespan_s = time.perf_counter() - batch_started
-    completed = sum(1 for item in submitted if item["status"] == "completed")
-    failed = len(submitted) - completed
-    throughput = completed / makespan_s if makespan_s > 0 else 0.0
+    completed_requests = sum(1 for item in submitted if item["status"] == "completed")
+    failed_requests = len(submitted) - completed_requests
+    completed_jobs = sum(int(item.get("completed_jobs") or 0) for item in submitted)
+    total_jobs = sum(int(item.get("total_jobs") or 0) for item in submitted)
+    request_throughput = completed_requests / makespan_s if makespan_s > 0 else 0.0
+    proof_job_throughput = completed_jobs / makespan_s if makespan_s > 0 else 0.0
 
     summary = {
         "name": args.name,
         "num_requests": len(submitted),
-        "completed_requests": completed,
-        "failed_requests": failed,
+        "completed_requests": completed_requests,
+        "failed_requests": failed_requests,
+        "total_proof_jobs": total_jobs,
+        "completed_proof_jobs": completed_jobs,
         "makespan_s": makespan_s,
-        "completed_requests_per_s": throughput,
+        "completed_requests_per_s": request_throughput,
+        "completed_proof_jobs_per_s": proof_job_throughput,
         "split_mode": args.split_mode,
         "ops_per_chunk": args.ops_per_chunk,
         "scheduler": args.scheduler,
@@ -124,7 +133,7 @@ def main() -> None:
     print(f"Wrote {json_path}")
     print(f"Wrote {csv_path}")
 
-    if failed:
+    if failed_requests:
         raise SystemExit(1)
 
 
