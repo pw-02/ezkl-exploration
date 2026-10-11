@@ -3,10 +3,13 @@ defaults:
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
 
-# Example:
+# Example A/B comparison:
 # python experiments/run_local_exp.py \
 #   suite.workloads='[mnist_gan,mobilenet_v2]' \
-#   node.local_concurrency_limit=2 node.max_heavy_phases=1
+#   node.phase_admission.enabled=true
+# python experiments/run_local_exp.py \
+#   suite.workloads='[mnist_gan,mobilenet_v2]' \
+#   node.phase_admission.enabled=false
 
 suite:
   workloads:
@@ -20,14 +23,18 @@ execution:
 jobs:
   scheduler: lpt
 
-# One local NodeSupervisor represents this machine. Increase local concurrency
-# to study concurrent prover subprocesses; max_heavy_phases controls how many of
-# them may simultaneously enter key generation/proving.
+# One local NodeSupervisor represents this machine. There is no configured
+# local job-count limit. With phase admission enabled, stage overlap is chosen
+# from historical per-stage CPU/RSS demand and current node capacity.
 node:
   node_id: local-node
-  local_concurrency_limit: 1
-  max_heavy_phases: 1
-  memory_reserve_gb: 8
+  phase_admission:
+    enabled: true
+    memory_reserve_gb: 8
+    cpu_budget_percent: 100
+    profile_percentile: 0.90
+    fallback_cpu_percent: 100
+    emergency_process_limit: null
 
 launch:
   coordinator_host: localhost
