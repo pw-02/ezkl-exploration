@@ -10,24 +10,13 @@ syntax = "proto3";
 
 package zkservice;
 
-// ============================================================
-// USER REQUESTS
-// ============================================================
-
 message InferenceRequest {
   string name = 1;
-
   string onnx_model_path = 2;
   string input_data_path = 3;
-
-  // Model partitioning strategy.
-  string split_mode = 4;     // none | single_ops | fixed
+  string split_mode = 4;
   int32 ops_per_chunk = 5;
-
-  // Coordinator scheduling policy.
-  string scheduler = 6;      // fifo | lpt | resource_aware
-
-  // Optional ONNX simplification before splitting.
+  string scheduler = 6;
   bool simplify_model = 7;
   string input_shapes = 8;
 }
@@ -36,22 +25,14 @@ message InferenceRequestAck {
   string request_id = 1;
 }
 
-// ============================================================
-// REQUEST STATUS
-// ============================================================
-
 message RequestStatusRequest {
   string request_id = 1;
 }
 
 message RequestStatusResponse {
   string request_id = 1;
-
-  // preparing | queued | in_progress | completed | failed | unknown
   string status = 2;
-
   string message = 3;
-
   int32 total_jobs = 4;
   int32 queued_jobs = 5;
   int32 in_progress_jobs = 6;
@@ -59,94 +40,53 @@ message RequestStatusResponse {
   int32 failed_jobs = 8;
 }
 
-// ============================================================
-// ARTIFACTS
-// ============================================================
-
 message ArtifactRef {
-  // filesystem | s3
-  string backend = 1;
-
-  // Filesystem path or S3 object key/prefix. Large payloads are passed by
-  // reference through ArtifactRef rather than through gRPC message bodies.
-  string uri = 2;
-
-  // Optional integrity metadata. Empty when unknown or not yet materialized.
-  string sha256 = 3;
-  uint64 size_bytes = 4;
-
-  // Set for S3 refs. Empty for filesystem refs.
-  string s3_bucket = 5;
+  string backend = 1;     // filesystem | s3
+  string uri = 2;         // filesystem path or S3 object key/prefix
+  string sha256 = 3;      // optional for immutable file refs
+  uint64 size_bytes = 4;  // optional for immutable file refs
+  string s3_bucket = 5;   // empty for filesystem refs
 }
-
-// ============================================================
-// WORKER REQUESTS
-// ============================================================
 
 message WorkerRequest {
   string worker_id = 1;
-
-  // Worker-side capacity/status used by resource-aware scheduling.
   double memory_budget_gb = 2;
   double reserved_memory_gb = 3;
   int32 free_slots = 4;
-
-  // Artifact keys already present locally or cheaply available at the worker.
   repeated string cached_artifact_keys = 5;
 }
 
 message JobAssignment {
   bool job_available = 1;
-
   string request_id = 2;
   string job_id = 3;
-
   ArtifactRef model = 4;
   ArtifactRef input = 5;
-  ArtifactRef cache = 6;
+  ArtifactRef setup_cache = 6;
   ArtifactRef output_prefix = 7;
-
   double predicted_duration_s = 8;
   double predicted_peak_memory_gb = 9;
   string artifact_key = 10;
 }
 
-// ============================================================
-// JOB RESULTS
-// ============================================================
-
 message JobResult {
   string worker_id = 1;
   string request_id = 2;
   string job_id = 3;
-
   string status = 4;
   string message = 5;
   string perf_metrics_json = 6;
-
-  // Manifest describing proof.pf, witness.json, vk.json, settings.json, and
-  // other job outputs. The manifest is stored in the data plane.
   ArtifactRef artifact_manifest = 7;
-
-  // Legacy optional inline proof path. Kept for compatibility, but normal
-  // distributed execution should return artifact_manifest instead.
-  bytes proof = 8;
 }
 
 message StatusAck {
   bool ok = 1;
 }
 
-// ============================================================
-// HEARTBEATS
-// ============================================================
-
 message HeartbeatRequest {
   string worker_id = 1;
-
   string request_id = 2;
   string job_id = 3;
-
   string status = 4;
   string message = 5;
 }
@@ -155,19 +95,10 @@ message HeartbeatAck {
   bool success = 1;
 }
 
-// ============================================================
-// SERVICE
-// ============================================================
-
 service ZKJobService {
-  // User API
   rpc SubmitInferenceRequest (InferenceRequest) returns (InferenceRequestAck);
   rpc GetRequestStatus (RequestStatusRequest) returns (RequestStatusResponse);
-
-  // Worker API
   rpc GetNextJob (WorkerRequest) returns (JobAssignment);
   rpc SubmitJobResult (JobResult) returns (StatusAck);
-
-  // Monitoring
   rpc SendHeartbeat (HeartbeatRequest) returns (HeartbeatAck);
 }
