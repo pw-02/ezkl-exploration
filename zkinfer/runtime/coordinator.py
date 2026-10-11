@@ -24,8 +24,8 @@ from zkinfer.storage.io import save_json
 class Coordinator:
     """Coordinator state machine for distributed zkML proof jobs.
 
-    The coordinator schedules metadata-level job leases to node agents.  Node
-    agents own local cache, node metrics, and local prover subprocesses.
+    The coordinator schedules metadata-level leases to node agents. Node agents
+    own cache, resource admission, and local stateless prover subprocesses.
     """
 
     def __init__(self, runtime_config: RuntimeConfig, logger: logging.Logger):
@@ -45,24 +45,21 @@ class Coordinator:
         )
 
         self.active_requests: Dict[str, InferenceRequest] = {}
-        self.scheduler = JobScheduler(policy=self.scheduler_policy)
         self.active_jobs: Dict[str, ProofJob] = {}
         self.node_heartbeats: Dict[str, datetime] = {}
         self.node_status: Dict[str, dict] = {}
-
-        self.lock = threading.Lock()
+        self.scheduler = JobScheduler(policy=self.scheduler_policy)
         self.request_builder = RequestBuilder(logger=logger)
+        self.lock = threading.RLock()
+
         self._recover_state()
 
     def _recover_state(self) -> None:
         if not self.state_store:
             return
 
-        recovered = self.state_store.load_active_state()
-        if not recovered:
-            return
-
         queued_jobs = []
+        recovered = self.state_store.load_active_state()
         for request, jobs in recovered:
             self.active_requests[request.request_id] = request
             for job in jobs:
@@ -73,11 +70,14 @@ class Coordinator:
                     job.lease_id = None
                 if job.job_status == JobStatus.QUEUED:
                     queued_jobs.append(job)
-                elif job.job_status == JobStatus.IN_PROGRESS:
-                    self.active_jobs[job.job_id] = job
 
         self.scheduler.add_jobs(queued_jobs)
-        self.logger.info("Recovered %d requests and %d queued jobs from state store", len(recovered), len(queued_jobs))
+        if recovered:
+            self.logger.info(
+                "Recovered %d requests and %d queued jobs from state store",
+                len(recovered),
+                len(queued_jobs),
+            )
 
     def submit_request(
         self,
@@ -181,17 +181,31 @@ class Coordinator:
         status: Optional[str] = None,
         message: Optional[str] = None,
     ) -> None:
-        now = datetime.now(timezone.utc)
         with self.lock:
-            previous = self.node_status.get(node_id, {})
-            self.node_heartbeats[node_id] = now
-            self.node_status[node_id] = {
-                **previous,
-                "active_job_ids": list(active_job_ids or []),
-                "status": status,
-                "message": message,
-                "timestamp": now.isoformat(),
-            }
+            self._record_node_heartbeat_locked(
+                node_id=node_id,
+                active_job_ids=active_job_ids,
+                status=status,
+                message=message,
+            )
+
+    def _record_node_heartbeat_locked(
+        self,
+        node_id: str,
+        active_job_ids: Optional[list[str]] = None,
+        status: Optional[str] = None,
+        message: Optional[str] = None,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        previous = self.node_status.get(node_id, {})
+        self.node_heartbeats[node_id] = now
+        self.node_status[node_id] = {
+            **previous,
+            "active_job_ids": list(active_job_ids or []),
+            "status": status,
+            "message": message,
+            "timestamp": now.isoformat(),
+        }
 
     def _record_node_locked(self, node: NodeResources, status: str) -> None:
         now = datetime.now(timezone.utc)
@@ -214,15 +228,19 @@ class Coordinator:
         timeout_sec = self.heartbeat_config.timeout_sec
         now = datetime.now(timezone.utc)
         dead_nodes = []
+
         with self.lock:
             for node_id, last_seen in list(self.node_heartbeats.items()):
                 elapsed_sec = (now - last_seen).total_seconds()
                 if elapsed_sec <= timeout_sec:
                     continue
 
-                self.logger.warning("Node %s timed out after %.1fs; requeuing leased jobs", node_id, elapsed_sec)
-                job_info = self.node_status.get(node_id, {})
-                active_job_ids = list(job_info.get("active_job_ids") or [])
+                self.logger.warning(
+                    "Node %s timed out after %.1fs; requeuing leased jobs",
+                    node_id,
+                    elapsed_sec,
+                )
+                active_job_ids = list(self.node_status.get(node_id, {}).get("active_job_ids") or [])
                 for job_id in active_job_ids:
                     self._requeue_active_job_locked(job_id)
                 dead_nodes.append(node_id)
@@ -230,18 +248,6 @@ class Coordinator:
             for node_id in dead_nodes:
                 self.node_heartbeats.pop(node_id, None)
                 self.node_status.pop(node_id, None)
-
-    def _cleanup_request_transfer_files(self, request: InferenceRequest) -> None:
-        try:
-            self.file_transfer.delete_tree(request.request_id)
-            self.logger.info("Cleaned up transfer files for request %s", request.request_id)
-        except Exception as exc:
-            self.logger.warning(
-                "Failed to clean up transfer files for request %s: %s",
-                request.request_id,
-                exc,
-                exc_info=True,
-            )
 
     def submit_job_result(
         self,
@@ -259,10 +265,20 @@ class Coordinator:
                 self.logger.error("Job %s not found in active_jobs", job_id)
                 return False
             if job.assigned_node_id != node_id:
-                self.logger.error("Job %s result came from node %s but was leased to %s", job_id, node_id, job.assigned_node_id)
+                self.logger.error(
+                    "Job %s result came from node %s but was leased to %s",
+                    job_id,
+                    node_id,
+                    job.assigned_node_id,
+                )
                 return False
             if lease_id and job.lease_id and lease_id != job.lease_id:
-                self.logger.error("Stale lease result for job %s: got %s expected %s", job_id, lease_id, job.lease_id)
+                self.logger.error(
+                    "Stale lease result for job %s: got %s expected %s",
+                    job_id,
+                    lease_id,
+                    job.lease_id,
+                )
                 return False
 
             try:
@@ -278,11 +294,12 @@ class Coordinator:
             if job.job_status == JobStatus.FAILED:
                 should_retry = self._handle_failed_job_locked(job, message)
                 if should_retry:
+                    self._record_node_heartbeat_locked(node_id=node_id, status=f"JOB_{job_status.value}")
                     return True
             else:
                 self._complete_job_locked(job)
 
-            self.record_node_heartbeat(node_id=node_id, active_job_ids=[], status=f"JOB_{job_status.value}")
+            self._record_node_heartbeat_locked(node_id=node_id, status=f"JOB_{job_status.value}")
 
         self._finalize_job(job, perf_metrics=perf_metrics)
         self._maybe_finalize_request(job.inference_request_id)
@@ -367,7 +384,12 @@ class Coordinator:
         job.retry_count += 1
 
         if job.retry_count <= job.max_retries:
-            self.logger.warning("Job %s failed; retrying %d/%d", job.job_name, job.retry_count, job.max_retries)
+            self.logger.warning(
+                "Job %s failed; retrying %d/%d",
+                job.job_name,
+                job.retry_count,
+                job.max_retries,
+            )
             job.job_status = JobStatus.QUEUED
             job.started_time = None
             job.completed_time = None
@@ -431,3 +453,15 @@ class Coordinator:
 
         write_request_report(parent_request, out_dir=parent_request.reports_dir)
         self._cleanup_request_transfer_files(parent_request)
+
+    def _cleanup_request_transfer_files(self, request: InferenceRequest) -> None:
+        try:
+            self.file_transfer.delete_tree(request.request_id)
+            self.logger.info("Cleaned up transfer files for request %s", request.request_id)
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to clean up transfer files for request %s: %s",
+                request.request_id,
+                exc,
+                exc_info=True,
+            )
