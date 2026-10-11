@@ -20,10 +20,11 @@ ADMISSION_TAG="admission-${PHASE_ADMISSION}"
 RUN_ID="$(date +%Y-%m-%d_%H-%M-%S)_${WORKLOAD}_${ADMISSION_TAG}"
 RUN_DIR="${ROOT_DIR}/experiments/runs/${RUN_ID}"
 LOGS_DIR="${RUN_DIR}/logs"
-SHARED_DIR="${RUN_DIR}/shared"
-CACHE_DIR="${RUN_DIR}/cache"
-NODE_CACHE_DIR="${RUN_DIR}/node-cache"
-mkdir -p "$LOGS_DIR" "$SHARED_DIR" "$CACHE_DIR" "$NODE_CACHE_DIR"
+TRANSFER_DIR="${RUN_DIR}/transfer"
+SETUP_CACHE_DIR="${RUN_DIR}/setup-cache"
+NODE_CACHE_DIR="${RUN_DIR}/node/cache"
+NODE_RUNTIME_DIR="${RUN_DIR}/node/runtime"
+mkdir -p "$LOGS_DIR" "$TRANSFER_DIR" "$SETUP_CACHE_DIR" "$NODE_CACHE_DIR" "$NODE_RUNTIME_DIR"
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
     tmux kill-session -t "$SESSION"
@@ -43,10 +44,11 @@ coordinator.logs_dir=${LOGS_DIR} \
 node.runs_dir=${RUN_DIR} \
 node.logs_dir=${LOGS_DIR} \
 node.local_cache_dir=${NODE_CACHE_DIR} \
+node.runtime_state_dir=${NODE_RUNTIME_DIR} \
 node.phase_admission.enabled=${PHASE_ADMISSION} \
 storage.backend=filesystem \
-storage.transfer_prefix=${SHARED_DIR} \
-storage.proving_cache_prefix=${CACHE_DIR}"
+storage.transfer_prefix=${TRANSFER_DIR} \
+storage.setup_cache_prefix=${SETUP_CACHE_DIR}"
 
 tmux new-session -d -s "$SESSION" -n "coordinator"
 tmux send-keys -t "$SESSION:coordinator" \
