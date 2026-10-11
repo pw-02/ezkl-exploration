@@ -16,21 +16,26 @@ coordinator:
   state_store_enabled: true
   state_db_path: experiments/runs/coordinator_state.sqlite3
 
-worker:
-  worker_id: null
+node:
+  # One node agent/supervisor runs per machine or cloud instance.
+  node_id: null
   runs_dir: experiments/runs
-  logs_dir: logs/workers
+  logs_dir: logs/nodes
   job_poll_interval_sec: 5
   resource_monitor_interval_sec: 3
-  send_proofs_to_coordinator: false
 
-  # Bounded local cache used for models, inputs, compiled circuits, and hot
-  # proving keys. Set to 0 to disable eviction.
-  local_cache_dir: storage/worker_cache
+  # Local safety cap for prover subprocesses on this node. The coordinator-facing
+  # scheduler uses resource admission, not slots, but this prevents runaway local
+  # overcommit if estimates are wrong.
+  max_concurrent_jobs: 1
+
+  # Node-level cache shared by all local prover subprocesses. Set
+  # local_cache_max_gb to 0 to disable eviction.
+  local_cache_dir: storage/node_cache
   local_cache_max_gb: 100
 
 jobs:
-  scheduler: lpt
+  scheduler: cache_aware
   max_retries: 1
   # Skip model transfer and proving, but retain real input materialization,
   # shared-storage staging, scheduling, worker downloads, and JSON parsing.
@@ -45,14 +50,14 @@ storage:
   # storage.backend=s3 storage.s3_bucket=<bucket> for distributed runs.
   backend: filesystem # filesystem | s3
 
-  # Request-scoped scratch space for coordinator <-> worker communication.
+  # Request-scoped scratch space for coordinator <-> node communication.
   transfer_prefix: storage/transfer
 
   # Canonical content-addressed artifact store. Large immutable objects are
   # stored by SHA-256 here and exchanged through ArtifactRef metadata.
   artifact_prefix: storage/artifacts
 
-  # Shared persistent setup cache namespace. Workers hydrate local hot caches
+  # Shared persistent setup cache namespace. Node agents hydrate local hot caches
   # from this prefix and publish settings/compiled circuits/keys back to it.
   proving_cache_enabled: true
   proving_cache_prefix: storage/cache
