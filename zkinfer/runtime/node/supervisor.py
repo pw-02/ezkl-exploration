@@ -73,11 +73,9 @@ def to_pb_artifact(ref: Optional[ArtifactRef]):
 class NodeSupervisor:
     """One control agent per machine.
 
-    The coordinator assigns whole proof jobs. Locally, each proof runs in an
-    isolated subprocess. Concurrency is not expressed as a configured number of
-    workers: stage transitions reserve predicted memory/CPU from historical
-    profiles, so the amount of overlap emerges from node capacity and workload
-    demand.
+    The coordinator assigns whole proof jobs. Each proof executes in an isolated
+    subprocess. Local overlap is controlled by predicted per-stage memory and CPU
+    demand rather than a fixed worker count.
     """
 
     def __init__(self, runtime_config: RuntimeConfig, logger: Optional[logging.Logger] = None):
@@ -92,14 +90,15 @@ class NodeSupervisor:
         self.cache = NodeCache(
             root_dir=self.cfg.node.local_cache_dir,
             max_bytes=self.cfg.node.local_cache_max_bytes,
-            default_s3_bucket=self.cfg.artifact_store.s3_bucket or self.cfg.file_transfer.s3_bucket or "",
+            default_s3_bucket=self.cfg.artifact_store.s3_bucket
+            or self.cfg.file_transfer.s3_bucket
+            or "",
         )
         self.phase_admission_dir = self.cache.root_dir / "phase_admission"
         self.phase_admission_dir.mkdir(parents=True, exist_ok=True)
         self.resource_profiles = HistoricalResourceProfiles(
             self.phase_admission_dir / "profiles"
         )
-        # Used only to inspect the reservation set for node-status reporting.
         self.admission_probe = ResourceAdmissionController(
             root_dir=str(self.phase_admission_dir),
             setup_key="__supervisor__",
@@ -191,9 +190,6 @@ class NodeSupervisor:
         if emergency_limit is not None and self.active_job_count() >= emergency_limit:
             return False
 
-        # This is not a concurrency policy. It only avoids asking for another
-        # lease when the machine has already consumed the configured OS/safety
-        # reserve. Fine-grained admission occurs at each prover phase.
         memory = psutil.virtual_memory()
         available_gb = float(memory.available) / (1024**3)
         return available_gb > self.phase_cfg.memory_reserve_gb
@@ -241,9 +237,6 @@ class NodeSupervisor:
             cpu_available_cores=reported_cpu_available,
             cache_limit_gb=float(self.cfg.node.local_cache_max_bytes) / (1024**3),
             cache_used_gb=float(self.cache.total_bytes()) / (1024**3),
-            # Retained only because it is still present in the protobuf schema.
-            # Neither coordinator nor node admission uses slot counts.
-            max_concurrent_jobs=0,
             active_job_ids=self.active_job_ids(),
             cached_setup_keys=self.cache.cached_setup_keys(),
         )
@@ -275,11 +268,13 @@ class NodeSupervisor:
                     artifact_manifest=to_pb_artifact(artifact_manifest_ref),
                 )
             )
+
         self.safe_grpc_call(_call, action=f"SubmitJobResult({status})")
         self.logger.info("Submitted %s for job %s", status, lease.job_id)
 
     def send_heartbeat(self) -> None:
         phases = self.active_phases()
+
         def _call():
             return self.stub.SendNodeHeartbeat(
                 pb.NodeHeartbeat(
@@ -289,6 +284,7 @@ class NodeSupervisor:
                     message=json.dumps({"phases": phases}, sort_keys=True),
                 )
             )
+
         self.safe_grpc_call(_call, action="SendNodeHeartbeat", max_retries=1)
 
     def heartbeat_loop(self) -> None:
@@ -311,7 +307,11 @@ class NodeSupervisor:
             )
             self.active_jobs[lease.job_id] = thread
             thread.start()
-        self.logger.info("Started prover subprocess controller for job %s lease=%s", lease.job_id, lease.lease_id)
+        self.logger.info(
+            "Started prover subprocess controller for job %s lease=%s",
+            lease.job_id,
+            lease.lease_id,
+        )
 
     def _run_lease_thread(self, lease) -> None:
         try:
@@ -372,9 +372,6 @@ class NodeSupervisor:
             with self.active_lock:
                 self.active_tasks[lease.job_id] = local_task
 
-            # A cold setup key is serialized until the first process has created
-            # and published its reusable setup artifacts. Warm jobs only pin the
-            # directory; their execution overlap is decided by resource admission.
             if self.cache.setup_ready(local_task.setup_key):
                 self.cache.pin_setup(local_task.setup_key)
                 setup_pinned = True
@@ -392,8 +389,6 @@ class NodeSupervisor:
                             from_pb_artifact(lease.setup_cache),
                         )
 
-            # Feed the measured stage envelope back into the node-local history
-            # before another run of this setup key asks for admission.
             self.resource_profiles.update_from_metrics(
                 local_task.setup_key,
                 result.metrics,
@@ -413,7 +408,13 @@ class NodeSupervisor:
                 metrics=metrics,
             )
         except Exception as exc:
-            self.logger.error("Job %s failed on node %s: %s", lease.job_id, self.node_id, exc, exc_info=True)
+            self.logger.error(
+                "Job %s failed on node %s: %s",
+                lease.job_id,
+                self.node_id,
+                exc,
+                exc_info=True,
+            )
             self.submit_job_result(
                 lease=lease,
                 status="FAILED",
@@ -442,12 +443,16 @@ class NodeSupervisor:
             model_path, model_metrics = self.cache.materialize_with_metrics(
                 from_pb_artifact(lease.model), filename_hint="model.onnx"
             )
-            model_materialize_time_s = float(model_metrics.get("materialize_time(s)", 0.0) or 0.0)
+            model_materialize_time_s = float(
+                model_metrics.get("materialize_time(s)", 0.0) or 0.0
+            )
 
         input_path, input_metrics = self.cache.materialize_with_metrics(
             from_pb_artifact(lease.input), filename_hint="input.json"
         )
-        input_materialize_time_s = float(input_metrics.get("materialize_time(s)", 0.0) or 0.0)
+        input_materialize_time_s = float(
+            input_metrics.get("materialize_time(s)", 0.0) or 0.0
+        )
 
         setup_key = lease.setup_key or lease.job_id
         setup_cache_dir, setup_metrics = self.cache.restore_setup_cache_with_metrics(
@@ -473,7 +478,9 @@ class NodeSupervisor:
             output_dir=str(output_dir),
             output_prefix=output_ref.uri or str(output_dir),
             output_backend=output_ref.backend or self.cfg.artifact_store.backend,
-            output_s3_bucket=output_ref.s3_bucket or self.cfg.artifact_store.s3_bucket or "",
+            output_s3_bucket=output_ref.s3_bucket
+            or self.cfg.artifact_store.s3_bucket
+            or "",
             transfer_only=self.cfg.jobs.transfer_only,
             resource_monitor_interval_sec=self.cfg.node.resource_monitor_interval_sec,
             model_materialize_time_s=model_materialize_time_s,
@@ -492,10 +499,18 @@ class NodeSupervisor:
     def _flatten_setup_publish_metrics(metrics: Dict) -> Dict[str, float | int]:
         return {
             "transfer_setup_bytes_uploaded": int(metrics.get("bytes_uploaded", 0) or 0),
-            "transfer_setup_publish_time(s)": float(metrics.get("publish_time(s)", 0.0) or 0.0),
-            "transfer_pk_compress_time(s)": float(metrics.get("pk_compress_time(s)", 0.0) or 0.0),
-            "transfer_setup_publish_eviction_count": int(metrics.get("eviction_count", 0) or 0),
-            "transfer_setup_publish_evicted_bytes": int(metrics.get("evicted_bytes", 0) or 0),
+            "transfer_setup_publish_time(s)": float(
+                metrics.get("publish_time(s)", 0.0) or 0.0
+            ),
+            "transfer_pk_compress_time(s)": float(
+                metrics.get("pk_compress_time(s)", 0.0) or 0.0
+            ),
+            "transfer_setup_publish_eviction_count": int(
+                metrics.get("eviction_count", 0) or 0
+            ),
+            "transfer_setup_publish_evicted_bytes": int(
+                metrics.get("evicted_bytes", 0) or 0
+            ),
         }
 
     def _join_active_threads(self) -> None:
@@ -510,7 +525,9 @@ class NodeSupervisor:
     def run(self) -> None:
         self.connect()
         heartbeat_thread = threading.Thread(
-            target=self.heartbeat_loop, name="node-heartbeat", daemon=True
+            target=self.heartbeat_loop,
+            name="node-heartbeat",
+            daemon=True,
         )
         heartbeat_thread.start()
         try:
