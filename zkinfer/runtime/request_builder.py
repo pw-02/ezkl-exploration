@@ -41,7 +41,11 @@ class RequestBuilder:
                 parent_model_hash=partition.parent_hash,
                 model_hash=partition.sub_hash,
             )
-            setup_cache_ref = self._artifact_prefix_ref(proving_cache, setup_cache_uri)
+            setup_cache_ref = (
+                self._artifact_prefix_ref(proving_cache, setup_cache_uri)
+                if proving_cache.enabled
+                else ArtifactRef.empty()
+            )
 
             output_prefix_uri = self._build_output_prefix_uri(
                 request=request,
@@ -49,21 +53,32 @@ class RequestBuilder:
                 model_name=partition.name,
                 model_hash=partition.sub_hash,
             )
-            output_prefix_ref = self._artifact_prefix_ref(artifact_store_config, output_prefix_uri)
+            output_prefix_ref = self._artifact_prefix_ref(
+                artifact_store_config,
+                output_prefix_uri,
+            )
 
             model_write_time = 0.0
             if transfer_only:
-                profiling_file_path = None
+                resource_profile_path = None
                 profiling_data = {}
                 predicted_duration_s = 0.0
                 predicted_peak_memory_gb = 0.0
                 model_ref = ArtifactRef.empty()
             else:
-                profiling_file_path = os.path.join(setup_cache_uri, "profiling.json")
-                profiling_data = self._load_profiling_data(
-                    model_name=partition.name,
-                    profiling_file_path=profiling_file_path,
-                    proving_cache=proving_cache,
+                resource_profile_path = (
+                    os.path.join(setup_cache_uri, "resource_profile.json")
+                    if proving_cache.enabled
+                    else None
+                )
+                profiling_data = (
+                    self._load_resource_profile(
+                        model_name=partition.name,
+                        resource_profile_path=resource_profile_path,
+                        proving_cache=proving_cache,
+                    )
+                    if resource_profile_path
+                    else {}
                 )
                 profile_estimates = get_profile_estimates(profiling_data)
                 predicted_duration_s = float(
@@ -104,7 +119,7 @@ class RequestBuilder:
                 input_ref=input_ref,
                 setup_cache_ref=setup_cache_ref,
                 output_prefix_ref=output_prefix_ref,
-                profiling_file_path=profiling_file_path,
+                profiling_file_path=resource_profile_path,
                 model_write_time=model_write_time,
                 input_write_time=input_write_time,
                 profiling_data=profiling_data,
@@ -124,7 +139,7 @@ class RequestBuilder:
         request.preparation_metrics["input_upload_workers"] = 1
 
         self.logger.info(
-            "Materialized %d jobs into content-addressed artifact store in %.3fs model + %.3fs input",
+            "Materialized %d jobs into data-plane artifact store in %.3fs model + %.3fs input",
             len(jobs),
             total_model_store_time,
             total_input_store_time,
@@ -158,7 +173,7 @@ class RequestBuilder:
     def _load_or_split_model(self, request):
         split_mode = (request.split_mode or "none").lower()
         self.logger.info(
-            "Preparing request %s using split_mode=%s ops_per_chunk=%s simplify_model=%s",
+            "Preparing request %s using split_mode=%s operators_per_partition=%s simplify_model=%s",
             request.request_id,
             split_mode,
             request.ops_per_chunk,
@@ -184,32 +199,40 @@ class RequestBuilder:
         parent_model_hash: str,
         model_hash: str,
     ) -> str:
-        parent_cache_dir = os.path.join(proving_cache.root_dir, f"{request.name}_{parent_model_hash}")
+        parent_cache_dir = os.path.join(
+            proving_cache.root_dir,
+            f"{request.name}_{parent_model_hash}",
+        )
         split_mode = (request.split_mode or "none").lower()
         if split_mode == "none":
             return os.path.join(parent_cache_dir, "full", parent_model_hash)
         split_key = f"{split_mode}_{request.ops_per_chunk}"
-        return os.path.join(parent_cache_dir, "splits", split_key, f"{model_name}_{model_hash}")
+        return os.path.join(
+            parent_cache_dir,
+            "splits",
+            split_key,
+            f"{model_name}_{model_hash}",
+        )
 
-    def _load_profiling_data(
+    def _load_resource_profile(
         self,
         model_name: str,
-        profiling_file_path: str,
+        resource_profile_path: str,
         proving_cache: ProvingCacheConfig,
     ) -> Dict[str, Any]:
         if not exists(
-            profiling_file_path,
+            resource_profile_path,
             storage_type=proving_cache.backend,
             s3_bucket=proving_cache.s3_bucket,
         ):
-            self.logger.warning(
-                "Profiling data not found for %s at %s. Using conservative defaults.",
+            self.logger.info(
+                "Resource profile not found for %s at %s; using conservative defaults",
                 model_name,
-                profiling_file_path,
+                resource_profile_path,
             )
             return {}
         return load_json(
-            profiling_file_path,
+            resource_profile_path,
             storage_type=proving_cache.backend,
             s3_bucket=proving_cache.s3_bucket,
         )
