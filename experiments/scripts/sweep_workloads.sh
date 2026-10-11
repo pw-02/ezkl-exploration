@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LOCAL_CONCURRENCY="${1:-1}"
-HEAVY_PHASE_LIMIT="${2:-${LOCAL_CONCURRENCY}}"
-COORDINATOR_HOST="${3:-127.0.0.1}"
-COORDINATOR_PORT="${4:-50051}"
+PHASE_ADMISSION="${1:-true}"
+COORDINATOR_HOST="${2:-127.0.0.1}"
+COORDINATOR_PORT="${3:-50051}"
+
+if [[ "$PHASE_ADMISSION" != "true" && "$PHASE_ADMISSION" != "false" ]]; then
+  echo "Error: phase_admission must be true or false."
+  exit 1
+fi
 
 WORKLOADS=(
   mnist_gan
@@ -14,11 +18,10 @@ WORKLOADS=(
 )
 
 for WORKLOAD in "${WORKLOADS[@]}"; do
-  echo "Running workload: ${WORKLOAD}"
+  echo "Running workload: ${WORKLOAD} admission=${PHASE_ADMISSION}"
   python experiments/run_local_exp.py \
     "suite.workloads=[${WORKLOAD}]" \
-    "node.local_concurrency_limit=${LOCAL_CONCURRENCY}" \
-    "node.max_heavy_phases=${HEAVY_PHASE_LIMIT}" \
+    "node.phase_admission.enabled=${PHASE_ADMISSION}" \
     "launch.coordinator_host=${COORDINATOR_HOST}" \
     "launch.coordinator_port=${COORDINATOR_PORT}"
   echo "Finished workload: ${WORKLOAD}"
