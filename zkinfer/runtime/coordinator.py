@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from zkinfer.config.runtime import RuntimeConfig
+from zkinfer.profiling.overhead import write_transfer_overhead_report
 from zkinfer.profiling.reports import write_job_report, write_request_report
 from zkinfer.runtime.models import (
     ArtifactRef,
@@ -19,6 +20,8 @@ from zkinfer.runtime.request_builder import RequestBuilder
 from zkinfer.runtime.scheduler import JobScheduler
 from zkinfer.runtime.state_store import CoordinatorStateStore
 from zkinfer.storage.io import save_json
+from zkinfer.verification.request_manifest import write_request_artifact_manifest
+from zkinfer.verification.verifier import RuntimeVerifier
 
 
 class Coordinator:
@@ -35,12 +38,23 @@ class Coordinator:
         self.proving_cache = runtime_config.proving_cache
         self.jobs_config = runtime_config.jobs
         self.heartbeat_config = runtime_config.heartbeat
+        self.verification_config = runtime_config.verification
         self.scheduler_policy = self.jobs_config.scheduler or "fifo"
         self.max_retries = self.jobs_config.max_retries
 
         self.state_store = (
             CoordinatorStateStore(runtime_config.state_store.db_path)
             if runtime_config.state_store.enabled
+            else None
+        )
+        self.verifier = (
+            RuntimeVerifier(
+                srs_dir=self.verification_config.srs_dir,
+                enabled=self.verification_config.enabled,
+                require_split_chain=self.verification_config.require_split_chain,
+                write_request_manifest=False,
+            )
+            if self.verification_config.enabled
             else None
         )
 
@@ -438,21 +452,60 @@ class Coordinator:
             return
 
         parent_request.completed_time = datetime.now(timezone.utc)
+        verification_report = self._verify_request_if_enabled(parent_request)
+
         if parent_request.any_job_failed():
             failed_count = sum(1 for job in parent_request.proof_jobs if job.job_status == JobStatus.FAILED)
             parent_request.request_status = RequestStatus.FAILED
             parent_request.error_message = "One or more sub-jobs failed."
             self.logger.error("Request %s failed. %d jobs failed.", parent_request.request_id, failed_count)
+        elif verification_report and not verification_report.get("valid", True):
+            parent_request.request_status = RequestStatus.FAILED
+            parent_request.error_message = "Proof verification failed."
+            self.logger.error("Request %s failed verification.", parent_request.request_id)
         else:
             parent_request.request_status = RequestStatus.COMPLETED
             self.logger.info("Request %s completed.", parent_request.request_id)
 
         if self.state_store:
             self.state_store.save_request(parent_request)
-            self.state_store.append_event("request_finished", request_id=parent_request.request_id)
+            self.state_store.append_event(
+                "request_finished",
+                request_id=parent_request.request_id,
+                payload={"verification": verification_report or {}},
+            )
 
         write_request_report(parent_request, out_dir=parent_request.reports_dir)
+        transfer_overhead = write_transfer_overhead_report(parent_request.reports_dir)
+        if self.verification_config.write_request_manifest:
+            write_request_artifact_manifest(
+                request=parent_request,
+                out_dir=parent_request.reports_dir,
+                verification=verification_report or {"enabled": False},
+                aggregate_metrics=transfer_overhead,
+            )
         self._cleanup_request_transfer_files(parent_request)
+
+    def _verify_request_if_enabled(self, request: InferenceRequest) -> Optional[Dict]:
+        if not self.verifier:
+            return {"enabled": False, "valid": True}
+
+        try:
+            report = self.verifier.verify_request(request).to_dict()
+            if request.reports_dir:
+                save_json(
+                    report,
+                    str(Path(request.reports_dir) / "verification_report.json"),
+                    storage_type="filesystem",
+                )
+            return report
+        except Exception as exc:
+            self.logger.error("Verification failed for request %s: %s", request.request_id, exc, exc_info=True)
+            return {
+                "enabled": True,
+                "valid": False,
+                "error": str(exc),
+            }
 
     def _cleanup_request_transfer_files(self, request: InferenceRequest) -> None:
         try:
