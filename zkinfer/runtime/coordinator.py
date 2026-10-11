@@ -6,8 +6,8 @@ from typing import Dict, Optional
 
 from zkinfer.config.runtime import RuntimeConfig
 from zkinfer.profiling.reports import write_job_report, write_request_report
+from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.runtime.models import (
-    ArtifactRef,
     InferenceRequest,
     JobStatus,
     ProofJob,
@@ -16,6 +16,8 @@ from zkinfer.runtime.models import (
 )
 from zkinfer.runtime.request_builder import RequestBuilder
 from zkinfer.runtime.scheduler import JobScheduler
+from zkinfer.runtime.state_store import CoordinatorStateStore
+from zkinfer.storage.artifact_store import ArtifactStore
 from zkinfer.storage.io import save_json
 
 
@@ -26,11 +28,23 @@ class Coordinator:
         self.logger = logger
         self.runs_dir = Path(runtime_config.coordinator.runs_dir)
         self.file_transfer = runtime_config.file_transfer
+        self.artifact_store_config = runtime_config.artifact_store
         self.proving_cache = runtime_config.proving_cache
         self.jobs_config = runtime_config.jobs
         self.heartbeat_config = runtime_config.heartbeat
         self.scheduler_policy = self.jobs_config.scheduler or "fifo"
         self.max_retries = self.jobs_config.max_retries
+
+        self.artifact_store = ArtifactStore(
+            backend=self.artifact_store_config.backend,
+            root=self.artifact_store_config.root_dir,
+            s3_bucket=self.artifact_store_config.s3_bucket,
+        )
+        self.state_store = (
+            CoordinatorStateStore(runtime_config.state_store.db_path)
+            if runtime_config.state_store.enabled
+            else None
+        )
 
         self.active_requests: Dict[str, InferenceRequest] = {}
         self.scheduler = JobScheduler(policy=self.scheduler_policy)
@@ -40,6 +54,34 @@ class Coordinator:
 
         self.lock = threading.Lock()
         self.request_builder = RequestBuilder(logger=logger)
+        self._recover_state()
+
+    def _recover_state(self) -> None:
+        if not self.state_store:
+            return
+
+        recovered = self.state_store.load_active_state()
+        if not recovered:
+            return
+
+        for request, jobs in recovered:
+            queued_jobs = []
+            request.proof_jobs = jobs
+            self.active_requests[request.request_id] = request
+
+            for job in jobs:
+                if job.job_status == JobStatus.IN_PROGRESS:
+                    job.job_status = JobStatus.QUEUED
+                if job.job_status == JobStatus.QUEUED:
+                    queued_jobs.append(job)
+
+            self.scheduler.add_jobs(queued_jobs)
+            self.logger.warning(
+                "Recovered request %s with %d jobs (%d requeued)",
+                request.request_id,
+                len(jobs),
+                len(queued_jobs),
+            )
 
     def submit_request(
         self,
@@ -68,13 +110,19 @@ class Coordinator:
         self._create_request_dirs(request)
         request.proof_jobs = self.request_builder.build_jobs(
             request=request,
-            file_transfer=self.file_transfer,
+            artifact_store=self.artifact_store,
+            artifact_store_config=self.artifact_store_config,
             proving_cache=self.proving_cache,
             max_retries=self.max_retries,
             transfer_only=self.jobs_config.transfer_only,
         )
         request.preparation_metrics["transfer_only"] = self.jobs_config.transfer_only
         self._enqueue_request(request)
+
+        if self.state_store:
+            self.state_store.save_request(request)
+            self.state_store.save_jobs(request.proof_jobs)
+            self.state_store.append_event("request_submitted", request_id=request.request_id)
 
         self.logger.info(
             "Submitted request %s with %d jobs | run_dir=%s",
@@ -126,12 +174,18 @@ class Coordinator:
             if job is None:
                 return None
             self._mark_job_in_progress_locked(job, worker.worker_id)
-            self.logger.info(
-                "Dispatched job %s | %s to worker=%s",
-                job.job_id,
-                job.job_name,
-                worker.worker_id,
-            )
+            if self.state_store:
+                self.state_store.save_job(job)
+                parent_request = self.active_requests.get(job.inference_request_id)
+                if parent_request:
+                    self.state_store.save_request(parent_request)
+                self.state_store.append_event(
+                    "job_assigned",
+                    request_id=job.inference_request_id,
+                    job_id=job.job_id,
+                    payload={"worker_id": worker.worker_id},
+                )
+            self.logger.info("Dispatched job %s | %s to worker=%s", job.job_id, job.job_name, worker.worker_id)
             return job
 
     def record_heartbeat(
@@ -233,16 +287,22 @@ class Coordinator:
 
             if job.job_status == JobStatus.FAILED:
                 should_retry = self._handle_failed_job_locked(job, message)
+                if self.state_store:
+                    self.state_store.save_job(job)
                 if should_retry:
                     return True
             else:
                 self._complete_job_locked(job)
 
-            self._record_worker_locked(
-                WorkerResources(worker_id=worker_id),
-                job_id=None,
-                status=f"JOB_{job_status.value}",
-            )
+            self._record_worker_locked(WorkerResources(worker_id=worker_id), job_id=None, status=f"JOB_{job_status.value}")
+            if self.state_store:
+                self.state_store.save_job(job)
+                self.state_store.append_event(
+                    "job_result",
+                    request_id=job.inference_request_id,
+                    job_id=job.job_id,
+                    payload={"status": job_status.value, "worker_id": worker_id},
+                )
 
         self._finalize_job(job, perf_metrics=perf_metrics)
         self._maybe_finalize_request(job.inference_request_id)
@@ -298,6 +358,9 @@ class Coordinator:
         job.assigned_worker_id = None
         self.scheduler.requeue(job)
         self.active_jobs.pop(job.job_id, None)
+        if self.state_store:
+            self.state_store.save_job(job)
+            self.state_store.append_event("job_requeued", request_id=job.inference_request_id, job_id=job.job_id)
         self.logger.info("Requeued job %s after worker failure", job.job_name)
 
     def _complete_job_locked(self, job: ProofJob) -> None:
@@ -339,8 +402,8 @@ class Coordinator:
             save_json(
                 job_report,
                 job.profiling_file_path,
-                storage_type=self.file_transfer.backend,
-                s3_bucket=self.file_transfer.s3_bucket,
+                storage_type=self.proving_cache.backend,
+                s3_bucket=self.proving_cache.s3_bucket,
             )
 
     def _maybe_finalize_request(self, request_id: str) -> None:
@@ -361,4 +424,12 @@ class Coordinator:
             self.logger.info("Request %s completed.", parent_request.request_id)
 
         write_request_report(parent_request, out_dir=parent_request.reports_dir)
+        if self.state_store:
+            self.state_store.save_request(parent_request)
+            self.state_store.save_jobs(parent_request.proof_jobs)
+            self.state_store.append_event(
+                "request_finished",
+                request_id=parent_request.request_id,
+                payload={"status": parent_request.request_status.value},
+            )
         self._cleanup_request_transfer_files(parent_request)
