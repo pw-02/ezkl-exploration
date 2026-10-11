@@ -37,9 +37,12 @@ node:
   # Persistent local copies used by this node. The directory contains:
   #   objects/ : materialized model/input artifacts
   #   setup/   : local copies of reusable setup files
-  # Runtime coordination state is kept separately under storage/node/runtime.
   local_cache_dir: storage/node/cache
   local_cache_max_gb: 50
+
+  # Live phase reservations and node-local historical resource profiles.
+  # This is runtime/scheduling state, not cached model data.
+  runtime_state_dir: storage/node/runtime
 
   # Stage-level resource admission. Historical stage measurements are used when
   # available; otherwise the whole-job estimate is used conservatively.
