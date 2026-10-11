@@ -112,7 +112,7 @@ storage/
       objects/               local copies of model/input artifacts
       setup/                 local copies of setup files
     runtime/
-      reservations.json      live phase reservations
+      reservations/          live per-process phase reservations
       resource_profiles/     node-local stage history
 ```
 
@@ -122,7 +122,9 @@ storage/
 
 This is not the proving cache. It is the shared data plane. The coordinator stores materialized model/input objects there and nodes publish proof-output objects there so only small `ArtifactRef` metadata needs to travel over gRPC. A local node also writes the raw job output under `experiments/runs/<request>/artifacts/jobs/<job>`.
 
-For local experiment suites, `storage.delete_artifacts_after_run: true` in `experiments/config/config.yaml` removes `storage/artifacts` after all coordinator/node processes have stopped. It does **not** delete `experiments/runs` or the setup cache. Set it to `false` when intentionally retaining the data-plane store, for example when testing persistent/shared storage behavior.
+For local experiment suites, `storage.delete_artifacts_after_run: true` in `experiments/config/config.yaml` removes `storage/artifacts` after all coordinator/node processes have stopped. It does **not** delete `experiments/runs`, `storage/setup_cache`, or `storage/node/runtime`. Set it to `false` when intentionally retaining the data-plane store, for example when testing persistent/shared storage behavior.
+
+This cleanup switch exists because `storage/artifacts` represents the shared/distributed data plane, not the experiment record. On a local run it is usually just a second transport copy of data already represented by the durable run directory and reports, so retaining it indefinitely is unnecessary.
 
 ### `storage/setup_cache`
 
@@ -137,15 +139,17 @@ storage:
   setup_cache_overwrite: false
 ```
 
-`setup_cache_enabled: false` disables restore/publication through the shared persistent setup cache. The node-local cache is a separate layer.
+`setup_cache_enabled: false` disables reusable proving setup for each proof job: the node creates a private temporary setup directory rather than restoring or reusing shared/node-local settings, compiled circuits, or proving keys. This is the setting to use for a no-setup-cache/cold baseline. Model/input data-plane objects are still materialized through the node's local object cache because that cache is a transport optimization rather than proving setup reuse.
 
 ### `storage/node/cache`
 
-This is local to one NodeSupervisor machine. `objects/` contains locally materialized model/input artifacts. `setup/` contains local setup files used by prover subprocesses. Its purpose is to avoid repeated shared-storage transfers on a distributed deployment.
+This is local to one NodeSupervisor machine. `objects/` contains locally materialized model/input artifacts. `setup/` contains local setup files used when the setup cache is enabled. Its purpose is to avoid repeated shared-storage transfers on a distributed deployment.
+
+The model/input object cache is intentionally separate from `setup_cache_enabled`: disabling proving setup reuse should not force every process to repeatedly transfer identical immutable ONNX/input bytes. If an experiment is specifically measuring data-plane transfer behavior, use the transfer-only experiment/launcher and a fresh node-cache directory.
 
 ### `storage/node/runtime`
 
-This is runtime state, not cached model data. Phase reservations and node-local historical resource profiles live here. Separating it from `node/cache` makes it clear that deleting cached objects is different from deleting scheduling history.
+This is runtime state, not cached model data. `reservations/` contains one small JSON reservation per admitted prover process. `resource_profiles/` contains node-local historical stage measurements. Separating this from `node/cache` makes it clear that deleting cached bytes is different from deleting scheduling history.
 
 ## Reporting
 
@@ -173,7 +177,7 @@ experiments/runs/<request>/reports/
   ... verification/manifest reports when enabled
 ```
 
-`job_report.csv` is the canonical per-job scalar table. The old duplicate `perf_metrics.csv` is no longer written. `request_report.csv` is an aggregate across jobs. `resource_profile.json` is not a report: it is persistent scheduling history stored with the setup cache.
+`job_report.csv` is the canonical per-job scalar table. The old duplicate `perf_metrics.csv` is no longer written. `request_report.csv` is an aggregate across jobs. `resource_profile.json` is not a report: it is persistent coordinator/shared setup-key history used for future placement, while `storage/node/runtime/resource_profiles/` is node-local admission history.
 
 Halo2 transition rows contain `timestamp_unix_us,event,stage,duration_us,duration_s`. Start events leave duration blank; matching end events carry the measured duration. Keeping start/end rows makes an incomplete phase visible if a prover terminates unexpectedly.
 
@@ -191,6 +195,13 @@ node:
   resource_monitor_interval_sec: 0.25
   phase_admission:
     enabled: false
+```
+
+Strict cold/no-setup-reuse characterization additionally uses:
+
+```yaml
+storage:
+  setup_cache_enabled: false
 ```
 
 Naive concurrent baseline:
