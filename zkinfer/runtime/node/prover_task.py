@@ -300,6 +300,8 @@ class ProverTaskRunner:
                 str(task.resource_monitor_interval_sec),
                 "--status_file",
                 status_file,
+                "--admission_dir",
+                task.phase_admission_dir,
                 "--include_children",
                 "--exclude_pid",
                 str(os.getpid()),
