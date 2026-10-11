@@ -17,7 +17,9 @@ SUM_FIELDS = [
     "transfer_setup_bytes_uploaded",
     "output_bytes_uploaded",
     "output_bytes_written",
-    "transfer_setup_hydrate_time(s)",
+    "model_materialize_time(s)",
+    "input_materialize_time(s)",
+    "transfer_setup_restore_time(s)",
     "transfer_pk_decompress_time(s)",
     "transfer_setup_publish_time(s)",
     "transfer_pk_compress_time(s)",
@@ -83,10 +85,18 @@ def aggregate_transfer_overhead(rows: Iterable[Dict[str, str]]) -> Dict[str, flo
     report["agg_downloaded_MiB"] = total_downloaded / (1024 ** 2)
     report["agg_node_cache_served_MiB"] = total_local / (1024 ** 2)
     report["agg_uploaded_MiB"] = total_uploaded / (1024 ** 2)
-    report["node_cache_byte_hit_rate"] = total_local / (total_local + total_downloaded) if (total_local + total_downloaded) else 0.0
+    report["node_cache_byte_hit_rate"] = (
+        total_local / (total_local + total_downloaded)
+        if (total_local + total_downloaded)
+        else 0.0
+    )
 
-    report["agg_transfer_time(s)"] = (
-        report.get("agg_transfer_setup_hydrate_time(s)", 0.0)
+    # This is aggregate service time, not wall-clock critical-path time. It now
+    # includes model/input materialization as well as setup restore and publish.
+    report["agg_data_movement_service_time(s)"] = (
+        report.get("agg_model_materialize_time(s)", 0.0)
+        + report.get("agg_input_materialize_time(s)", 0.0)
+        + report.get("agg_transfer_setup_restore_time(s)", 0.0)
         + report.get("agg_transfer_setup_publish_time(s)", 0.0)
         + report.get("agg_output_publish_time(s)", 0.0)
     )
@@ -108,5 +118,4 @@ def write_transfer_overhead_report(out_dir: str) -> Dict[str, float | int]:
         writer = csv.DictWriter(file, fieldnames=list(report.keys()))
         writer.writeheader()
         writer.writerow(report)
-
     return report
