@@ -33,7 +33,7 @@ node:
   # available; otherwise the job's whole-job peak-memory estimate is used as a
   # conservative fallback. Toggle enabled=false for the no-admission baseline.
   phase_admission:
-    enabled: true
+    enabled: false
     memory_reserve_gb: 8
     cpu_budget_percent: 100
     profile_percentile: 0.90
@@ -46,7 +46,7 @@ node:
   # Node-level cache shared by all local prover subprocesses. Set
   # local_cache_max_gb to 0 to disable eviction.
   local_cache_dir: storage/node_cache
-  local_cache_max_gb: 100
+  local_cache_max_gb: 50
 
 jobs:
   scheduler: cache_aware

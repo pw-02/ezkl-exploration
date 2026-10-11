@@ -23,13 +23,13 @@ execution:
 jobs:
   scheduler: lpt
 
-# One local NodeSupervisor represents this machine. There is no configured
-# local job-count limit. With phase admission enabled, stage overlap is chosen
+# One local NodeSupervisor represents this machine. 
+# With phase admission enabled, stage overlap is chosen
 # from historical per-stage CPU/RSS demand and current node capacity.
 node:
   node_id: local-node
   phase_admission:
-    enabled: true
+    enabled: false
     memory_reserve_gb: 8
     cpu_budget_percent: 100
     profile_percentile: 0.90
