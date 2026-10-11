@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import logging
 import threading
 import time
 import uuid
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional
@@ -20,6 +23,7 @@ from zkinfer.runtime.models import (
 from zkinfer.runtime.request_builder import RequestBuilder
 from zkinfer.runtime.scheduler import JobScheduler
 from zkinfer.runtime.state_store import CoordinatorStateStore
+from zkinfer.storage.artifact_store import ArtifactStore
 from zkinfer.storage.io import save_json
 from zkinfer.verification.request_manifest import write_request_artifact_manifest
 from zkinfer.verification.verifier import RuntimeVerifier
@@ -32,6 +36,7 @@ class Coordinator:
         self.logger = logger
         self.runs_dir = Path(runtime_config.coordinator.runs_dir)
         self.file_transfer = runtime_config.file_transfer
+        self.artifact_store_config = runtime_config.artifact_store
         self.proving_cache = runtime_config.proving_cache
         self.jobs_config = runtime_config.jobs
         self.heartbeat_config = runtime_config.heartbeat
@@ -39,6 +44,11 @@ class Coordinator:
         self.scheduler_policy = self.jobs_config.scheduler or "fifo"
         self.max_retries = self.jobs_config.max_retries
 
+        self.artifact_store = ArtifactStore(
+            backend=self.artifact_store_config.backend,
+            root=self.artifact_store_config.root_dir,
+            s3_bucket=self.artifact_store_config.s3_bucket,
+        )
         self.state_store = (
             CoordinatorStateStore(runtime_config.state_store.db_path)
             if runtime_config.state_store.enabled
@@ -62,12 +72,28 @@ class Coordinator:
         self.scheduler = JobScheduler(policy=self.scheduler_policy)
         self.request_builder = RequestBuilder(logger=logger)
         self.lock = threading.RLock()
+
+        # Verification/report generation must not hold open the final
+        # SubmitJobResult RPC. Otherwise the node keeps a completed prover job
+        # counted as active while the coordinator may spend minutes verifying a
+        # large request.
+        self.finalization_pool = ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="request-finalizer",
+        )
+        self.finalizing_requests: set[str] = set()
+
         self._recover_state()
+
+    def shutdown(self) -> None:
+        self.finalization_pool.shutdown(wait=True)
 
     def _recover_state(self) -> None:
         if not self.state_store:
             return
+
         queued_jobs = []
+        needs_finalization = []
         recovered = self.state_store.load_active_state()
         for request, jobs in recovered:
             self.active_requests[request.request_id] = request
@@ -79,6 +105,9 @@ class Coordinator:
                     job.lease_id = None
                 if job.job_status == JobStatus.QUEUED:
                     queued_jobs.append(job)
+            if request.all_jobs_finished() and request.completed_time is None:
+                needs_finalization.append(request.request_id)
+
         self.scheduler.add_jobs(queued_jobs)
         if recovered:
             self.logger.info(
@@ -86,6 +115,9 @@ class Coordinator:
                 len(recovered),
                 len(queued_jobs),
             )
+
+        for request_id in needs_finalization:
+            self._schedule_request_finalization(request_id)
 
     def submit_request(
         self,
@@ -113,7 +145,8 @@ class Coordinator:
         self._create_request_dirs(request)
         request.proof_jobs = self.request_builder.build_jobs(
             request=request,
-            file_transfer=self.file_transfer,
+            artifact_store=self.artifact_store,
+            artifact_store_config=self.artifact_store_config,
             proving_cache=self.proving_cache,
             max_retries=self.max_retries,
             transfer_only=self.jobs_config.transfer_only,
@@ -242,7 +275,8 @@ class Coordinator:
                 leased_jobs = [
                     job.job_id
                     for job in self.active_jobs.values()
-                    if job.assigned_node_id == node_id and job.job_status == JobStatus.IN_PROGRESS
+                    if job.assigned_node_id == node_id
+                    and job.job_status == JobStatus.IN_PROGRESS
                 ]
                 for job_id in leased_jobs:
                     self._requeue_active_job_locked(job_id)
@@ -293,14 +327,23 @@ class Coordinator:
             if job.job_status == JobStatus.FAILED:
                 should_retry = self._handle_failed_job_locked(job, message)
                 if should_retry:
-                    self._record_node_heartbeat_locked(node_id=node_id, status=f"JOB_{job_status.value}")
+                    self._record_node_heartbeat_locked(
+                        node_id=node_id,
+                        status=f"JOB_{job_status.value}",
+                    )
                     return True
             else:
                 self._complete_job_locked(job)
-            self._record_node_heartbeat_locked(node_id=node_id, status=f"JOB_{job_status.value}")
+            self._record_node_heartbeat_locked(
+                node_id=node_id,
+                status=f"JOB_{job_status.value}",
+            )
 
+        # Per-job reporting is fast enough to finish before acknowledging the
+        # result. Request verification/final reporting is scheduled separately
+        # so the node is released immediately after this RPC.
         self._finalize_job(job, perf_metrics=perf_metrics)
-        self._maybe_finalize_request(job.inference_request_id)
+        self._schedule_request_finalization(job.inference_request_id)
         return True
 
     def _enqueue_request(self, request: InferenceRequest) -> None:
@@ -313,11 +356,15 @@ class Coordinator:
             if self.state_store:
                 self.state_store.save_request(request)
                 self.state_store.save_jobs(request.proof_jobs)
-                self.state_store.append_event("request_queued", request_id=request.request_id)
+                self.state_store.append_event(
+                    "request_queued",
+                    request_id=request.request_id,
+                )
 
             if request.scheduler == self.scheduler_policy:
                 self.scheduler.add_jobs(request.proof_jobs)
                 return
+
             request_scheduler = JobScheduler(policy=request.scheduler)
             request_scheduler.add_jobs(request.proof_jobs)
             ordered_jobs = []
@@ -378,9 +425,17 @@ class Coordinator:
                 request_id=job.inference_request_id,
                 job_id=job.job_id,
             )
-        self.logger.info("Job %s completed. Jobs in queue: %d", job.job_name, len(self.scheduler))
+        self.logger.info(
+            "Job %s completed. Jobs in queue: %d",
+            job.job_name,
+            len(self.scheduler),
+        )
 
-    def _handle_failed_job_locked(self, job: ProofJob, message: Optional[str]) -> bool:
+    def _handle_failed_job_locked(
+        self,
+        job: ProofJob,
+        message: Optional[str],
+    ) -> bool:
         job.error_message = message
         job.retry_count += 1
         if job.retry_count <= job.max_retries:
@@ -420,14 +475,24 @@ class Coordinator:
         self.logger.error("Job %s failed permanently: %s", job.job_name, message)
         return False
 
-    def _finalize_job(self, job: ProofJob, perf_metrics: Optional[Dict] = None) -> None:
+    def _finalize_job(
+        self,
+        job: ProofJob,
+        perf_metrics: Optional[Dict] = None,
+    ) -> None:
         parent_request = self.active_requests.get(job.inference_request_id)
         if not parent_request:
             return
-        job_report = write_job_report(job, perf_metrics=perf_metrics, out_dir=parent_request.reports_dir)
+
+        job_report = write_job_report(
+            job,
+            perf_metrics=perf_metrics,
+            out_dir=parent_request.reports_dir,
+        )
         if job.artifact_manifest_ref:
             job_report["artifact_manifest_backend"] = job.artifact_manifest_ref.backend
             job_report["artifact_manifest_uri"] = job.artifact_manifest_ref.uri
+
         if job.job_status == JobStatus.COMPLETED and job.profiling_file_path:
             save_json(
                 job_report,
@@ -436,20 +501,73 @@ class Coordinator:
                 s3_bucket=self.proving_cache.s3_bucket,
             )
 
-    def _maybe_finalize_request(self, request_id: str) -> None:
-        parent_request = self.active_requests.get(request_id)
-        if not parent_request:
-            return
-        if not parent_request.all_jobs_finished() or parent_request.completed_time is not None:
-            return
+    def _schedule_request_finalization(self, request_id: str) -> None:
+        with self.lock:
+            request = self.active_requests.get(request_id)
+            if not request:
+                return
+            if not request.all_jobs_finished() or request.completed_time is not None:
+                return
+            if request_id in self.finalizing_requests:
+                return
+
+            self.finalizing_requests.add(request_id)
+            if request.any_job_failed():
+                request.request_status = RequestStatus.IN_PROGRESS
+            elif self.verifier:
+                request.request_status = RequestStatus.VERIFYING
+                if self.state_store:
+                    self.state_store.save_request(request)
+                    self.state_store.append_event(
+                        "request_verifying",
+                        request_id=request.request_id,
+                    )
+
+            future = self.finalization_pool.submit(
+                self._finalize_request,
+                request_id,
+            )
+            future.add_done_callback(
+                lambda fut, rid=request_id: self._finalization_finished(rid, fut)
+            )
+
+    def _finalization_finished(self, request_id: str, future: Future) -> None:
+        try:
+            future.result()
+        except Exception as exc:
+            self.logger.error(
+                "Request finalization crashed for %s: %s",
+                request_id,
+                exc,
+                exc_info=True,
+            )
+            with self.lock:
+                request = self.active_requests.get(request_id)
+                if request and request.completed_time is None:
+                    request.request_status = RequestStatus.FAILED
+                    request.error_message = f"Request finalization failed: {exc}"
+                    request.completed_time = datetime.now(timezone.utc)
+                    if self.state_store:
+                        self.state_store.save_request(request)
+        finally:
+            with self.lock:
+                self.finalizing_requests.discard(request_id)
+
+    def _finalize_request(self, request_id: str) -> None:
+        with self.lock:
+            parent_request = self.active_requests.get(request_id)
+            if not parent_request:
+                return
 
         verification_report: Optional[Dict] = None
         if parent_request.any_job_failed():
             failed_count = sum(
-                1 for job in parent_request.proof_jobs if job.job_status == JobStatus.FAILED
+                1
+                for job in parent_request.proof_jobs
+                if job.job_status == JobStatus.FAILED
             )
-            parent_request.request_status = RequestStatus.FAILED
-            parent_request.error_message = "One or more sub-jobs failed."
+            final_status = RequestStatus.FAILED
+            error_message = "One or more sub-jobs failed."
             self.logger.error(
                 "Request %s failed. %d jobs failed.",
                 parent_request.request_id,
@@ -457,12 +575,6 @@ class Coordinator:
             )
         else:
             if self.verifier:
-                parent_request.request_status = RequestStatus.VERIFYING
-                if self.state_store:
-                    self.state_store.save_request(parent_request)
-                    self.state_store.append_event(
-                        "request_verifying", request_id=parent_request.request_id
-                    )
                 verify_started = time.perf_counter()
                 verification_report = self._verify_request_if_enabled(parent_request)
                 parent_request.preparation_metrics["verification_time(s)"] = (
@@ -472,36 +584,62 @@ class Coordinator:
                 verification_report = {"enabled": False, "valid": True}
 
             if verification_report and not verification_report.get("valid", True):
-                parent_request.request_status = RequestStatus.FAILED
-                parent_request.error_message = "Proof verification failed."
-                self.logger.error("Request %s failed verification.", parent_request.request_id)
+                final_status = RequestStatus.FAILED
+                error_message = "Proof verification failed."
+                self.logger.error(
+                    "Request %s failed verification.",
+                    parent_request.request_id,
+                )
             else:
-                parent_request.request_status = RequestStatus.COMPLETED
+                final_status = RequestStatus.COMPLETED
+                error_message = None
                 self.logger.info("Request %s completed.", parent_request.request_id)
 
-        # Completion includes verification when verification is enabled.
-        parent_request.completed_time = datetime.now(timezone.utc)
+        with self.lock:
+            parent_request.request_status = final_status
+            parent_request.error_message = error_message
+            # Completion includes verification when verification is enabled.
+            parent_request.completed_time = datetime.now(timezone.utc)
+            if self.state_store:
+                self.state_store.save_request(parent_request)
+                self.state_store.append_event(
+                    "request_finished",
+                    request_id=parent_request.request_id,
+                    payload={
+                        "verification": verification_report
+                        or {"enabled": False},
+                    },
+                )
 
-        if self.state_store:
-            self.state_store.save_request(parent_request)
-            self.state_store.append_event(
-                "request_finished",
-                request_id=parent_request.request_id,
-                payload={"verification": verification_report or {"enabled": False}},
-            )
-
-        write_request_report(parent_request, out_dir=parent_request.reports_dir)
-        transfer_overhead = write_transfer_overhead_report(parent_request.reports_dir)
-        if self.verification_config.write_request_manifest:
-            write_request_artifact_manifest(
-                request=parent_request,
+        # Report-generation failures are recorded but do not retroactively turn
+        # valid proofs into failed proofs.
+        try:
+            write_request_report(
+                parent_request,
                 out_dir=parent_request.reports_dir,
-                verification=verification_report or {"enabled": False},
-                aggregate_metrics=transfer_overhead,
             )
+            transfer_overhead = write_transfer_overhead_report(
+                parent_request.reports_dir
+            )
+            if self.verification_config.write_request_manifest:
+                write_request_artifact_manifest(
+                    request=parent_request,
+                    out_dir=parent_request.reports_dir,
+                    verification=verification_report or {"enabled": False},
+                    aggregate_metrics=transfer_overhead,
+                )
+        except Exception:
+            self.logger.exception(
+                "Failed to write final reports for request %s",
+                parent_request.request_id,
+            )
+
         self._cleanup_request_transfer_files(parent_request)
 
-    def _verify_request_if_enabled(self, request: InferenceRequest) -> Optional[Dict]:
+    def _verify_request_if_enabled(
+        self,
+        request: InferenceRequest,
+    ) -> Optional[Dict]:
         if not self.verifier:
             return {"enabled": False, "valid": True}
         try:
@@ -525,7 +663,10 @@ class Coordinator:
     def _cleanup_request_transfer_files(self, request: InferenceRequest) -> None:
         try:
             self.file_transfer.delete_tree(request.request_id)
-            self.logger.info("Cleaned up transfer files for request %s", request.request_id)
+            self.logger.info(
+                "Cleaned up transfer files for request %s",
+                request.request_id,
+            )
         except Exception as exc:
             self.logger.warning(
                 "Failed to clean up transfer files for request %s: %s",
