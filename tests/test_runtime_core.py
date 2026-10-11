@@ -14,6 +14,10 @@ from zkinfer.runtime.node.phase_admission import (
     HistoricalResourceProfiles,
     ResourceAdmissionController,
 )
+from zkinfer.runtime.resource_profiles import (
+    get_profile_estimates,
+    update_resource_profile,
+)
 from zkinfer.runtime.scheduler import JobScheduler
 from zkinfer.runtime.state_store import CoordinatorStateStore
 
@@ -78,6 +82,76 @@ class SchedulerTests(unittest.TestCase):
             active_job_ids=("already-running",),
         )
         self.assertIsNotNone(scheduler.next_job(node))
+
+    def test_stage_profile_allows_job_to_start_before_peak_memory_is_free(self):
+        job = _job("request-a", "a1")
+        job.predicted_peak_memory_gb = 40.0
+        job.profiling_data = update_resource_profile(
+            {},
+            {
+                "job_runtime(s)": 60.0,
+                "max_process_memory(GB)": 40.0,
+                "stage_generating_witness_max_memory(GB)": 6.0,
+                "stage_generating_witness_avg_cpu_machine(%)": 20.0,
+                "stage_proving_max_memory(GB)": 40.0,
+                "stage_proving_avg_cpu_machine(%)": 80.0,
+            },
+            setup_key="setup-a",
+        )
+
+        scheduler = JobScheduler("resource_aware")
+        scheduler.add_jobs([job])
+        node = NodeResources(
+            node_id="node",
+            memory_total_gb=64.0,
+            memory_available_gb=10.0,
+        )
+
+        self.assertIsNotNone(scheduler.next_job(node))
+
+    def test_job_is_rejected_when_profile_peak_exceeds_machine_memory(self):
+        job = _job("request-a", "a1")
+        job.profiling_data = update_resource_profile(
+            {},
+            {
+                "job_runtime(s)": 60.0,
+                "max_process_memory(GB)": 80.0,
+                "stage_generating_witness_max_memory(GB)": 6.0,
+                "stage_proving_max_memory(GB)": 80.0,
+            },
+            setup_key="setup-a",
+        )
+
+        scheduler = JobScheduler("resource_aware")
+        scheduler.add_jobs([job])
+        node = NodeResources(
+            node_id="node",
+            memory_total_gb=64.0,
+            memory_available_gb=20.0,
+        )
+
+        self.assertIsNone(scheduler.next_job(node))
+
+
+class ResourceProfileTests(unittest.TestCase):
+    def test_profile_keeps_bounded_history_and_uses_multiple_runs(self):
+        profile = {}
+        for memory_gb in (10.0, 12.0, 11.0):
+            profile = update_resource_profile(
+                profile,
+                {
+                    "job_runtime(s)": 30.0,
+                    "max_process_memory(GB)": memory_gb,
+                    "stage_proving_max_memory(GB)": memory_gb,
+                    "stage_proving_avg_cpu_machine(%)": 50.0,
+                },
+                setup_key="setup-a",
+            )
+
+        estimates = get_profile_estimates(profile)
+        self.assertEqual(estimates["samples"], 3)
+        self.assertAlmostEqual(estimates["peak_memory_gb"], 12.0)
+        self.assertAlmostEqual(estimates["stages"]["proving"]["memory_gb"], 12.0)
 
 
 class StateStoreMigrationTests(unittest.TestCase):
