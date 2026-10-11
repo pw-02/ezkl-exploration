@@ -32,14 +32,10 @@ def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
     logger.propagate = False
-
     if logger.handlers:
         return logger
 
-    formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    )
-
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(formatter)
     logger.addHandler(console)
@@ -48,7 +44,6 @@ def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
         file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
-
     return logger
 
 
@@ -58,7 +53,7 @@ class LocalJobPaths:
     input_path: str
     tmp_dir: str
     artifact_dir: str
-    cache_prefix: str
+    setup_cache_prefix: str
     output_prefix: str
     output_backend: str
     output_s3_bucket: str = ""
@@ -67,35 +62,29 @@ class LocalJobPaths:
 
 
 class ZKProofWorker:
-    def __init__(
-        self,
-        runtime_config: RuntimeConfig,
-        logger: Optional[logging.Logger] = None,
-    ):
+    """Worker process that executes proof jobs assigned by the coordinator.
+
+    gRPC is used only as the control plane. Model partitions, inputs, setup
+    cache files, and proof outputs move through the data plane referenced by
+    ArtifactRef messages.
+    """
+
+    def __init__(self, runtime_config: RuntimeConfig, logger: Optional[logging.Logger] = None):
         self.cfg = runtime_config
         self.logger = logger or logging.getLogger("worker")
-
         self.worker_id = self.cfg.worker.worker_id or get_ip()
         self.target = f"{self.cfg.coordinator.host}:{self.cfg.coordinator.port}"
-
         self.poll_interval_sec = self.cfg.worker.job_poll_interval_sec
         self.resource_monitor_interval_sec = self.cfg.worker.resource_monitor_interval_sec
-        self.send_proofs_to_coordinator = self.cfg.worker.send_proofs_to_coordinator
         self.transfer_only = self.cfg.jobs.transfer_only
-
         self.grpc_max_message_bytes = self.cfg.coordinator.grpc_max_message_mb * 1024 * 1024
-
         self.channel = None
         self.stub = None
-
-        self.num_cpus_physical = psutil.cpu_count(logical=False)
-        self.num_cpus_logical = psutil.cpu_count(logical=True)
         self.mem_gb = round(psutil.virtual_memory().total / 1e9, 2)
 
     def connect(self) -> None:
         if self.channel:
             self.channel.close()
-
         self.channel = grpc.insecure_channel(
             self.target,
             options=[
@@ -103,7 +92,6 @@ class ZKProofWorker:
                 ("grpc.max_receive_message_length", self.grpc_max_message_bytes),
             ],
         )
-
         self.stub = pb_grpc.ZKJobServiceStub(self.channel)
         self.logger.info("Connected to coordinator at %s", self.target)
 
@@ -114,57 +102,33 @@ class ZKProofWorker:
 
     def safe_grpc_call(self, call_fn, action: str, max_retries: int = 3):
         last_error = None
-
         for attempt in range(1, max_retries + 1):
             try:
                 return call_fn()
-
             except grpc.RpcError as exc:
                 last_error = exc
-                self.logger.error(
-                    "%s failed, attempt %d/%d: %s code=%s",
-                    action,
-                    attempt,
-                    max_retries,
-                    exc,
-                    exc.code(),
-                )
+                self.logger.error("%s failed, attempt %d/%d: %s code=%s", action, attempt, max_retries, exc, exc.code())
                 self.reconnect()
-
             except Exception as exc:
                 last_error = exc
-                self.logger.error(
-                    "%s failed, attempt %d/%d: %s",
-                    action,
-                    attempt,
-                    max_retries,
-                    exc,
-                    exc_info=True,
-                )
+                self.logger.error("%s failed, attempt %d/%d: %s", action, attempt, max_retries, exc, exc_info=True)
                 time.sleep(self.poll_interval_sec)
-
         raise last_error
 
     def cached_artifact_keys(self) -> list[str]:
         if self.cfg.proving_cache.backend != "filesystem":
             return []
-
         root = Path(self.cfg.proving_cache.root_dir)
         if not root.exists():
             return []
-
         keys = []
         for path in root.rglob("settings.json"):
-            try:
-                keys.append(path.parent.name.split("_")[-1])
-            except Exception:
-                continue
+            keys.append(path.parent.name.split("_")[-1])
         return sorted(set(keys))
 
     def get_next_job(self):
-        mem = psutil.virtual_memory()
-        reserved_gb = max(0.0, (mem.total - mem.available) / 1e9)
-
+        memory = psutil.virtual_memory()
+        reserved_gb = max(0.0, (memory.total - memory.available) / 1e9)
         return self.safe_grpc_call(
             lambda: self.stub.GetNextJob(
                 pb.WorkerRequest(
@@ -179,13 +143,7 @@ class ZKProofWorker:
         )
 
     @staticmethod
-    def artifact_ref(
-        backend: str,
-        uri: str,
-        s3_bucket: str = "",
-        sha256: str = "",
-        size_bytes: int = 0,
-    ):
+    def artifact_ref(backend: str, uri: str, s3_bucket: str = "", sha256: str = "", size_bytes: int = 0):
         return pb.ArtifactRef(
             backend=backend or "",
             uri=uri or "",
@@ -200,7 +158,6 @@ class ZKProofWorker:
         request_id: str,
         status: str,
         artifact_manifest=None,
-        proof: Optional[bytes] = None,
         message: Optional[str] = None,
         perf_metrics: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -214,14 +171,13 @@ class ZKProofWorker:
                     message=message or "",
                     perf_metrics_json=json.dumps(perf_metrics) if perf_metrics else "",
                     artifact_manifest=artifact_manifest or pb.ArtifactRef(),
-                    proof=proof or b"",
                 )
             )
 
         self.safe_grpc_call(_call, action=f"SubmitJobResult({status})")
         self.logger.info("Submitted final result for job %s: %s", job_id, status)
 
-    def _materialize_ref(self, ref, local_path: Path, input_only: bool = False) -> tuple[str, float]:
+    def _materialize_ref(self, ref, local_path: Path) -> tuple[str, float]:
         if ref.backend == "filesystem":
             if not os.path.exists(ref.uri):
                 raise FileNotFoundError(f"Artifact path does not exist: {ref.uri}")
@@ -238,40 +194,27 @@ class ZKProofWorker:
         download_file(bucket, ref.uri, str(local_path))
         return str(local_path), time.perf_counter() - start
 
-    def prepare_local_paths(
-        self,
-        assignment,
-        input_only: bool = False,
-    ) -> LocalJobPaths:
+    def prepare_local_paths(self, assignment, input_only: bool = False) -> LocalJobPaths:
         job_id = assignment.job_id
         worker_request_dir = Path(self.cfg.worker.runs_dir) / assignment.request_id
-
         tmp_dir = worker_request_dir / "tmp" / job_id
         artifact_dir = worker_request_dir / "artifacts" / "jobs" / job_id
-
         tmp_dir.mkdir(parents=True, exist_ok=True)
         artifact_dir.mkdir(parents=True, exist_ok=True)
-
-        cache_ref = assignment.cache
-        output_ref = assignment.output_prefix
 
         model_s3_read_time = 0.0
         if input_only:
             model_path = ""
         else:
             local_model_path = tmp_dir / os.path.basename(assignment.model.uri or "model.onnx")
-            model_path, model_s3_read_time = self._materialize_ref(
-                assignment.model,
-                local_model_path,
-            )
+            model_path, model_s3_read_time = self._materialize_ref(assignment.model, local_model_path)
 
         local_input_path = tmp_dir / "input.json"
-        input_path, input_s3_read_time = self._materialize_ref(
-            assignment.input,
-            local_input_path,
-        )
+        input_path, input_s3_read_time = self._materialize_ref(assignment.input, local_input_path)
 
-        cache_prefix = cache_ref.uri or self.cfg.proving_cache.root_dir
+        setup_cache_ref = assignment.setup_cache
+        output_ref = assignment.output_prefix
+        setup_cache_prefix = setup_cache_ref.uri or self.cfg.proving_cache.root_dir
         output_prefix = output_ref.uri or str(artifact_dir)
 
         return LocalJobPaths(
@@ -279,7 +222,7 @@ class ZKProofWorker:
             input_path=input_path,
             tmp_dir=str(tmp_dir),
             artifact_dir=str(artifact_dir),
-            cache_prefix=cache_prefix,
+            setup_cache_prefix=setup_cache_prefix,
             output_prefix=output_prefix,
             output_backend=output_ref.backend or self.cfg.file_transfer.backend,
             output_s3_bucket=output_ref.s3_bucket or self.cfg.file_transfer.s3_bucket or "",
@@ -287,15 +230,9 @@ class ZKProofWorker:
             input_s3_read_time=input_s3_read_time,
         )
 
-    def start_monitoring_processes(
-        self,
-        job_id: str,
-        artifact_dir: str,
-        status_file: str,
-    ):
+    def start_monitoring_processes(self, job_id: str, artifact_dir: str, status_file: str):
         worker_pid = str(os.getpid())
         resource_usage_file = os.path.join(artifact_dir, "resource_usage.csv")
-
         resource_proc = subprocess.Popen(
             [
                 sys.executable,
@@ -309,7 +246,6 @@ class ZKProofWorker:
                 str(self.resource_monitor_interval_sec),
             ]
         )
-
         heartbeat_proc = subprocess.Popen(
             [
                 sys.executable,
@@ -329,16 +265,13 @@ class ZKProofWorker:
                 str(self.cfg.heartbeat.interval_sec),
             ]
         )
-
         return heartbeat_proc, resource_proc, resource_usage_file
 
     def stop_processes(self, *processes) -> None:
         for proc in processes:
             if not proc:
                 continue
-
             proc.terminate()
-
             try:
                 proc.wait(timeout=3)
             except Exception:
@@ -375,21 +308,7 @@ class ZKProofWorker:
             **ezkl_metrics,
         }
 
-    def read_proof_bytes(self, proof_path: str) -> bytes:
-        if not self.send_proofs_to_coordinator:
-            return b""
-
-        if not os.path.exists(proof_path):
-            raise FileNotFoundError(f"Proof file does not exist: {proof_path}")
-
-        with open(proof_path, "rb") as file:
-            return file.read()
-
-    def build_proof_stages(
-        self,
-        local_paths: LocalJobPaths,
-        status_file: str,
-    ) -> EZKLProofStages:
+    def build_proof_stages(self, local_paths: LocalJobPaths, status_file: str) -> EZKLProofStages:
         return EZKLProofStages(
             input_data_path=local_paths.input_path,
             onnx_model_path=local_paths.model_path,
@@ -397,20 +316,15 @@ class ZKProofWorker:
             proving_cache_enabled=self.cfg.proving_cache.enabled,
             proving_cache_overwrite=self.cfg.proving_cache.overwrite,
             proving_cache_type=self.cfg.proving_cache.backend,
-            proving_cache_root_dir=local_paths.cache_prefix,
+            proving_cache_root_dir=local_paths.setup_cache_prefix,
             proving_cache_s3_bucket=self.cfg.proving_cache.s3_bucket,
-            proving_cache_s3_prefix=local_paths.cache_prefix,
+            proving_cache_s3_prefix=local_paths.setup_cache_prefix,
             status_file=status_file,
             local_tmp_dir=local_paths.tmp_dir,
             logger=self.logger,
         )
 
-    def _publish_artifact_file(
-        self,
-        local_path: str,
-        local_paths: LocalJobPaths,
-        artifact_name: str,
-    ) -> str:
+    def _publish_artifact_file(self, local_path: str, local_paths: LocalJobPaths, artifact_name: str) -> str:
         if local_paths.output_backend == "filesystem":
             output_path = os.path.join(local_paths.output_prefix, artifact_name)
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -426,12 +340,7 @@ class ZKProofWorker:
 
         raise ValueError(f"Unsupported output backend: {local_paths.output_backend}")
 
-    def preserve_job_artifacts(
-        self,
-        assignment,
-        local_paths: LocalJobPaths,
-        proof_stages: EZKLProofStages,
-    ):
+    def preserve_job_artifacts(self, assignment, local_paths: LocalJobPaths, proof_stages: EZKLProofStages):
         artifact_sources = {
             "proof.pf": proof_stages.proof_path,
             "witness.json": proof_stages.witness_path,
@@ -441,9 +350,7 @@ class ZKProofWorker:
 
         for artifact_name, source_path in artifact_sources.items():
             if not source_path or not os.path.exists(source_path):
-                raise FileNotFoundError(
-                    f"Required artifact {artifact_name} was not generated: {source_path}"
-                )
+                raise FileNotFoundError(f"Required artifact {artifact_name} was not generated: {source_path}")
 
         artifact_paths: Dict[str, str] = {}
         artifact_metadata = {}
@@ -472,12 +379,12 @@ class ZKProofWorker:
                 "size_bytes": os.path.getsize(output_path),
             }
 
-        cache_prefix = local_paths.cache_prefix.rstrip("/")
-        cache_artifacts = {
-            "settings": f"{cache_prefix}/settings.json",
-            "compiled_circuit": f"{cache_prefix}/network.compiled",
-            "proving_key": f"{cache_prefix}/pk.json",
-            "verification_key": f"{cache_prefix}/vk.json",
+        setup_cache_prefix = local_paths.setup_cache_prefix.rstrip("/")
+        setup_cache_artifacts = {
+            "settings": f"{setup_cache_prefix}/settings.json",
+            "compiled_circuit": f"{setup_cache_prefix}/network.compiled",
+            "proving_key": f"{setup_cache_prefix}/pk.json",
+            "verification_key": f"{setup_cache_prefix}/vk.json",
         }
 
         manifest = {
@@ -488,8 +395,8 @@ class ZKProofWorker:
             "s3_bucket": local_paths.output_s3_bucket,
             "model_source": assignment.model.uri,
             "input_source": assignment.input.uri,
-            "cache_prefix": cache_prefix,
-            "cache_artifacts": cache_artifacts,
+            "setup_cache_prefix": setup_cache_prefix,
+            "setup_cache_artifacts": setup_cache_artifacts,
             "srs_path": proof_stages.srs_path,
             "artifacts": artifact_metadata,
         }
@@ -498,32 +405,24 @@ class ZKProofWorker:
         with open(manifest_path, "w", encoding="utf-8") as file:
             json.dump(manifest, file, indent=4)
 
-        published_manifest = self._publish_artifact_file(
-            manifest_path,
-            local_paths,
-            "manifest.json",
-        )
-
-        self.logger.info(
-            "Preserved and published proof artifacts for job %s to %s:%s",
-            assignment.job_id,
-            local_paths.output_backend,
-            local_paths.output_prefix,
-        )
-
-        artifact_paths["manifest.json"] = manifest_path
+        published_manifest = self._publish_artifact_file(manifest_path, local_paths, "manifest.json")
         manifest_ref = self.artifact_ref(
             backend=local_paths.output_backend,
             uri=published_manifest,
             s3_bucket=local_paths.output_s3_bucket,
             size_bytes=os.path.getsize(manifest_path),
         )
+        self.logger.info(
+            "Preserved and published proof artifacts for job %s to %s:%s",
+            assignment.job_id,
+            local_paths.output_backend,
+            local_paths.output_prefix,
+        )
         return artifact_paths, manifest_ref
 
     def run_assignment(self, assignment) -> None:
         job_id = assignment.job_id
         request_id = assignment.request_id
-
         local_paths = None
         heartbeat_proc = None
         resource_proc = None
@@ -536,7 +435,6 @@ class ZKProofWorker:
                 with open(local_paths.input_path, "r", encoding="utf-8") as file:
                     json.load(file)
                 input_parse_time = time.perf_counter() - parse_start
-
                 metrics = {
                     "worker_id": self.worker_id,
                     "transfer_only": True,
@@ -545,7 +443,6 @@ class ZKProofWorker:
                     "input_parse_time(s)": input_parse_time,
                     "input_transfer_bytes": os.path.getsize(local_paths.input_path),
                 }
-
                 self.submit_job_result(
                     job_id=job_id,
                     request_id=request_id,
@@ -565,7 +462,6 @@ class ZKProofWorker:
 
             proof_stages = self.build_proof_stages(local_paths=local_paths, status_file=status_file)
             ezkl_metrics, _ = proof_stages.run_all(setup_only=False)
-
             metrics = self.collect_metrics(
                 artifact_dir=local_paths.artifact_dir,
                 resource_usage_file=resource_usage_file,
@@ -577,7 +473,7 @@ class ZKProofWorker:
                 },
             )
 
-            artifact_paths, manifest_ref = self.preserve_job_artifacts(
+            _, manifest_ref = self.preserve_job_artifacts(
                 assignment=assignment,
                 local_paths=local_paths,
                 proof_stages=proof_stages,
@@ -588,61 +484,42 @@ class ZKProofWorker:
                 request_id=request_id,
                 status="COMPLETED",
                 artifact_manifest=manifest_ref,
-                proof=self.read_proof_bytes(artifact_paths["proof.pf"]),
                 perf_metrics=metrics,
                 message="Proof computation completed successfully",
             )
-
             self.logger.info("Completed job %s", job_id)
 
         except Exception as exc:
             self.logger.error("Job %s failed: %s", job_id, exc, exc_info=True)
-            self.submit_job_result(
-                job_id=job_id,
-                request_id=request_id,
-                status="FAILED",
-                message=str(exc),
-            )
+            self.submit_job_result(job_id=job_id, request_id=request_id, status="FAILED", message=str(exc))
 
         finally:
             self.stop_processes(heartbeat_proc, resource_proc)
-
             if local_paths and os.path.exists(local_paths.tmp_dir):
                 self.logger.info("Cleaning up temporary directory: %s", local_paths.tmp_dir)
                 shutil.rmtree(local_paths.tmp_dir, ignore_errors=True)
 
     def run_once(self) -> None:
         assignment = self.get_next_job()
-
         if not assignment.job_available:
             self.logger.info("No jobs available. Sleeping...")
             time.sleep(self.poll_interval_sec)
             return
-
         self.logger.info("Received job %s", assignment.job_id)
         self.run_assignment(assignment)
 
     def run(self) -> None:
         self.connect()
-
         while True:
             self.run_once()
 
 
-@hydra.main(
-    config_path="../config",
-    config_name="config",
-    version_base=None,
-)
+@hydra.main(config_path="../config", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     runtime_config = build_runtime_config(cfg=cfg, process_role="worker")
     worker_id = cfg.worker.worker_id or get_ip()
-    logger = setup_logger(
-        "worker",
-        log_file=f"{runtime_config.worker.logs_dir}/worker_{worker_id}.log",
-    )
+    logger = setup_logger("worker", log_file=f"{runtime_config.worker.logs_dir}/worker_{worker_id}.log")
     logger.info("Starting ZKProofWorker...")
-
     worker = ZKProofWorker(runtime_config=runtime_config, logger=logger)
     worker.run()
 
