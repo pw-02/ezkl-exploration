@@ -23,7 +23,6 @@ class PhaseAdmissionConfig:
     cpu_budget_percent: float
     profile_percentile: float
     fallback_cpu_percent: float
-    emergency_process_limit: Optional[int]
 
 
 @dataclass(frozen=True)
@@ -33,9 +32,11 @@ class NodeConfig:
     logs_dir: str
     job_poll_interval_sec: int
     resource_monitor_interval_sec: float
+    max_active_jobs: Optional[int]
     phase_admission: PhaseAdmissionConfig
     local_cache_dir: str
     local_cache_max_bytes: int
+    runtime_state_dir: str
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ class FileTransferConfig:
             return
         if self.backend == "s3":
             import boto3
+
             if not self.s3_bucket:
                 raise ValueError("s3_bucket must be set when backend=s3")
             client = boto3.client("s3")
@@ -77,6 +79,13 @@ class ArtifactStoreConfig:
 
 @dataclass(frozen=True)
 class ProvingCacheConfig:
+    """Shared reusable setup cache configuration.
+
+    The historical class name is retained internally because the EZKL backend
+    still uses proving-cache terminology. User-facing configuration calls this
+    the setup cache because that is what it stores.
+    """
+
     enabled: bool
     backend: str
     overwrite: bool
@@ -131,13 +140,18 @@ def _resolve_path(path: str) -> Path:
 
 
 def _gb_to_bytes(value) -> int:
-    return int(float(value or 0) * (1024 ** 3))
+    return int(float(value or 0) * (1024**3))
 
 
 def _resolve_transfer_config(cfg: DictConfig) -> FileTransferConfig:
     backend = cfg.storage.backend
     if backend == "filesystem":
-        return FileTransferConfig("filesystem", str(_resolve_path(cfg.storage.transfer_prefix)), None, "")
+        return FileTransferConfig(
+            "filesystem",
+            str(_resolve_path(cfg.storage.transfer_prefix)),
+            None,
+            "",
+        )
     if backend == "s3":
         base_prefix = cfg.storage.s3_prefix.rstrip("/")
         transfer_prefix = cfg.storage.transfer_prefix.strip("/")
@@ -150,34 +164,48 @@ def _resolve_artifact_store_config(cfg: DictConfig) -> ArtifactStoreConfig:
     backend = cfg.storage.backend
     artifact_prefix = cfg.storage.get("artifact_prefix", "storage/artifacts")
     if backend == "filesystem":
-        return ArtifactStoreConfig("filesystem", str(_resolve_path(artifact_prefix)), None, "")
-    if backend == "s3":
-        base_prefix = cfg.storage.s3_prefix.rstrip("/")
-        object_prefix = artifact_prefix.strip("/")
-        full_prefix = f"{base_prefix}/{object_prefix}"
-        return ArtifactStoreConfig("s3", full_prefix, cfg.storage.s3_bucket, full_prefix)
-    raise ValueError(f"Unsupported storage.backend: {backend}")
-
-
-def _resolve_proving_cache_config(cfg: DictConfig) -> ProvingCacheConfig:
-    backend = cfg.storage.backend
-    if backend == "filesystem":
-        return ProvingCacheConfig(
-            bool(cfg.storage.proving_cache_enabled),
+        return ArtifactStoreConfig(
             "filesystem",
-            bool(cfg.storage.proving_cache_overwrite),
-            str(_resolve_path(cfg.storage.proving_cache_prefix)),
+            str(_resolve_path(artifact_prefix)),
             None,
             "",
         )
     if backend == "s3":
         base_prefix = cfg.storage.s3_prefix.rstrip("/")
-        cache_prefix = cfg.storage.proving_cache_prefix.strip("/")
-        full_prefix = f"{base_prefix}/{cache_prefix}"
-        return ProvingCacheConfig(
-            bool(cfg.storage.proving_cache_enabled),
+        object_prefix = artifact_prefix.strip("/")
+        full_prefix = f"{base_prefix}/{object_prefix}"
+        return ArtifactStoreConfig(
             "s3",
-            bool(cfg.storage.proving_cache_overwrite),
+            full_prefix,
+            cfg.storage.s3_bucket,
+            full_prefix,
+        )
+    raise ValueError(f"Unsupported storage.backend: {backend}")
+
+
+def _resolve_proving_cache_config(cfg: DictConfig) -> ProvingCacheConfig:
+    backend = cfg.storage.backend
+    enabled = bool(cfg.storage.get("setup_cache_enabled", True))
+    overwrite = bool(cfg.storage.get("setup_cache_overwrite", False))
+    cache_prefix = cfg.storage.get("setup_cache_prefix", "storage/setup_cache")
+
+    if backend == "filesystem":
+        return ProvingCacheConfig(
+            enabled,
+            "filesystem",
+            overwrite,
+            str(_resolve_path(cache_prefix)),
+            None,
+            "",
+        )
+    if backend == "s3":
+        base_prefix = cfg.storage.s3_prefix.rstrip("/")
+        relative_prefix = str(cache_prefix).strip("/")
+        full_prefix = f"{base_prefix}/{relative_prefix}"
+        return ProvingCacheConfig(
+            enabled,
+            "s3",
+            overwrite,
             full_prefix,
             cfg.storage.s3_bucket,
             full_prefix,
@@ -186,8 +214,16 @@ def _resolve_proving_cache_config(cfg: DictConfig) -> ProvingCacheConfig:
 
 
 def _resolve_state_store_config(cfg: DictConfig) -> StateStoreConfig:
-    db_path = _resolve_path(cfg.coordinator.get("state_db_path", "experiments/runs/coordinator_state.sqlite3"))
-    return StateStoreConfig(bool(cfg.coordinator.get("state_store_enabled", True)), str(db_path))
+    db_path = _resolve_path(
+        cfg.coordinator.get(
+            "state_db_path",
+            "experiments/runs/coordinator_state.sqlite3",
+        )
+    )
+    return StateStoreConfig(
+        bool(cfg.coordinator.get("state_store_enabled", True)),
+        str(db_path),
+    )
 
 
 def _resolve_verification_config(cfg: DictConfig) -> VerificationConfig:
@@ -202,23 +238,29 @@ def _resolve_verification_config(cfg: DictConfig) -> VerificationConfig:
 
 def _resolve_phase_admission_config(cfg: DictConfig) -> PhaseAdmissionConfig:
     admission = cfg.node.get("phase_admission", {})
-    emergency_limit = admission.get("emergency_process_limit", None)
-    if emergency_limit is not None:
-        emergency_limit = max(1, int(emergency_limit))
     return PhaseAdmissionConfig(
         enabled=bool(admission.get("enabled", True)),
         memory_reserve_gb=max(0.0, float(admission.get("memory_reserve_gb", 8.0))),
         cpu_budget_percent=min(
-            100.0, max(1.0, float(admission.get("cpu_budget_percent", 100.0)))
+            100.0,
+            max(1.0, float(admission.get("cpu_budget_percent", 100.0))),
         ),
         profile_percentile=min(
-            1.0, max(0.5, float(admission.get("profile_percentile", 0.90)))
+            1.0,
+            max(0.5, float(admission.get("profile_percentile", 0.90))),
         ),
         fallback_cpu_percent=min(
-            100.0, max(0.0, float(admission.get("fallback_cpu_percent", 100.0)))
+            100.0,
+            max(0.0, float(admission.get("fallback_cpu_percent", 100.0))),
         ),
-        emergency_process_limit=emergency_limit,
     )
+
+
+def _resolve_max_active_jobs(cfg: DictConfig) -> Optional[int]:
+    value = cfg.node.get("max_active_jobs", None)
+    if value is None:
+        return None
+    return max(1, int(value))
 
 
 def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) -> RuntimeConfig:
@@ -233,7 +275,12 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
     coordinator_logs_dir = _resolve_path(cfg.coordinator.logs_dir)
     node_runs_dir = _resolve_path(cfg.node.runs_dir)
     node_logs_dir = _resolve_path(cfg.node.logs_dir)
-    node_cache_dir = _resolve_path(cfg.node.get("local_cache_dir", "storage/node_cache"))
+    node_cache_dir = _resolve_path(
+        cfg.node.get("local_cache_dir", "storage/node/cache")
+    )
+    node_runtime_state_dir = _resolve_path(
+        cfg.node.get("runtime_state_dir", "storage/node/runtime")
+    )
 
     file_transfer = _resolve_transfer_config(cfg)
     artifact_store = _resolve_artifact_store_config(cfg)
@@ -256,6 +303,7 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
         node_runs_dir.mkdir(parents=True, exist_ok=True)
         node_logs_dir.mkdir(parents=True, exist_ok=True)
         node_cache_dir.mkdir(parents=True, exist_ok=True)
+        node_runtime_state_dir.mkdir(parents=True, exist_ok=True)
         if proving_cache.backend == "filesystem":
             Path(proving_cache.root_dir).mkdir(parents=True, exist_ok=True)
 
@@ -273,10 +321,17 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
             runs_dir=str(node_runs_dir),
             logs_dir=str(node_logs_dir),
             job_poll_interval_sec=int(cfg.node.job_poll_interval_sec),
-            resource_monitor_interval_sec=max(0.05, float(cfg.node.resource_monitor_interval_sec)),
+            resource_monitor_interval_sec=max(
+                0.05,
+                float(cfg.node.resource_monitor_interval_sec),
+            ),
+            max_active_jobs=_resolve_max_active_jobs(cfg),
             phase_admission=phase_admission,
             local_cache_dir=str(node_cache_dir),
-            local_cache_max_bytes=_gb_to_bytes(cfg.node.get("local_cache_max_gb", 100)),
+            local_cache_max_bytes=_gb_to_bytes(
+                cfg.node.get("local_cache_max_gb", 100)
+            ),
+            runtime_state_dir=str(node_runtime_state_dir),
         ),
         file_transfer=file_transfer,
         artifact_store=artifact_store,
