@@ -7,23 +7,26 @@ This directory contains the experiment plan and analysis specification for Secti
 | ID | Question | Runs | Required outputs |
 | --- | --- | --- | --- |
 | G | How does granularity change proof cost? | MobileNetV2 and NanoGPT4L; operator groups 1,2,4,8,full and profile-guided grouping; repeat runs | job counts, aggregate proving time, longest job, maximum process memory |
-| H | How heterogeneous are partitions? | All g=1 partitions, isolated; cold and warm clearly labelled | per-job stage durations, peak process memory, quantiles and sorted distributions |
+| H | How heterogeneous are partitions? | All one-operator partitions, isolated; cold and warm clearly labelled | per-job stage durations, peak process memory, quantiles and sorted distributions |
 | P | How do resources vary by stage? | Isolated representative smallest, median, p90 and largest partitions by baseline peak memory; both models; cold and warm | stage duration, max RSS, CPU, fractions of runtime |
 | R | Are per-stage profiles repeatable? | 10–20 setup keys, >=10 repetitions per key with varied inputs but identical circuit identity | CV, p90/max, leave-one-run-forward prediction, underprediction frequency and magnitude |
 | O | How much memory could stage-aware reservation save? | Replay isolated stage traces, comparing constant whole-job peak with stage-specific peak | reserved GB-seconds, unused GB-seconds, relative reduction, feasible pair fractions at specified node memory budgets |
 | M | Does a multi-request backlog expose stage overlap? | 1,4,8,16,32 concurrent requests; same model/different inputs; separately cold and warm | concurrent jobs, phase mix over time, setup reuse, request arrival/departure timeline |
 
-Record the hardware, available RAM, reserve, CPU count, EZKL/Halo2 commit, zkinfer commit, model/partition hash, input shape, setup key, cache state, resource sampling interval, and run repetition. Do not mix cold and warm observations. Warm runs typically skip key generation; repeat cold key generation in a fresh cache namespace while retaining a stable analysis setup identity.
+Record the hardware, available RAM, reserve, CPU count, EZKL/Halo2 commit, zkInfer commit, model/partition hash, input shape, setup key, cache state, resource sampling interval, and run repetition. Do not mix cold and warm observations. Warm runs typically skip key generation; repeat cold key generation in a fresh setup-cache namespace while retaining a stable analysis setup identity.
 
 ## Input artifacts
 
 Each prover job should retain:
 - `status.txt`, `stage_transitions.csv`, `resource_usage.csv`
-- `admission_profile_before.json` and final `perf_metrics.csv`/`job_report.csv`
+- `admission_profile_before.json`
 - `halo2_stage_transitions.csv` and Halo2 timing CSV where available
-- request `request_report.csv` and batch `batch_summary.json`
+- request-level `job_report.csv` and `request_report.csv`
+- batch `batch_summary.json` when using the batch launcher
 
-Use the exact stage-transition records for duration. Use resource samples for RSS and CPU maxima/averages. Report that sub-second stages may be missed by sampled RSS. Do not equate system-wide RSS with a job's RSS; distinguish process-tree memory from host memory. Use microsecond timestamps to align Halo2 subphases with the outer proof stage.
+`job_report.csv` is the canonical derived per-job scalar table. Do not create a second duplicate per-job summary. `resource_profile.json` belongs to the persistent setup cache and is runtime scheduling history, not a run report.
+
+Use the exact stage-transition records for duration. Use resource samples for RSS and CPU maxima/averages. Report that sub-second stages may be missed by sampled RSS. Do not equate system-wide RSS with a job's RSS; distinguish process-tree memory from host memory. Use microsecond timestamps to align Halo2 subphases with the outer proof stage. Halo2 end-transition rows include `duration_us` and `duration_s`; start rows intentionally leave duration blank so incomplete regions remain visible.
 
 ## Analysis outputs to implement and publish
 
