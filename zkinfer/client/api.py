@@ -12,10 +12,8 @@ import zkinfer.proto.zkservice_pb2_grpc as pb_grpc
 def _to_plain_dict(value) -> Optional[Dict[str, Any]]:
     if value is None:
         return None
-
     if isinstance(value, (DictConfig, ListConfig)):
         return OmegaConf.to_container(value, resolve=True)
-
     return value
 
 
@@ -46,17 +44,12 @@ class ZKInferenceClient:
         input_data_path: str,
         split_mode: str,
         ops_per_chunk: int,
-        scheduler: str,
         simplify_model: bool = False,
         input_shapes: Optional[Dict[str, Any]] = None,
     ) -> str:
+        """Submit one request using the coordinator's configured scheduler policy."""
         input_shapes = _to_plain_dict(input_shapes)
-
-        input_shapes_payload = (
-            json.dumps(input_shapes)
-            if input_shapes is not None
-            else ""
-        )
+        input_shapes_payload = json.dumps(input_shapes) if input_shapes is not None else ""
 
         self.logger.info(
             "Submitting request name=%s split_mode=%s ops_per_chunk=%s",
@@ -67,7 +60,6 @@ class ZKInferenceClient:
 
         with self._channel() as channel:
             stub = pb_grpc.ZKJobServiceStub(channel)
-
             response = stub.SubmitInferenceRequest(
                 pb.InferenceRequest(
                     name=name,
@@ -75,7 +67,6 @@ class ZKInferenceClient:
                     input_data_path=input_data_path,
                     split_mode=split_mode,
                     ops_per_chunk=ops_per_chunk,
-                    scheduler=scheduler,
                     simplify_model=simplify_model,
                     input_shapes=input_shapes_payload,
                 )
@@ -86,17 +77,10 @@ class ZKInferenceClient:
                 f"Coordinator returned empty request_id for request '{name}'"
             )
 
-        self.logger.info(
-            "Submitted request %s",
-            response.request_id,
-        )
-
+        self.logger.info("Submitted request %s", response.request_id)
         return response.request_id
 
     def get_request_status(self, request_id: str):
         with self._channel() as channel:
             stub = pb_grpc.ZKJobServiceStub(channel)
-
-            return stub.GetRequestStatus(
-                pb.RequestStatusRequest(request_id=request_id)
-            )
+            return stub.GetRequestStatus(pb.RequestStatusRequest(request_id=request_id))
