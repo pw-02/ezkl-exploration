@@ -5,16 +5,6 @@ Point this script at one or more request report directories (or parent
 directories containing them). It emits request-level summaries plus one row per
 measured job stage, including the admission estimate that was used for that
 stage when available.
-
-Example:
-
-    python analysis/analyze_phase_admission.py \
-        --label off=experiments/runs/admission-off \
-        --label on=experiments/runs/admission-on \
-        --output-dir analysis/phase_results
-
-The intended comparison holds hardware/workload/scheduler fixed and toggles
-node.phase_admission.enabled.
 """
 
 from __future__ import annotations
@@ -99,6 +89,11 @@ def boolean(value) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
+def _job_report(report_dir: Path) -> pd.DataFrame:
+    path = report_dir / "job_report.csv"
+    return pd.read_csv(path) if path.is_file() else pd.DataFrame()
+
+
 def request_summary(label: str, report_dir: Path) -> Dict[str, object]:
     request = read_single_row(report_dir / "request_report.csv")
     transfer_path = report_dir / "transfer_overhead_report.json"
@@ -107,11 +102,12 @@ def request_summary(label: str, report_dir: Path) -> Dict[str, object]:
         with transfer_path.open("r", encoding="utf-8") as file:
             transfer = json.load(file)
 
-    perf_path = report_dir / "perf_metrics.csv"
-    perf = pd.read_csv(perf_path) if perf_path.is_file() else pd.DataFrame()
+    jobs = _job_report(report_dir)
     admission_enabled = False
-    if not perf.empty and "phase_admission_enabled" in perf:
-        admission_enabled = any(boolean(value) for value in perf["phase_admission_enabled"])
+    if not jobs.empty and "phase_admission_enabled" in jobs:
+        admission_enabled = any(
+            boolean(value) for value in jobs["phase_admission_enabled"]
+        )
 
     return {
         "experiment": label,
@@ -130,25 +126,27 @@ def request_summary(label: str, report_dir: Path) -> Dict[str, object]:
         ),
         "max_process_memory_gb": numeric(request.get("max_process_memory(GB)")),
         "max_system_memory_gb": numeric(request.get("max_system_memory(GB)")),
-        "bytes_downloaded": numeric(transfer.get("agg_bytes_downloaded_from_shared_store")),
-        "bytes_uploaded": numeric(transfer.get("agg_bytes_uploaded_to_shared_store")),
-        "node_cache_byte_hit_rate": numeric(transfer.get("node_cache_byte_hit_rate")),
+        "bytes_downloaded": numeric(
+            transfer.get("agg_bytes_downloaded_from_shared_store")
+        ),
+        "bytes_uploaded": numeric(
+            transfer.get("agg_bytes_uploaded_to_shared_store")
+        ),
+        "node_cache_byte_hit_rate": numeric(
+            transfer.get("node_cache_byte_hit_rate")
+        ),
         "data_movement_service_time_s": numeric(
             transfer.get("agg_data_movement_service_time(s)")
         ),
-        "prover_processes": (
-            int(perf["prover_subprocess_pid"].fillna(0).astype(int).nunique())
-            if not perf.empty and "prover_subprocess_pid" in perf
-            else 0
-        ),
+        "prover_processes": int(len(jobs)),
     }
 
 
 def stage_rows(label: str, report_dir: Path) -> Iterable[Dict[str, object]]:
-    perf_path = report_dir / "perf_metrics.csv"
-    if not perf_path.is_file():
+    frame = _job_report(report_dir)
+    if frame.empty:
         return []
-    frame = pd.read_csv(perf_path)
+
     rows: List[Dict[str, object]] = []
     stage_names = set()
     for column in frame.columns:
@@ -193,7 +191,9 @@ def stage_rows(label: str, report_dir: Path) -> Iterable[Dict[str, object]]:
                     "actual_max_memory_gb": actual_memory,
                     "predicted_memory_gb": predicted_memory,
                     "memory_prediction_error_gb": (
-                        predicted_memory - actual_memory if predicted_memory > 0 else 0.0
+                        predicted_memory - actual_memory
+                        if predicted_memory > 0
+                        else 0.0
                     ),
                     "memory_abs_pct_error": memory_abs_pct_error,
                     "actual_avg_cpu_machine_pct": actual_cpu,
@@ -249,8 +249,14 @@ def main() -> None:
     write_rows(output_dir / "phase_admission_requests.csv", request_rows)
     write_rows(output_dir / "phase_admission_stages.csv", stages)
 
-    print(f"Wrote {len(request_rows)} request rows to {output_dir / 'phase_admission_requests.csv'}")
-    print(f"Wrote {len(stages)} stage rows to {output_dir / 'phase_admission_stages.csv'}")
+    print(
+        f"Wrote {len(request_rows)} request rows to "
+        f"{output_dir / 'phase_admission_requests.csv'}"
+    )
+    print(
+        f"Wrote {len(stages)} stage rows to "
+        f"{output_dir / 'phase_admission_stages.csv'}"
+    )
 
 
 if __name__ == "__main__":
