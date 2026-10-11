@@ -24,7 +24,8 @@ from zkinfer.profiling.msm_fft_parser import (
     summarize_msm_report,
 )
 from zkinfer.profiling.resource_parser import parse_resource_usage_file
-from zkinfer.storage.s3 import download_file, upload_file
+from zkinfer.runtime.worker_cache import WorkerLocalCache
+from zkinfer.storage.s3 import upload_file
 from zkinfer.utils.network import get_ip
 
 
@@ -53,20 +54,19 @@ class LocalJobPaths:
     input_path: str
     tmp_dir: str
     artifact_dir: str
-    setup_cache_prefix: str
+    setup_cache_dir: str
     output_prefix: str
     output_backend: str
     output_s3_bucket: str = ""
-    model_s3_read_time: float = 0.0
-    input_s3_read_time: float = 0.0
+    model_materialize_time_s: float = 0.0
+    input_materialize_time_s: float = 0.0
 
 
 class ZKProofWorker:
     """Worker process that executes proof jobs assigned by the coordinator.
 
-    gRPC is used only as the control plane. Model partitions, inputs, setup
-    cache files, and proof outputs move through the data plane referenced by
-    ArtifactRef messages.
+    gRPC is only the control plane. The worker moves model/input/setup/proof
+    data directly through the data plane and keeps a bounded local hot cache.
     """
 
     def __init__(self, runtime_config: RuntimeConfig, logger: Optional[logging.Logger] = None):
@@ -81,6 +81,11 @@ class ZKProofWorker:
         self.channel = None
         self.stub = None
         self.mem_gb = round(psutil.virtual_memory().total / 1e9, 2)
+        self.local_cache = WorkerLocalCache(
+            root_dir=self.cfg.worker.local_cache_dir,
+            max_bytes=self.cfg.worker.local_cache_max_bytes,
+            default_s3_bucket=self.cfg.artifact_store.s3_bucket or self.cfg.proving_cache.s3_bucket or "",
+        )
 
     def connect(self) -> None:
         if self.channel:
@@ -116,15 +121,7 @@ class ZKProofWorker:
         raise last_error
 
     def cached_artifact_keys(self) -> list[str]:
-        if self.cfg.proving_cache.backend != "filesystem":
-            return []
-        root = Path(self.cfg.proving_cache.root_dir)
-        if not root.exists():
-            return []
-        keys = []
-        for path in root.rglob("settings.json"):
-            keys.append(path.parent.name.split("_")[-1])
-        return sorted(set(keys))
+        return self.local_cache.cached_setup_keys()
 
     def get_next_job(self):
         memory = psutil.virtual_memory()
@@ -177,23 +174,6 @@ class ZKProofWorker:
         self.safe_grpc_call(_call, action=f"SubmitJobResult({status})")
         self.logger.info("Submitted final result for job %s: %s", job_id, status)
 
-    def _materialize_ref(self, ref, local_path: Path) -> tuple[str, float]:
-        if ref.backend == "filesystem":
-            if not os.path.exists(ref.uri):
-                raise FileNotFoundError(f"Artifact path does not exist: {ref.uri}")
-            return ref.uri, 0.0
-
-        if ref.backend != "s3":
-            raise ValueError(f"Unsupported artifact backend: {ref.backend}")
-
-        bucket = ref.s3_bucket or self.cfg.file_transfer.s3_bucket
-        if not bucket:
-            raise ValueError("S3 artifact ref requires a bucket")
-
-        start = time.perf_counter()
-        download_file(bucket, ref.uri, str(local_path))
-        return str(local_path), time.perf_counter() - start
-
     def prepare_local_paths(self, assignment, input_only: bool = False) -> LocalJobPaths:
         job_id = assignment.job_id
         worker_request_dir = Path(self.cfg.worker.runs_dir) / assignment.request_id
@@ -202,19 +182,24 @@ class ZKProofWorker:
         tmp_dir.mkdir(parents=True, exist_ok=True)
         artifact_dir.mkdir(parents=True, exist_ok=True)
 
-        model_s3_read_time = 0.0
+        model_materialize_time_s = 0.0
         if input_only:
             model_path = ""
         else:
-            local_model_path = tmp_dir / os.path.basename(assignment.model.uri or "model.onnx")
-            model_path, model_s3_read_time = self._materialize_ref(assignment.model, local_model_path)
+            start = time.perf_counter()
+            model_path = self.local_cache.materialize(assignment.model, filename_hint="model.onnx")
+            model_materialize_time_s = time.perf_counter() - start
 
-        local_input_path = tmp_dir / "input.json"
-        input_path, input_s3_read_time = self._materialize_ref(assignment.input, local_input_path)
+        start = time.perf_counter()
+        input_path = self.local_cache.materialize(assignment.input, filename_hint="input.json")
+        input_materialize_time_s = time.perf_counter() - start
 
-        setup_cache_ref = assignment.setup_cache
+        setup_cache_dir = self.local_cache.hydrate_setup_cache(
+            assignment.setup_cache,
+            assignment.artifact_key or assignment.job_id,
+        )
+
         output_ref = assignment.output_prefix
-        setup_cache_prefix = setup_cache_ref.uri or self.cfg.proving_cache.root_dir
         output_prefix = output_ref.uri or str(artifact_dir)
 
         return LocalJobPaths(
@@ -222,12 +207,12 @@ class ZKProofWorker:
             input_path=input_path,
             tmp_dir=str(tmp_dir),
             artifact_dir=str(artifact_dir),
-            setup_cache_prefix=setup_cache_prefix,
+            setup_cache_dir=setup_cache_dir,
             output_prefix=output_prefix,
-            output_backend=output_ref.backend or self.cfg.file_transfer.backend,
-            output_s3_bucket=output_ref.s3_bucket or self.cfg.file_transfer.s3_bucket or "",
-            model_s3_read_time=model_s3_read_time,
-            input_s3_read_time=input_s3_read_time,
+            output_backend=output_ref.backend or self.cfg.artifact_store.backend,
+            output_s3_bucket=output_ref.s3_bucket or self.cfg.artifact_store.s3_bucket or "",
+            model_materialize_time_s=model_materialize_time_s,
+            input_materialize_time_s=input_materialize_time_s,
         )
 
     def start_monitoring_processes(self, job_id: str, artifact_dir: str, status_file: str):
@@ -298,6 +283,7 @@ class ZKProofWorker:
 
         return {
             "worker_id": self.worker_id,
+            "worker_cache_bytes": self.local_cache.total_bytes(),
             **resource_metrics,
             "pk_file_size(GB)": proof_stages.get_pk_file_size_gb(),
             "vk_file_size(GB)": proof_stages.get_vk_file_size_gb(),
@@ -309,16 +295,18 @@ class ZKProofWorker:
         }
 
     def build_proof_stages(self, local_paths: LocalJobPaths, status_file: str) -> EZKLProofStages:
+        # EZKL sees a local filesystem setup cache. The WorkerLocalCache hydrates
+        # it from shared storage before proving and publishes it back afterwards.
         return EZKLProofStages(
             input_data_path=local_paths.input_path,
             onnx_model_path=local_paths.model_path,
             artifact_dir=local_paths.artifact_dir,
             proving_cache_enabled=self.cfg.proving_cache.enabled,
             proving_cache_overwrite=self.cfg.proving_cache.overwrite,
-            proving_cache_type=self.cfg.proving_cache.backend,
-            proving_cache_root_dir=local_paths.setup_cache_prefix,
-            proving_cache_s3_bucket=self.cfg.proving_cache.s3_bucket,
-            proving_cache_s3_prefix=local_paths.setup_cache_prefix,
+            proving_cache_type="filesystem",
+            proving_cache_root_dir=local_paths.setup_cache_dir,
+            proving_cache_s3_bucket=None,
+            proving_cache_s3_prefix=None,
             status_file=status_file,
             local_tmp_dir=local_paths.tmp_dir,
             logger=self.logger,
@@ -379,12 +367,13 @@ class ZKProofWorker:
                 "size_bytes": os.path.getsize(output_path),
             }
 
-        setup_cache_prefix = local_paths.setup_cache_prefix.rstrip("/")
+        setup_cache_dir = local_paths.setup_cache_dir.rstrip("/")
         setup_cache_artifacts = {
-            "settings": f"{setup_cache_prefix}/settings.json",
-            "compiled_circuit": f"{setup_cache_prefix}/network.compiled",
-            "proving_key": f"{setup_cache_prefix}/pk.json",
-            "verification_key": f"{setup_cache_prefix}/vk.json",
+            "settings": f"{setup_cache_dir}/settings.json",
+            "compiled_circuit": f"{setup_cache_dir}/network.compiled",
+            "proving_key_local_hot_cache": f"{setup_cache_dir}/pk.json",
+            "proving_key_shared_compressed": f"{assignment.setup_cache.uri.rstrip('/')}/pk.json.gz",
+            "verification_key": f"{setup_cache_dir}/vk.json",
         }
 
         manifest = {
@@ -395,7 +384,8 @@ class ZKProofWorker:
             "s3_bucket": local_paths.output_s3_bucket,
             "model_source": assignment.model.uri,
             "input_source": assignment.input.uri,
-            "setup_cache_prefix": setup_cache_prefix,
+            "setup_cache_dir": setup_cache_dir,
+            "shared_setup_cache_prefix": assignment.setup_cache.uri,
             "setup_cache_artifacts": setup_cache_artifacts,
             "srs_path": proof_stages.srs_path,
             "artifacts": artifact_metadata,
@@ -435,13 +425,15 @@ class ZKProofWorker:
                 with open(local_paths.input_path, "r", encoding="utf-8") as file:
                     json.load(file)
                 input_parse_time = time.perf_counter() - parse_start
+
                 metrics = {
                     "worker_id": self.worker_id,
                     "transfer_only": True,
-                    "model_s3_read_time(s)": 0.0,
-                    "input_s3_read_time(s)": local_paths.input_s3_read_time,
+                    "model_materialize_time(s)": 0.0,
+                    "input_materialize_time(s)": local_paths.input_materialize_time_s,
                     "input_parse_time(s)": input_parse_time,
                     "input_transfer_bytes": os.path.getsize(local_paths.input_path),
+                    "worker_cache_bytes": self.local_cache.total_bytes(),
                 }
                 self.submit_job_result(
                     job_id=job_id,
@@ -462,14 +454,17 @@ class ZKProofWorker:
 
             proof_stages = self.build_proof_stages(local_paths=local_paths, status_file=status_file)
             ezkl_metrics, _ = proof_stages.run_all(setup_only=False)
+
+            self.local_cache.publish_setup_cache(local_paths.setup_cache_dir, assignment.setup_cache)
+
             metrics = self.collect_metrics(
                 artifact_dir=local_paths.artifact_dir,
                 resource_usage_file=resource_usage_file,
                 proof_stages=proof_stages,
                 ezkl_metrics={
                     **ezkl_metrics,
-                    "model_s3_read_time(s)": local_paths.model_s3_read_time,
-                    "input_s3_read_time(s)": local_paths.input_s3_read_time,
+                    "model_materialize_time(s)": local_paths.model_materialize_time_s,
+                    "input_materialize_time(s)": local_paths.input_materialize_time_s,
                 },
             )
 
