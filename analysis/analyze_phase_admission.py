@@ -157,6 +157,7 @@ def stage_rows(label: str, report_dir: Path) -> Iterable[Dict[str, object]]:
 
     for _, job in frame.iterrows():
         job_id = job.get("job_id", "")
+        setup_key = job.get("setup_key", "")
         for stage in sorted(stage_names):
             prefix = f"stage_{stage}_"
             sample_count = numeric(job.get(prefix + "samples"))
@@ -172,11 +173,18 @@ def stage_rows(label: str, report_dir: Path) -> Iterable[Dict[str, object]]:
             )
             actual_memory = numeric(job.get(prefix + "max_memory(GB)"))
             actual_cpu = numeric(job.get(prefix + "avg_cpu_machine(%)"))
+            memory_abs_pct_error = numeric(
+                job.get(admission_prefix + "memory_abs_pct_error")
+            )
+            cpu_abs_pct_error = numeric(
+                job.get(admission_prefix + "cpu_abs_pct_error")
+            )
             rows.append(
                 {
                     "experiment": label,
                     "request_id": job.get("request_id", report_dir.parent.name),
                     "job_id": job_id,
+                    "setup_key": setup_key,
                     "stage": stage,
                     "phase_admission_enabled": boolean(
                         job.get("phase_admission_enabled", False)
@@ -185,13 +193,15 @@ def stage_rows(label: str, report_dir: Path) -> Iterable[Dict[str, object]]:
                     "actual_max_memory_gb": actual_memory,
                     "predicted_memory_gb": predicted_memory,
                     "memory_prediction_error_gb": (
-                        actual_memory - predicted_memory if predicted_memory > 0 else 0.0
+                        predicted_memory - actual_memory if predicted_memory > 0 else 0.0
                     ),
+                    "memory_abs_pct_error": memory_abs_pct_error,
                     "actual_avg_cpu_machine_pct": actual_cpu,
                     "predicted_cpu_machine_pct": predicted_cpu,
                     "cpu_prediction_error_pct": (
-                        actual_cpu - predicted_cpu if predicted_cpu > 0 else 0.0
+                        predicted_cpu - actual_cpu if predicted_cpu > 0 else 0.0
                     ),
+                    "cpu_abs_pct_error": cpu_abs_pct_error,
                     "admission_wait_time_s": numeric(
                         job.get(admission_prefix + "wait_time(s)")
                     ),
