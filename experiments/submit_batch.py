@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Submit many zkInfer requests and measure batch makespan/throughput.
+"""Submit many zkInfer requests and measure batch makespan and throughput.
 
-This is intentionally request-level batching: every input becomes an ordinary
-zkInfer request, so the normal coordinator fairness, cache-aware placement, and
-node phase-admission policies remain in effect. All requests keep the same
-logical model name so setup-cache identities remain reusable across the batch.
+Every input becomes an ordinary zkInfer request. Scheduling policy is configured
+once at the coordinator; individual requests do not select independent policies.
+Keeping the same logical model name preserves setup-cache identity across the
+batch.
 """
 
 from __future__ import annotations
@@ -39,7 +39,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--split-mode", default="fixed")
     parser.add_argument("--ops-per-chunk", type=int, default=1)
-    parser.add_argument("--scheduler", default="cache_aware")
     parser.add_argument("--simplify-model", action="store_true")
     parser.add_argument("--poll-interval", type=float, default=2.0)
     parser.add_argument("--output-dir", type=Path, default=Path("experiments/batch_results"))
@@ -64,7 +63,6 @@ def main() -> None:
             input_data_path=input_path,
             split_mode=args.split_mode,
             ops_per_chunk=args.ops_per_chunk,
-            scheduler=args.scheduler,
             simplify_model=args.simplify_model,
         )
         submitted.append(
@@ -99,8 +97,6 @@ def main() -> None:
     failed_requests = len(submitted) - completed_requests
     completed_jobs = sum(int(item.get("completed_jobs") or 0) for item in submitted)
     total_jobs = sum(int(item.get("total_jobs") or 0) for item in submitted)
-    request_throughput = completed_requests / makespan_s if makespan_s > 0 else 0.0
-    proof_job_throughput = completed_jobs / makespan_s if makespan_s > 0 else 0.0
 
     summary = {
         "name": args.name,
@@ -110,11 +106,10 @@ def main() -> None:
         "total_proof_jobs": total_jobs,
         "completed_proof_jobs": completed_jobs,
         "makespan_s": makespan_s,
-        "completed_requests_per_s": request_throughput,
-        "completed_proof_jobs_per_s": proof_job_throughput,
+        "completed_requests_per_s": completed_requests / makespan_s if makespan_s > 0 else 0.0,
+        "completed_proof_jobs_per_s": completed_jobs / makespan_s if makespan_s > 0 else 0.0,
         "split_mode": args.split_mode,
         "ops_per_chunk": args.ops_per_chunk,
-        "scheduler": args.scheduler,
         "requests": submitted,
     }
 
