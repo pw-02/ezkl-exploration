@@ -2,12 +2,11 @@
 
 set -euo pipefail
 
-LOCAL_CONCURRENCY="${1:-1}"
-WORKLOAD="${2:-nano_gpt_4_layers_64_embd}"
-COORDINATOR_HOST="${3:-127.0.0.1}"
-COORDINATOR_PORT="${4:-50051}"
-OPS_PER_CHUNK="${5:-1}"
-SPLIT_MODE="${6:-fixed}"
+WORKLOAD="${1:-nano_gpt_4_layers_64_embd}"
+COORDINATOR_HOST="${2:-127.0.0.1}"
+COORDINATOR_PORT="${3:-50051}"
+OPS_PER_CHUNK="${4:-1}"
+SPLIT_MODE="${5:-fixed}"
 
 SESSION="${TMUX_SESSION:-zkexp-transfer}"
 CONDA_ENV="${CONDA_ENV:-zk}"
@@ -15,10 +14,6 @@ S3_BUCKET="${ZKINFER_S3_BUCKET:-zkinfer}"
 S3_PREFIX="${ZKINFER_S3_PREFIX:-zkinfer-reviewer}"
 ROOT_DIR="$(pwd)"
 
-if [[ ! "$LOCAL_CONCURRENCY" =~ ^[1-9][0-9]*$ ]]; then
-    echo "Error: local_concurrency must be a positive integer."
-    exit 1
-fi
 if [[ ! "$OPS_PER_CHUNK" =~ ^[1-9][0-9]*$ ]]; then
     echo "Error: ops_per_chunk must be a positive integer."
     exit 1
@@ -38,7 +33,7 @@ else
     GROUP_TAG="g${OPS_PER_CHUNK}"
 fi
 
-RUN_ID="$(date -u +%Y-%m-%d_%H-%M-%S)_${WORKLOAD}_${GROUP_TAG}_transfer-only_c${LOCAL_CONCURRENCY}"
+RUN_ID="$(date -u +%Y-%m-%d_%H-%M-%S)_${WORKLOAD}_${GROUP_TAG}_transfer-only"
 CAMPAIGN_DIR="${ROOT_DIR}/experiments/runs/${RUN_ID}"
 REQUESTS_DIR="${CAMPAIGN_DIR}/requests"
 LOGS_DIR="${CAMPAIGN_DIR}/logs"
@@ -62,8 +57,7 @@ node.runs_dir=${REQUESTS_DIR} \
 node.logs_dir=${LOGS_DIR} \
 node.local_cache_dir=${NODE_CACHE_DIR} \
 node.job_poll_interval_sec=1 \
-node.local_concurrency_limit=${LOCAL_CONCURRENCY} \
-node.max_heavy_phases=${LOCAL_CONCURRENCY} \
+node.phase_admission.enabled=false \
 jobs.scheduler=fifo \
 jobs.transfer_only=true \
 storage.backend=s3 \
@@ -111,7 +105,6 @@ tmux new-window -t "$SESSION" -n "submit"
 tmux send-keys -t "$SESSION:submit" \
     "${BASE_CMD} && \
     echo 'Transfer-only benchmark: true' && \
-    echo 'Local concurrency: ${LOCAL_CONCURRENCY}' && \
     python experiments/submit_job.py \
     +workload=${WORKLOAD} \
     execution.split_mode=${SPLIT_MODE} \
@@ -123,6 +116,5 @@ tmux send-keys -t "$SESSION:submit" \
 
 echo "Started tmux session: ${SESSION}"
 echo "Campaign directory: ${CAMPAIGN_DIR}"
-echo "Local concurrency: ${LOCAL_CONCURRENCY}"
 echo "S3 location: s3://${S3_BUCKET}/${S3_PREFIX}"
 tmux attach -t "$SESSION"
