@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
-import shutil
 import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List
 
-from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.runtime.models import InferenceRequest
 from zkinfer.storage import s3
 from zkinfer.verification.request_manifest import (
@@ -68,13 +65,7 @@ class RequestVerificationReport:
 
 
 class RuntimeVerifier:
-    """Verify proof artifacts produced by node agents.
-
-    This verifier runs on the coordinator side by materializing proof artifacts
-    from the manifest refs returned by node agents. It verifies each EZKL proof
-    and records an explicit split-chain status so per-job validity is not
-    confused with boundary-link validity.
-    """
+    """Coordinator-side proof and split-boundary verifier."""
 
     def __init__(
         self,
@@ -114,19 +105,20 @@ class RuntimeVerifier:
         split_report = verify_split_chain(
             bundles,
             require_chain_witnesses=self.require_split_chain,
+            srs_dir=self.srs_dir,
         ).to_dict()
 
-        valid = all(item["valid"] for item in job_reports) and bool(split_report.get("valid", False))
-        total_time = time.perf_counter() - started
+        valid = all(item["valid"] for item in job_reports) and bool(
+            split_report.get("valid", False)
+        )
         report = RequestVerificationReport(
             request_id=request.request_id,
             enabled=True,
             valid=valid,
-            total_verification_time_s=total_time,
+            total_verification_time_s=time.perf_counter() - started,
             job_reports=job_reports,
             split_chain=split_report,
         )
-
         if self.write_request_manifest and request.reports_dir:
             write_request_artifact_manifest(
                 request=request,
@@ -134,18 +126,26 @@ class RuntimeVerifier:
                 verification=report.to_dict(),
                 aggregate_metrics={},
             )
-
         return report
 
     def verify_job_bundle(self, bundle: JobArtifactBundle) -> JobVerificationReport:
         with tempfile.TemporaryDirectory(prefix="zkinfer_verify_") as tmp:
             tmp_dir = Path(tmp)
-            proof = self._materialize(bundle.backend, bundle.s3_bucket, bundle.proof_path, tmp_dir / "proof.pf")
-            settings = self._materialize(bundle.backend, bundle.s3_bucket, bundle.settings_path, tmp_dir / "settings.json")
-            vk = self._materialize(bundle.backend, bundle.s3_bucket, bundle.vk_path, tmp_dir / "vk.json")
-            srs = self._resolve_srs(settings)
+            proof = self._materialize(
+                bundle.backend, bundle.s3_bucket, bundle.proof_path, tmp_dir / "proof.pf"
+            )
+            settings = self._materialize(
+                bundle.backend,
+                bundle.s3_bucket,
+                bundle.settings_path,
+                tmp_dir / "settings.json",
+            )
+            vk = self._materialize(
+                bundle.backend, bundle.s3_bucket, bundle.vk_path, tmp_dir / "vk.json"
+            )
+            srs_path = self._resolve_srs(settings)
 
-            for path in (proof, settings, vk, srs):
+            for path in (proof, settings, vk, srs_path):
                 if not path.is_file():
                     return JobVerificationReport(
                         job_id=bundle.job_id,
@@ -154,7 +154,7 @@ class RuntimeVerifier:
                         proof_path=str(proof),
                         settings_path=str(settings),
                         vk_path=str(vk),
-                        srs_path=str(srs),
+                        srs_path=str(srs_path),
                         error=f"missing verification input: {path}",
                     )
 
@@ -167,36 +167,34 @@ class RuntimeVerifier:
                         proof_path=str(proof),
                         settings_path=str(settings),
                         vk_path=str(vk),
-                        srs_path=str(srs),
+                        srs_path=str(srs_path),
                     )
                 )
                 error = "" if valid else "ezkl.verify returned false"
             except Exception as exc:
                 valid = False
                 error = str(exc)
-            elapsed = time.perf_counter() - started
 
             return JobVerificationReport(
                 job_id=bundle.job_id,
                 valid=valid,
-                verification_time_s=elapsed,
+                verification_time_s=time.perf_counter() - started,
                 proof_path=str(proof),
                 settings_path=str(settings),
                 vk_path=str(vk),
-                srs_path=str(srs),
+                srs_path=str(srs_path),
                 error=error,
             )
 
-    def _materialize(self, backend: str, bucket: str, uri: str, local_path: Path) -> Path:
+    @staticmethod
+    def _materialize(backend: str, bucket: str, uri: str, local_path: Path) -> Path:
         if backend == "filesystem":
             return Path(uri)
-
         if backend == "s3":
             if not bucket:
                 raise ValueError("S3 artifact requires bucket")
             s3.download_file(bucket, uri, str(local_path))
             return local_path
-
         raise ValueError(f"Unsupported verification artifact backend: {backend}")
 
     def _resolve_srs(self, settings_path: Path) -> Path:
