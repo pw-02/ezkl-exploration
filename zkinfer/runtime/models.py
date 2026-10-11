@@ -28,6 +28,7 @@ class RequestStatus(str, Enum):
     PREPARING = "PREPARING"
     QUEUED = "QUEUED"
     IN_PROGRESS = "IN_PROGRESS"
+    VERIFYING = "VERIFYING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
@@ -35,7 +36,7 @@ class RequestStatus(str, Enum):
 
 @dataclass(frozen=True)
 class NodeResources:
-    """Fresh node-agent state reported when polling for work."""
+    """Fresh node state reported while asking the coordinator for work."""
 
     node_id: str
     memory_total_gb: float = 0.0
@@ -44,17 +45,15 @@ class NodeResources:
     cpu_available_cores: float = 0.0
     cache_limit_gb: float = 0.0
     cache_used_gb: float = 0.0
-    max_concurrent_jobs: int = 1
+    # Retained only because the current protobuf still carries this field.
+    # Coordinator admission deliberately ignores it.
+    max_concurrent_jobs: int = 0
     active_job_ids: Sequence[str] = field(default_factory=tuple)
     cached_setup_keys: Sequence[str] = field(default_factory=tuple)
 
     @property
     def active_job_count(self) -> int:
         return len(self.active_job_ids or [])
-
-    @property
-    def local_admission_available(self) -> bool:
-        return self.max_concurrent_jobs <= 0 or self.active_job_count < self.max_concurrent_jobs
 
     @property
     def cache_available_gb(self) -> float:
@@ -70,37 +69,29 @@ class ProofJob:
     inference_request_name: str
     model_name: str
     inference_request_id: str
-
     model_ref: ArtifactRef
     input_ref: ArtifactRef
     setup_cache_ref: ArtifactRef
     output_prefix_ref: ArtifactRef
-
     profiling_file_path: Optional[str] = None
-
     model_write_time: float = 0.0
     input_write_time: float = 0.0
     profiling_data: Dict = field(default_factory=dict)
-
     predicted_duration_s: float = 0.0
     predicted_peak_memory_gb: float = 0.0
     artifact_key: str = ""
     max_retries: int = 0
-
     job_id: str = field(init=False)
     job_name: str = field(init=False)
-
     job_status: JobStatus = JobStatus.PREPARING
     queued_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     started_time: Optional[datetime] = None
     completed_time: Optional[datetime] = None
-
     artifact_manifest_ref: Optional[ArtifactRef] = None
     assigned_node_id: Optional[str] = None
     lease_id: Optional[str] = None
     error_message: Optional[str] = None
     retry_count: int = 0
-
     parent_model_hash: Optional[str] = None
     model_hash: Optional[str] = None
 
@@ -135,22 +126,17 @@ class InferenceRequest:
     split_mode: str
     ops_per_chunk: int
     scheduler: str
-
     simplify_model: bool = False
     input_shapes: Optional[Dict] = None
-
     request_id: str = field(init=False)
     proof_jobs: List[ProofJob] = field(default_factory=list)
     preparation_metrics: Dict = field(default_factory=dict)
-
     created_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     queued_time: Optional[datetime] = None
     started_time: Optional[datetime] = None
     completed_time: Optional[datetime] = None
-
     error_message: Optional[str] = None
     request_status: RequestStatus = RequestStatus.CREATED
-
     run_dir: Optional[str] = None
     logs_dir: Optional[str] = None
     reports_dir: Optional[str] = None
@@ -162,15 +148,9 @@ class InferenceRequest:
         scheduler = slugify(self.scheduler, max_len=24)
         simplify_tag = "simplified" if self.simplify_model else "raw"
         unique_suffix = uuid.uuid4().hex[:8]
-
         self.request_id = (
-            f"{name}"
-            f"_split-{split_mode}"
-            f"_ops-{self.ops_per_chunk}"
-            f"_sched-{scheduler}"
-            f"_{simplify_tag}"
-            f"_{now}"
-            f"_{unique_suffix}"
+            f"{name}_split-{split_mode}_ops-{self.ops_per_chunk}_sched-{scheduler}_"
+            f"{simplify_tag}_{now}_{unique_suffix}"
         )
 
     def all_jobs_finished(self) -> bool:
