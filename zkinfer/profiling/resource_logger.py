@@ -11,6 +11,7 @@ import psutil
 
 FIELDNAMES = [
     "timestamp",
+    "stage",
     "type",
     "pid",
     "cpu_percent",
@@ -45,12 +46,33 @@ def resolve_process(pid: Optional[int]) -> Optional[psutil.Process]:
         sys.exit(1)
 
 
-def system_row(ts: str, num_logical_cpus: int) -> dict:
+def read_stage(status_file: Optional[str]) -> str:
+    """Return the most recently published proof stage for this task.
+
+    EZKLProofStages writes a tiny status file whenever it enters a new stage.
+    Reading that file here keeps the resource logger independent from EZKL
+    while making every resource sample directly attributable to a stage.
+    """
+    if not status_file:
+        return "UNKNOWN"
+
+    try:
+        with open(status_file, "r", encoding="utf-8") as file:
+            stage = file.read().strip()
+            return stage or "UNKNOWN"
+    except (FileNotFoundError, OSError):
+        # The logger is intentionally started before proving, so the first
+        # sample may arrive before the status file has been created.
+        return "UNKNOWN"
+
+
+def system_row(ts: str, stage: str, num_logical_cpus: int) -> dict:
     memory_info = psutil.virtual_memory()
     cpu_percent = psutil.cpu_percent(interval=None)
 
     return {
         "timestamp": ts,
+        "stage": stage,
         "type": "system",
         "pid": "",
         "cpu_percent": cpu_percent,
@@ -64,6 +86,7 @@ def system_row(ts: str, num_logical_cpus: int) -> dict:
 
 def process_row(
     ts: str,
+    stage: str,
     process: psutil.Process,
     num_logical_cpus: int,
 ) -> Optional[dict]:
@@ -72,6 +95,7 @@ def process_row(
 
         return {
             "timestamp": ts,
+            "stage": stage,
             "type": "process",
             "pid": process.pid,
             "cpu_percent": cpu_percent,
@@ -90,8 +114,14 @@ def run(
     output_file: str,
     interval: float,
     pid: Optional[int],
+    status_file: Optional[str] = None,
 ) -> None:
     ensure_parent_dir(output_file)
+
+    # The prover already writes <job output>/status.txt. Derive it by default
+    # so existing callers automatically gain phase-labelled traces.
+    if status_file is None:
+        status_file = os.path.join(os.path.dirname(output_file), "status.txt")
 
     process = resolve_process(pid)
     num_logical_cpus = psutil.cpu_count(logical=True) or 1
@@ -109,11 +139,12 @@ def run(
         while True:
             time.sleep(interval)
             ts = timestamp()
+            stage = read_stage(status_file)
 
-            writer.writerow(system_row(ts, num_logical_cpus))
+            writer.writerow(system_row(ts, stage, num_logical_cpus))
 
             if process is not None:
-                row = process_row(ts, process, num_logical_cpus)
+                row = process_row(ts, stage, process, num_logical_cpus)
                 if row is None:
                     print("Process exited.", file=sys.stderr)
                     break
@@ -128,6 +159,10 @@ def parse_args():
     parser.add_argument("--output_file", required=True)
     parser.add_argument("--interval", type=float, default=3)
     parser.add_argument("--pid", type=int)
+    parser.add_argument(
+        "--status_file",
+        help="Path to the task status file. Defaults to status.txt beside output_file.",
+    )
     return parser.parse_args()
 
 
@@ -137,6 +172,7 @@ def main() -> None:
         output_file=args.output_file,
         interval=args.interval,
         pid=args.pid,
+        status_file=args.status_file,
     )
 
 
