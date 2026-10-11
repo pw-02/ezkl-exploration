@@ -34,20 +34,33 @@ class RequestStatus(str, Enum):
 
 
 @dataclass(frozen=True)
-class WorkerResources:
-    """Capacity and cache state reported by a worker when polling for work."""
+class NodeResources:
+    """Fresh node-agent state reported when polling for work."""
 
-    worker_id: str
-    memory_budget_gb: float = 0.0
-    reserved_memory_gb: float = 0.0
-    free_slots: int = 1
-    cached_artifact_keys: Sequence[str] = field(default_factory=tuple)
+    node_id: str
+    memory_total_gb: float = 0.0
+    memory_available_gb: float = 0.0
+    cpu_total_cores: float = 0.0
+    cpu_available_cores: float = 0.0
+    cache_limit_gb: float = 0.0
+    cache_used_gb: float = 0.0
+    max_concurrent_jobs: int = 1
+    active_job_ids: Sequence[str] = field(default_factory=tuple)
+    cached_setup_keys: Sequence[str] = field(default_factory=tuple)
 
     @property
-    def available_memory_gb(self) -> float:
-        if self.memory_budget_gb <= 0:
+    def active_job_count(self) -> int:
+        return len(self.active_job_ids or [])
+
+    @property
+    def local_admission_available(self) -> bool:
+        return self.max_concurrent_jobs <= 0 or self.active_job_count < self.max_concurrent_jobs
+
+    @property
+    def cache_available_gb(self) -> float:
+        if self.cache_limit_gb <= 0:
             return float("inf")
-        return max(0.0, self.memory_budget_gb - self.reserved_memory_gb)
+        return max(0.0, self.cache_limit_gb - self.cache_used_gb)
 
 
 @dataclass
@@ -78,13 +91,13 @@ class ProofJob:
     job_name: str = field(init=False)
 
     job_status: JobStatus = JobStatus.PREPARING
-
     queued_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     started_time: Optional[datetime] = None
     completed_time: Optional[datetime] = None
 
     artifact_manifest_ref: Optional[ArtifactRef] = None
-    assigned_worker_id: Optional[str] = None
+    assigned_node_id: Optional[str] = None
+    lease_id: Optional[str] = None
     error_message: Optional[str] = None
     retry_count: int = 0
 
@@ -93,7 +106,6 @@ class ProofJob:
 
     @property
     def predicted_duration(self) -> float:
-        # Convenience alias for existing reports and plotting utilities.
         return self.predicted_duration_s
 
     @property
