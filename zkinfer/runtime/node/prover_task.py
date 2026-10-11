@@ -7,9 +7,9 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from zkinfer.backends.ezkl.ezkl_prover import EZKLProofStages
 from zkinfer.profiling.msm_fft_parser import (
@@ -43,6 +43,7 @@ class LocalProverTask:
     resource_monitor_interval_sec: int = 3
     model_materialize_time_s: float = 0.0
     input_materialize_time_s: float = 0.0
+    transfer_metrics: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -56,8 +57,8 @@ class ProverTaskRunner:
     """Run one proof job using only local paths.
 
     This object is intentionally stateless with respect to the distributed
-    system.  It does not talk to the coordinator and it does not own scheduling
-    or cache policy.  The node supervisor materializes inputs/cache first,
+    system. It does not talk to the coordinator and it does not own scheduling
+    or cache policy. The node supervisor materializes inputs/cache first,
     invokes this runner, and then reports the result.
     """
 
@@ -85,10 +86,12 @@ class ProverTaskRunner:
                 ezkl_metrics=ezkl_metrics,
             )
 
-            manifest_ref = self._publish_job_artifacts(
+            manifest_ref, publish_metrics = self._publish_job_artifacts(
                 task=task,
                 proof_stages=proof_stages,
             )
+            metrics.update(self._flatten_transfer_metrics(task.transfer_metrics))
+            metrics.update(self._flatten_output_metrics(publish_metrics))
 
             return ProverTaskResult(
                 artifact_manifest_ref=manifest_ref,
@@ -113,6 +116,7 @@ class ProverTaskRunner:
             "input_parse_time(s)": input_parse_time_s,
             "input_transfer_bytes": os.path.getsize(task.input_path),
         }
+        metrics.update(self._flatten_transfer_metrics(task.transfer_metrics))
 
         return ProverTaskResult(
             artifact_manifest_ref=None,
@@ -196,19 +200,33 @@ class ProverTaskRunner:
             **ezkl_metrics,
         }
 
-    def _publish_file(self, local_path: str, task: LocalProverTask, artifact_name: str) -> str:
+    def _publish_file(self, local_path: str, task: LocalProverTask, artifact_name: str) -> Tuple[str, Dict[str, Any]]:
+        started = time.perf_counter()
+        size_bytes = os.path.getsize(local_path)
         if task.output_backend == "filesystem":
             output_path = os.path.join(task.output_prefix, artifact_name)
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             shutil.copy2(local_path, output_path)
-            return output_path
+            return output_path, {
+                "artifact": artifact_name,
+                "backend": "filesystem",
+                "bytes_uploaded": 0,
+                "bytes_written": size_bytes,
+                "publish_time(s)": time.perf_counter() - started,
+            }
 
         if task.output_backend == "s3":
             if not task.output_s3_bucket:
                 raise ValueError("S3 output artifact requires a bucket")
             key = f"{task.output_prefix.rstrip('/')}/{artifact_name}"
             upload_file(local_path, task.output_s3_bucket, key)
-            return key
+            return key, {
+                "artifact": artifact_name,
+                "backend": "s3",
+                "bytes_uploaded": size_bytes,
+                "bytes_written": 0,
+                "publish_time(s)": time.perf_counter() - started,
+            }
 
         raise ValueError(f"Unsupported output backend: {task.output_backend}")
 
@@ -216,7 +234,7 @@ class ProverTaskRunner:
         self,
         task: LocalProverTask,
         proof_stages: EZKLProofStages,
-    ) -> ArtifactRef:
+    ) -> Tuple[ArtifactRef, Dict[str, Any]]:
         artifact_sources = {
             "proof.pf": proof_stages.proof_path,
             "witness.json": proof_stages.witness_path,
@@ -231,6 +249,12 @@ class ProverTaskRunner:
                 )
 
         artifact_metadata: Dict[str, Dict[str, Any]] = {}
+        publish_metrics: Dict[str, Any] = {
+            "artifacts": {},
+            "output_bytes_uploaded": 0,
+            "output_bytes_written": 0,
+            "output_publish_time(s)": 0.0,
+        }
         tmp_dir = Path(task.tmp_dir).resolve()
 
         for artifact_name, source_path in artifact_sources.items():
@@ -248,7 +272,12 @@ class ProverTaskRunner:
             else:
                 shutil.copy2(str(source), output_path)
 
-            published_uri = self._publish_file(output_path, task, artifact_name)
+            published_uri, file_metrics = self._publish_file(output_path, task, artifact_name)
+            publish_metrics["artifacts"][artifact_name] = file_metrics
+            publish_metrics["output_bytes_uploaded"] += int(file_metrics.get("bytes_uploaded", 0) or 0)
+            publish_metrics["output_bytes_written"] += int(file_metrics.get("bytes_written", 0) or 0)
+            publish_metrics["output_publish_time(s)"] += float(file_metrics.get("publish_time(s)", 0.0) or 0.0)
+
             artifact_metadata[artifact_name] = {
                 "file": artifact_name,
                 "local_path": output_path,
@@ -266,16 +295,53 @@ class ProverTaskRunner:
             "s3_bucket": task.output_s3_bucket,
             "srs_path": proof_stages.srs_path,
             "artifacts": artifact_metadata,
+            "transfer_metrics": task.transfer_metrics,
+            "output_publish_metrics": publish_metrics,
         }
 
         manifest_path = os.path.join(task.output_dir, "manifest.json")
         with open(manifest_path, "w", encoding="utf-8") as file:
             json.dump(manifest, file, indent=4)
 
-        published_manifest = self._publish_file(manifest_path, task, "manifest.json")
+        published_manifest, manifest_metrics = self._publish_file(manifest_path, task, "manifest.json")
+        publish_metrics["artifacts"]["manifest.json"] = manifest_metrics
+        publish_metrics["output_bytes_uploaded"] += int(manifest_metrics.get("bytes_uploaded", 0) or 0)
+        publish_metrics["output_bytes_written"] += int(manifest_metrics.get("bytes_written", 0) or 0)
+        publish_metrics["output_publish_time(s)"] += float(manifest_metrics.get("publish_time(s)", 0.0) or 0.0)
+
         return ArtifactRef(
             backend=task.output_backend,
             uri=published_manifest,
             s3_bucket=task.output_s3_bucket,
             size_bytes=os.path.getsize(manifest_path),
-        )
+        ), publish_metrics
+
+    @staticmethod
+    def _flatten_transfer_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
+        model = metrics.get("model", {}) or {}
+        input_metrics = metrics.get("input", {}) or {}
+        setup = metrics.get("setup", {}) or {}
+        setup_publish = metrics.get("setup_publish", {}) or {}
+        return {
+            "transfer_model_cache_hit": bool(model.get("cache_hit", False)),
+            "transfer_input_cache_hit": bool(input_metrics.get("cache_hit", False)),
+            "transfer_model_bytes_downloaded": int(model.get("bytes_downloaded", 0) or 0),
+            "transfer_input_bytes_downloaded": int(input_metrics.get("bytes_downloaded", 0) or 0),
+            "transfer_model_bytes_from_local_cache": int(model.get("bytes_from_local_cache", 0) or 0),
+            "transfer_input_bytes_from_local_cache": int(input_metrics.get("bytes_from_local_cache", 0) or 0),
+            "transfer_setup_bytes_downloaded": int(setup.get("bytes_downloaded", 0) or 0),
+            "transfer_setup_bytes_from_local_cache": int(setup.get("bytes_from_local_cache", 0) or 0),
+            "transfer_setup_hydrate_time(s)": float(setup.get("hydrate_time(s)", 0.0) or 0.0),
+            "transfer_pk_decompress_time(s)": float(setup.get("pk_decompress_time(s)", 0.0) or 0.0),
+            "transfer_setup_bytes_uploaded": int(setup_publish.get("bytes_uploaded", 0) or 0),
+            "transfer_setup_publish_time(s)": float(setup_publish.get("publish_time(s)", 0.0) or 0.0),
+            "transfer_pk_compress_time(s)": float(setup_publish.get("pk_compress_time(s)", 0.0) or 0.0),
+        }
+
+    @staticmethod
+    def _flatten_output_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "output_bytes_uploaded": int(metrics.get("output_bytes_uploaded", 0) or 0),
+            "output_bytes_written": int(metrics.get("output_bytes_written", 0) or 0),
+            "output_publish_time(s)": float(metrics.get("output_publish_time(s)", 0.0) or 0.0),
+        }
