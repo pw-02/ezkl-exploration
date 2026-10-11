@@ -13,6 +13,8 @@ coordinator:
   grpc_max_message_mb: 128
   runs_dir: experiments/runs
   logs_dir: logs/coordinator
+  state_store_enabled: true
+  state_db_path: experiments/runs/coordinator_state.sqlite3
 
 worker:
   worker_id: null
@@ -21,6 +23,11 @@ worker:
   job_poll_interval_sec: 5
   resource_monitor_interval_sec: 3
   send_proofs_to_coordinator: false
+
+  # Bounded local cache used for models, inputs, compiled circuits, and hot
+  # proving keys. Set to 0 to disable eviction.
+  local_cache_dir: storage/worker_cache
+  local_cache_max_gb: 100
 
 jobs:
   scheduler: lpt
@@ -38,11 +45,16 @@ storage:
   # storage.backend=s3 storage.s3_bucket=<bucket> for distributed runs.
   backend: filesystem # filesystem | s3
 
-  # Shared storage for coordinator <-> worker communication.
+  # Request-scoped scratch space for coordinator <-> worker communication.
   transfer_prefix: storage/transfer
 
-  # Shared persistent proving cache.
-  proving_cache_enabled: false
+  # Canonical content-addressed artifact store. Large immutable objects are
+  # stored by SHA-256 here and exchanged through ArtifactRef metadata.
+  artifact_prefix: storage/artifacts
+
+  # Shared persistent setup cache namespace. Workers hydrate local hot caches
+  # from this prefix and publish settings/compiled circuits/keys back to it.
+  proving_cache_enabled: true
   proving_cache_prefix: storage/cache
   proving_cache_overwrite: false
 
