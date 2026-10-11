@@ -84,20 +84,40 @@ PUBLISHING_KEYS
 DONE
 ```
 
-Each proof job now runs in its own OS process. The resource logger monitors that prover process and its children, so concurrent local jobs get separate resource files and separate process-tree CPU/RSS measurements.
+When a prover is blocked by local resource admission, the trace records `WAITING_FOR_<STAGE>` instead of attributing the wait to the previous phase.
 
-## Phase-aware node admission
+Each proof job runs in its own OS process. The resource logger monitors that prover process and its children, so concurrent local jobs get separate resource files and separate process-tree CPU/RSS measurements.
 
-Every prover subprocess on a node shares one local interprocess admission gate. Before entering `KEY_GEN` or `PROVING`, the process waits until a heavy-phase permit is available. The number of simultaneous heavy phases is configured with:
+## Resource-aware node admission
+
+The local controller does not use a configured job count or heavy-phase count. Before each major EZKL phase, the prover subprocess requests a resource reservation based on historical measurements for the same `setup_key`.
+
+A successful run feeds values such as:
+
+```text
+stage_key_gen_max_memory(GB)
+stage_key_gen_avg_cpu_machine(%)
+stage_proving_max_memory(GB)
+stage_proving_avg_cpu_machine(%)
+```
+
+back into a node-local profile. Subsequent runs use those observations to estimate the requested phase. With only a few samples zkInfer uses the observed maximum; with more samples it uses the configured percentile.
+
+If no phase history is available, admission falls back to the existing whole-job peak-memory prediction and a conservative CPU estimate. The phase runs only when its predicted demand fits alongside currently reserved phases within the node's memory and CPU budgets.
+
+The switch is:
 
 ```yaml
 node:
-  max_heavy_phases: 1
+  phase_admission:
+    enabled: true
 ```
 
-The fused cold path holds one permit across its combined keygen/prove call because Rust moves directly from one phase into the other without returning to Python. The stage file still changes from `KEY_GEN` to `PROVING`, so resource traces retain the distinction.
+Set it to `false` for the same runtime without phase-level gating. This is the intended experiment baseline.
 
-`phase_admission_wait_time(s)` records how long a job waited for these local permits.
+The fused cold path reserves the larger historical resource envelope of `KEY_GEN` and `PROVING` for the combined Rust call because Python cannot intervene between the two phases. The stage file still changes internally, so resource traces retain the distinction.
+
+Admission metrics include total/stage wait time, predicted memory/CPU, estimate source, and number of historical samples.
 
 ## What to compare after rebuilding
 
@@ -114,4 +134,4 @@ bytes written/read for PK artifacts
 peak memory by stage
 ```
 
-Then use concurrent runs to compare whole-job concurrency against phase-aware admission using throughput, latency, OOM rate, and per-stage memory/CPU traces. The system does not assume that phase-aware admission will help; the measurements should establish when it does.
+Then compare `node.phase_admission.enabled=false` and `true` under the same hardware, workload, partitioning, and global scheduler. Useful outcomes are throughput, request latency, makespan, peak memory, OOM rate, admission wait time, CPU utilization, and prediction error between the reserved and measured stage envelopes.
