@@ -10,7 +10,10 @@ from pathlib import Path
 from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.runtime.models import NodeResources, ProofJob
 from zkinfer.runtime.node.cache import NodeCache
-from zkinfer.runtime.node.phase_admission import PhaseAdmissionGate
+from zkinfer.runtime.node.phase_admission import (
+    HistoricalResourceProfiles,
+    ResourceAdmissionController,
+)
 from zkinfer.runtime.scheduler import JobScheduler
 from zkinfer.runtime.state_store import CoordinatorStateStore
 
@@ -29,11 +32,20 @@ def _job(request_id: str, name: str) -> ProofJob:
     )
 
 
-def _wait_on_phase_gate(root: str, output: mp.Queue) -> None:
-    gate = PhaseAdmissionGate(root, limit=1, poll_interval_s=0.02)
+def _wait_on_resource_admission(root: str, output: mp.Queue) -> None:
+    controller = ResourceAdmissionController(
+        root_dir=root,
+        setup_key="setup-a",
+        enabled=True,
+        memory_reserve_gb=0,
+        cpu_budget_percent=100,
+        fallback_memory_gb=0.01,
+        fallback_cpu_percent=60,
+        poll_interval_s=0.02,
+    )
     started = time.perf_counter()
-    with gate.hold("PROVING") as wait_s:
-        output.put((wait_s, time.perf_counter() - started))
+    with controller.hold("PROVING") as info:
+        output.put((info["wait_time_s"], time.perf_counter() - started))
 
 
 class SchedulerTests(unittest.TestCase):
@@ -124,13 +136,25 @@ class NodeCacheTests(unittest.TestCase):
 
 
 class PhaseAdmissionTests(unittest.TestCase):
-    def test_gate_is_shared_across_processes(self):
+    def test_resource_reservations_are_shared_across_processes(self):
         with tempfile.TemporaryDirectory() as tmp:
-            gate = PhaseAdmissionGate(tmp, limit=1, poll_interval_s=0.02)
+            controller = ResourceAdmissionController(
+                root_dir=tmp,
+                setup_key="setup-a",
+                enabled=True,
+                memory_reserve_gb=0,
+                cpu_budget_percent=100,
+                fallback_memory_gb=0.01,
+                fallback_cpu_percent=60,
+                poll_interval_s=0.02,
+            )
             output: mp.Queue = mp.Queue()
 
-            with gate.hold("PROVING"):
-                child = mp.Process(target=_wait_on_phase_gate, args=(tmp, output))
+            with controller.hold("PROVING"):
+                child = mp.Process(
+                    target=_wait_on_resource_admission,
+                    args=(tmp, output),
+                )
                 child.start()
                 time.sleep(0.15)
                 self.assertTrue(output.empty())
@@ -140,6 +164,42 @@ class PhaseAdmissionTests(unittest.TestCase):
             wait_s, elapsed_s = output.get(timeout=1)
             self.assertGreaterEqual(wait_s, 0.10)
             self.assertGreaterEqual(elapsed_s, 0.10)
+
+    def test_historical_profile_replaces_fallback_estimate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profiles = HistoricalResourceProfiles(Path(tmp) / "profiles")
+            profiles.update_from_metrics(
+                "setup-a",
+                {
+                    "stage_proving_max_memory(GB)": 12.5,
+                    "stage_proving_avg_cpu_machine(%)": 44.0,
+                },
+            )
+            estimate = profiles.estimate(
+                setup_key="setup-a",
+                stage="PROVING",
+                fallback_memory_gb=60.0,
+                fallback_cpu_percent=100.0,
+                percentile=0.90,
+            )
+            self.assertEqual(estimate["source"], "historical")
+            self.assertAlmostEqual(estimate["memory_gb"], 12.5)
+            self.assertAlmostEqual(estimate["cpu_percent"], 44.0)
+
+    def test_admission_can_be_disabled_for_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = ResourceAdmissionController(
+                root_dir=tmp,
+                setup_key="setup-a",
+                enabled=False,
+                memory_reserve_gb=0,
+                cpu_budget_percent=100,
+                fallback_memory_gb=1.0,
+                fallback_cpu_percent=100,
+            )
+            with controller.hold("PROVING") as info:
+                self.assertFalse(info["enabled"])
+                self.assertEqual(info["wait_time_s"], 0.0)
 
 
 if __name__ == "__main__":
