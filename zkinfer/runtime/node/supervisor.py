@@ -95,6 +95,13 @@ class NodeSupervisor:
             max_bytes=self.cfg.node.local_cache_max_bytes,
             default_s3_bucket=self.cfg.artifact_store.s3_bucket or self.cfg.file_transfer.s3_bucket or "",
         )
+        # All prover subprocesses on this node use the same phase gate directory.
+        # The gate itself is an interprocess semaphore (fcntl + holder files),
+        # so this remains correct even though each proof has its own Python/Rust
+        # address space.
+        self.phase_gate_dir = self.cache.root_dir / "phase_gate"
+        self.phase_gate_dir.mkdir(parents=True, exist_ok=True)
+
         self.controller_pool = ThreadPoolExecutor(
             max_workers=self.local_concurrency_limit,
             thread_name_prefix="prover-controller",
@@ -181,6 +188,9 @@ class NodeSupervisor:
         available_gb = float(memory.available) / (1024 ** 3)
         if available_gb <= self.memory_reserve_gb:
             return False
+        # Avoid admitting more work while all configured heavy-phase permits are
+        # already occupied. Jobs that were admitted earlier are additionally
+        # gated inside their prover subprocesses before entering a heavy phase.
         heavy_count = sum(1 for stage in self.active_phases().values() if stage in HEAVY_PHASES)
         return heavy_count < self.max_heavy_phases
 
@@ -426,6 +436,8 @@ class NodeSupervisor:
             model_materialize_time_s=model_materialize_time_s,
             input_materialize_time_s=input_materialize_time_s,
             transfer_metrics=transfer_metrics,
+            phase_gate_dir=str(self.phase_gate_dir),
+            heavy_phase_limit=self.max_heavy_phases,
         )
 
     @staticmethod
