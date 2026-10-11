@@ -32,7 +32,7 @@ class NodeConfig:
     runs_dir: str
     logs_dir: str
     job_poll_interval_sec: int
-    resource_monitor_interval_sec: int
+    resource_monitor_interval_sec: float
     phase_admission: PhaseAdmissionConfig
     local_cache_dir: str
     local_cache_max_bytes: int
@@ -273,7 +273,7 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
             runs_dir=str(node_runs_dir),
             logs_dir=str(node_logs_dir),
             job_poll_interval_sec=int(cfg.node.job_poll_interval_sec),
-            resource_monitor_interval_sec=int(cfg.node.resource_monitor_interval_sec),
+            resource_monitor_interval_sec=max(0.05, float(cfg.node.resource_monitor_interval_sec)),
             phase_admission=phase_admission,
             local_cache_dir=str(node_cache_dir),
             local_cache_max_bytes=_gb_to_bytes(cfg.node.get("local_cache_max_gb", 100)),
