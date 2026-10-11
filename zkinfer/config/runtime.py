@@ -102,6 +102,14 @@ class StateStoreConfig:
 
 
 @dataclass(frozen=True)
+class VerificationConfig:
+    enabled: bool
+    srs_dir: str
+    require_split_chain: bool
+    write_request_manifest: bool
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     coordinator: CoordinatorConfig
     node: NodeConfig
@@ -111,6 +119,7 @@ class RuntimeConfig:
     jobs: JobConfig
     heartbeat: HeartbeatConfig
     state_store: StateStoreConfig
+    verification: VerificationConfig
 
 
 def _resolve_path(path: str) -> Path:
@@ -210,6 +219,16 @@ def _resolve_state_store_config(cfg: DictConfig) -> StateStoreConfig:
     )
 
 
+def _resolve_verification_config(cfg: DictConfig) -> VerificationConfig:
+    verification = cfg.get("verification", {})
+    return VerificationConfig(
+        enabled=bool(verification.get("enabled", False)),
+        srs_dir=str(_resolve_path(verification.get("srs_dir", "srs"))),
+        require_split_chain=bool(verification.get("require_split_chain", False)),
+        write_request_manifest=bool(verification.get("write_request_manifest", True)),
+    )
+
+
 def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) -> RuntimeConfig:
     if cfg.storage.backend not in {"filesystem", "s3"}:
         raise ValueError("storage.backend must be either 'filesystem' or 's3'")
@@ -228,6 +247,7 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
     artifact_store = _resolve_artifact_store_config(cfg)
     proving_cache = _resolve_proving_cache_config(cfg)
     state_store = _resolve_state_store_config(cfg)
+    verification = _resolve_verification_config(cfg)
 
     if process_role == "coordinator":
         coordinator_runs_dir.mkdir(parents=True, exist_ok=True)
@@ -279,4 +299,5 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
             timeout_sec=cfg.heartbeat.timeout_sec,
         ),
         state_store=state_store,
+        verification=verification,
     )
