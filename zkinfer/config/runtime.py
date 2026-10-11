@@ -17,15 +17,23 @@ class CoordinatorConfig:
 
 
 @dataclass(frozen=True)
+class PhaseAdmissionConfig:
+    enabled: bool
+    memory_reserve_gb: float
+    cpu_budget_percent: float
+    profile_percentile: float
+    fallback_cpu_percent: float
+    emergency_process_limit: Optional[int]
+
+
+@dataclass(frozen=True)
 class NodeConfig:
     node_id: Optional[str]
     runs_dir: str
     logs_dir: str
     job_poll_interval_sec: int
     resource_monitor_interval_sec: int
-    local_concurrency_limit: int
-    max_heavy_phases: int
-    memory_reserve_gb: float
+    phase_admission: PhaseAdmissionConfig
     local_cache_dir: str
     local_cache_max_bytes: int
 
@@ -192,6 +200,27 @@ def _resolve_verification_config(cfg: DictConfig) -> VerificationConfig:
     )
 
 
+def _resolve_phase_admission_config(cfg: DictConfig) -> PhaseAdmissionConfig:
+    admission = cfg.node.get("phase_admission", {})
+    emergency_limit = admission.get("emergency_process_limit", None)
+    if emergency_limit is not None:
+        emergency_limit = max(1, int(emergency_limit))
+    return PhaseAdmissionConfig(
+        enabled=bool(admission.get("enabled", True)),
+        memory_reserve_gb=max(0.0, float(admission.get("memory_reserve_gb", 8.0))),
+        cpu_budget_percent=min(
+            100.0, max(1.0, float(admission.get("cpu_budget_percent", 100.0)))
+        ),
+        profile_percentile=min(
+            1.0, max(0.5, float(admission.get("profile_percentile", 0.90)))
+        ),
+        fallback_cpu_percent=min(
+            100.0, max(0.0, float(admission.get("fallback_cpu_percent", 100.0)))
+        ),
+        emergency_process_limit=emergency_limit,
+    )
+
+
 def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) -> RuntimeConfig:
     if cfg.storage.backend not in {"filesystem", "s3"}:
         raise ValueError("storage.backend must be either 'filesystem' or 's3'")
@@ -211,6 +240,7 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
     proving_cache = _resolve_proving_cache_config(cfg)
     state_store = _resolve_state_store_config(cfg)
     verification = _resolve_verification_config(cfg)
+    phase_admission = _resolve_phase_admission_config(cfg)
 
     if process_role == "coordinator":
         coordinator_runs_dir.mkdir(parents=True, exist_ok=True)
@@ -229,12 +259,6 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
         if proving_cache.backend == "filesystem":
             Path(proving_cache.root_dir).mkdir(parents=True, exist_ok=True)
 
-    # local_concurrency_limit supersedes the old max_concurrent_jobs name. Keep
-    # the fallback here so existing config files fail gracefully during upgrade.
-    local_concurrency_limit = int(
-        cfg.node.get("local_concurrency_limit", cfg.node.get("max_concurrent_jobs", 1))
-    )
-
     return RuntimeConfig(
         coordinator=CoordinatorConfig(
             host=cfg.coordinator.host,
@@ -250,9 +274,7 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
             logs_dir=str(node_logs_dir),
             job_poll_interval_sec=int(cfg.node.job_poll_interval_sec),
             resource_monitor_interval_sec=int(cfg.node.resource_monitor_interval_sec),
-            local_concurrency_limit=max(1, local_concurrency_limit),
-            max_heavy_phases=max(1, int(cfg.node.get("max_heavy_phases", local_concurrency_limit))),
-            memory_reserve_gb=max(0.0, float(cfg.node.get("memory_reserve_gb", 8.0))),
+            phase_admission=phase_admission,
             local_cache_dir=str(node_cache_dir),
             local_cache_max_bytes=_gb_to_bytes(cfg.node.get("local_cache_max_gb", 100)),
         ),
