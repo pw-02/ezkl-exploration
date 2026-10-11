@@ -8,7 +8,6 @@ import subprocess
 import sys
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -22,11 +21,12 @@ import zkinfer.proto.zkservice_pb2_grpc as pb_grpc
 from zkinfer.config.runtime import RuntimeConfig, build_runtime_config
 from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.runtime.node.cache import NodeCache
+from zkinfer.runtime.node.phase_admission import (
+    HistoricalResourceProfiles,
+    ResourceAdmissionController,
+)
 from zkinfer.runtime.node.prover_task import LocalProverTask, ProverTaskResult
 from zkinfer.utils.network import get_ip
-
-
-HEAVY_PHASES = {"KEY_GEN", "PROVING", "PERSISTING_KEYS"}
 
 
 def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
@@ -73,10 +73,11 @@ def to_pb_artifact(ref: Optional[ArtifactRef]):
 class NodeSupervisor:
     """One control agent per machine.
 
-    The supervisor owns local storage, admission, isolated prover subprocesses,
-    and coordinator communication. The ThreadPoolExecutor below only manages
-    subprocess lifecycles; EZKL/Halo2 itself never runs in those supervisor
-    threads.
+    The coordinator assigns whole proof jobs. Locally, each proof runs in an
+    isolated subprocess. Concurrency is not expressed as a configured number of
+    workers: stage transitions reserve predicted memory/CPU from historical
+    profiles, so the amount of overlap emerges from node capacity and workload
+    demand.
     """
 
     def __init__(self, runtime_config: RuntimeConfig, logger: Optional[logging.Logger] = None):
@@ -85,9 +86,7 @@ class NodeSupervisor:
         self.logger = logger or logging.getLogger("node-supervisor")
         self.target = f"{self.cfg.coordinator.host}:{self.cfg.coordinator.port}"
         self.poll_interval_sec = self.cfg.node.job_poll_interval_sec
-        self.local_concurrency_limit = max(1, int(self.cfg.node.local_concurrency_limit or 1))
-        self.max_heavy_phases = max(1, int(self.cfg.node.max_heavy_phases or 1))
-        self.memory_reserve_gb = max(0.0, float(self.cfg.node.memory_reserve_gb or 0.0))
+        self.phase_cfg = self.cfg.node.phase_admission
         self.grpc_max_message_bytes = self.cfg.coordinator.grpc_max_message_mb * 1024 * 1024
 
         self.cache = NodeCache(
@@ -95,18 +94,24 @@ class NodeSupervisor:
             max_bytes=self.cfg.node.local_cache_max_bytes,
             default_s3_bucket=self.cfg.artifact_store.s3_bucket or self.cfg.file_transfer.s3_bucket or "",
         )
-        # All prover subprocesses on this node use the same phase gate directory.
-        # The gate itself is an interprocess semaphore (fcntl + holder files),
-        # so this remains correct even though each proof has its own Python/Rust
-        # address space.
-        self.phase_gate_dir = self.cache.root_dir / "phase_gate"
-        self.phase_gate_dir.mkdir(parents=True, exist_ok=True)
-
-        self.controller_pool = ThreadPoolExecutor(
-            max_workers=self.local_concurrency_limit,
-            thread_name_prefix="prover-controller",
+        self.phase_admission_dir = self.cache.root_dir / "phase_admission"
+        self.phase_admission_dir.mkdir(parents=True, exist_ok=True)
+        self.resource_profiles = HistoricalResourceProfiles(
+            self.phase_admission_dir / "profiles"
         )
-        self.active_jobs: Dict[str, Future] = {}
+        # Used only to inspect the reservation set for node-status reporting.
+        self.admission_probe = ResourceAdmissionController(
+            root_dir=str(self.phase_admission_dir),
+            setup_key="__supervisor__",
+            enabled=self.phase_cfg.enabled,
+            memory_reserve_gb=self.phase_cfg.memory_reserve_gb,
+            cpu_budget_percent=self.phase_cfg.cpu_budget_percent,
+            fallback_memory_gb=0.0,
+            fallback_cpu_percent=0.0,
+            profile_percentile=self.phase_cfg.profile_percentile,
+        )
+
+        self.active_jobs: Dict[str, threading.Thread] = {}
         self.active_tasks: Dict[str, LocalProverTask] = {}
         self.active_lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -182,33 +187,62 @@ class NodeSupervisor:
         return {job_id: self._read_task_stage(task) for job_id, task in items}
 
     def can_accept_more_work(self) -> bool:
-        if self.active_job_count() >= self.local_concurrency_limit:
+        emergency_limit = self.phase_cfg.emergency_process_limit
+        if emergency_limit is not None and self.active_job_count() >= emergency_limit:
             return False
+
+        # This is not a concurrency policy. It only avoids asking for another
+        # lease when the machine has already consumed the configured OS/safety
+        # reserve. Fine-grained admission occurs at each prover phase.
         memory = psutil.virtual_memory()
-        available_gb = float(memory.available) / (1024 ** 3)
-        if available_gb <= self.memory_reserve_gb:
-            return False
-        # Avoid admitting more work while all configured heavy-phase permits are
-        # already occupied. Jobs that were admitted earlier are additionally
-        # gated inside their prover subprocesses before entering a heavy phase.
-        heavy_count = sum(1 for stage in self.active_phases().values() if stage in HEAVY_PHASES)
-        return heavy_count < self.max_heavy_phases
+        available_gb = float(memory.available) / (1024**3)
+        return available_gb > self.phase_cfg.memory_reserve_gb
 
     def build_node_status(self):
         memory = psutil.virtual_memory()
         cpu_total = psutil.cpu_count(logical=False) or psutil.cpu_count(logical=True) or 1
         cpu_percent = psutil.cpu_percent(interval=None)
-        cpu_available = max(0.0, float(cpu_total) * (1.0 - cpu_percent / 100.0))
+        actual_available_gb = float(memory.available) / (1024**3)
+        actual_cpu_available = max(0.0, float(cpu_total) * (1.0 - cpu_percent / 100.0))
+
+        reservations = (
+            self.admission_probe.current_reservations()
+            if self.phase_cfg.enabled
+            else {"memory_gb": 0.0, "cpu_percent": 0.0, "count": 0.0}
+        )
+        total_memory_gb = float(memory.total) / (1024**3)
+        resource_available_gb = max(
+            0.0,
+            total_memory_gb
+            - self.phase_cfg.memory_reserve_gb
+            - float(reservations.get("memory_gb") or 0.0),
+        )
+        reported_available_gb = min(
+            max(0.0, actual_available_gb - self.phase_cfg.memory_reserve_gb),
+            resource_available_gb,
+        )
+
+        cpu_from_reservations = max(
+            0.0,
+            float(cpu_total)
+            * (
+                1.0
+                - min(100.0, float(reservations.get("cpu_percent") or 0.0))
+                / 100.0
+            ),
+        )
+        reported_cpu_available = min(actual_cpu_available, cpu_from_reservations)
+
         return pb.NodeStatus(
             node_id=self.node_id,
-            memory_total_gb=float(memory.total) / 1e9,
-            memory_available_gb=float(memory.available) / 1e9,
+            memory_total_gb=total_memory_gb,
+            memory_available_gb=reported_available_gb,
             cpu_total_cores=float(cpu_total),
-            cpu_available_cores=cpu_available,
-            cache_limit_gb=float(self.cfg.node.local_cache_max_bytes) / (1024 ** 3),
-            cache_used_gb=float(self.cache.total_bytes()) / (1024 ** 3),
-            # This field remains in the wire schema for compatibility but is not
-            # used by coordinator admission. Local concurrency stays local.
+            cpu_available_cores=reported_cpu_available,
+            cache_limit_gb=float(self.cfg.node.local_cache_max_bytes) / (1024**3),
+            cache_used_gb=float(self.cache.total_bytes()) / (1024**3),
+            # Retained only because it is still present in the protobuf schema.
+            # Neither coordinator nor node admission uses slot counts.
             max_concurrent_jobs=0,
             active_job_ids=self.active_job_ids(),
             cached_setup_keys=self.cache.cached_setup_keys(),
@@ -269,21 +303,23 @@ class NodeSupervisor:
             if lease.job_id in self.active_jobs:
                 self.logger.warning("Ignoring duplicate lease for active job %s", lease.job_id)
                 return
-            future = self.controller_pool.submit(self.run_lease, lease)
-            self.active_jobs[lease.job_id] = future
-            future.add_done_callback(
-                lambda fut, job_id=lease.job_id: self._finish_active_job(job_id, fut)
+            thread = threading.Thread(
+                target=self._run_lease_thread,
+                args=(lease,),
+                name=f"prover-controller-{lease.job_id[:8]}",
+                daemon=False,
             )
+            self.active_jobs[lease.job_id] = thread
+            thread.start()
         self.logger.info("Started prover subprocess controller for job %s lease=%s", lease.job_id, lease.lease_id)
 
-    def _finish_active_job(self, job_id: str, future: Future) -> None:
-        with self.active_lock:
-            self.active_jobs.pop(job_id, None)
-            self.active_tasks.pop(job_id, None)
+    def _run_lease_thread(self, lease) -> None:
         try:
-            future.result()
-        except Exception:
-            self.logger.error("Prover controller failed after result handling: %s", job_id, exc_info=True)
+            self.run_lease(lease)
+        finally:
+            with self.active_lock:
+                self.active_jobs.pop(lease.job_id, None)
+                self.active_tasks.pop(lease.job_id, None)
 
     def _run_prover_subprocess(self, task: LocalProverTask) -> ProverTaskResult:
         task_file = Path(task.tmp_dir) / "prover_task.json"
@@ -338,7 +374,7 @@ class NodeSupervisor:
 
             # A cold setup key is serialized until the first process has created
             # and published its reusable setup artifacts. Warm jobs only pin the
-            # directory and may execute concurrently subject to node admission.
+            # directory; their execution overlap is decided by resource admission.
             if self.cache.setup_ready(local_task.setup_key):
                 self.cache.pin_setup(local_task.setup_key)
                 setup_pinned = True
@@ -355,6 +391,13 @@ class NodeSupervisor:
                             local_task.setup_cache_dir,
                             from_pb_artifact(lease.setup_cache),
                         )
+
+            # Feed the measured stage envelope back into the node-local history
+            # before another run of this setup key asks for admission.
+            self.resource_profiles.update_from_metrics(
+                local_task.setup_key,
+                result.metrics,
+            )
 
             metrics = {
                 "node_id": self.node_id,
@@ -436,8 +479,13 @@ class NodeSupervisor:
             model_materialize_time_s=model_materialize_time_s,
             input_materialize_time_s=input_materialize_time_s,
             transfer_metrics=transfer_metrics,
-            phase_gate_dir=str(self.phase_gate_dir),
-            heavy_phase_limit=self.max_heavy_phases,
+            phase_admission_dir=str(self.phase_admission_dir),
+            phase_admission_enabled=self.phase_cfg.enabled,
+            phase_memory_reserve_gb=self.phase_cfg.memory_reserve_gb,
+            phase_cpu_budget_percent=self.phase_cfg.cpu_budget_percent,
+            phase_profile_percentile=self.phase_cfg.profile_percentile,
+            phase_fallback_cpu_percent=self.phase_cfg.fallback_cpu_percent,
+            predicted_peak_memory_gb=float(lease.predicted_peak_memory_gb or 0.0),
         )
 
     @staticmethod
@@ -449,6 +497,15 @@ class NodeSupervisor:
             "transfer_setup_publish_eviction_count": int(metrics.get("eviction_count", 0) or 0),
             "transfer_setup_publish_evicted_bytes": int(metrics.get("evicted_bytes", 0) or 0),
         }
+
+    def _join_active_threads(self) -> None:
+        while True:
+            with self.active_lock:
+                threads = list(self.active_jobs.values())
+            if not threads:
+                return
+            for thread in threads:
+                thread.join(timeout=1)
 
     def run(self) -> None:
         self.connect()
@@ -469,7 +526,7 @@ class NodeSupervisor:
         finally:
             self.stop_event.set()
             heartbeat_thread.join(timeout=5)
-            self.controller_pool.shutdown(wait=True)
+            self._join_active_threads()
             if self.channel:
                 self.channel.close()
 
