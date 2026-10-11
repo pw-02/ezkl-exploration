@@ -7,6 +7,7 @@ from zkinfer.config.runtime import ArtifactStoreConfig, ProvingCacheConfig
 from zkinfer.graph.onnx_splitter import split_onnx_model_with_inputs
 from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.runtime.models import ProofJob
+from zkinfer.runtime.resource_profiles import get_profile_estimates, max_stage_memory_gb
 from zkinfer.storage.artifact_store import ArtifactStore
 from zkinfer.storage.io import exists, load_json
 
@@ -29,8 +30,8 @@ class RequestBuilder:
         materialized_partitions = self._load_or_split_model(request)
         jobs: List[ProofJob] = []
 
-        model_store_time = 0.0
-        input_store_time = 0.0
+        total_model_store_time = 0.0
+        total_input_store_time = 0.0
 
         for partition in materialized_partitions:
             setup_cache_uri = self._build_setup_cache_uri(
@@ -50,6 +51,7 @@ class RequestBuilder:
             )
             output_prefix_ref = self._artifact_prefix_ref(artifact_store_config, output_prefix_uri)
 
+            model_write_time = 0.0
             if transfer_only:
                 profiling_file_path = None
                 profiling_data = {}
@@ -63,30 +65,36 @@ class RequestBuilder:
                     profiling_file_path=profiling_file_path,
                     proving_cache=proving_cache,
                 )
-                predicted_duration_s = float(profiling_data.get("job_runtime(s)", 0.0) or 0.0)
+                profile_estimates = get_profile_estimates(profiling_data)
+                predicted_duration_s = float(
+                    profile_estimates.get("job_runtime_s")
+                    or profiling_data.get("job_runtime(s)", 0.0)
+                    or 0.0
+                )
                 predicted_peak_memory_gb = float(
-                    profiling_data.get(
-                        "max_process_memory(GB)",
-                        profiling_data.get("max_system_memory(GB)", 0.0),
-                    )
+                    max_stage_memory_gb(profiling_data)
+                    or profiling_data.get("max_process_memory(GB)")
+                    or profiling_data.get("max_system_memory(GB)")
                     or 0.0
                 )
 
-                start = time.perf_counter()
+                started = time.perf_counter()
                 model_ref = artifact_store.put_bytes(
                     partition.model.SerializeToString(),
                     kind="model",
                     filename=f"{partition.name}.onnx",
                 )
-                model_store_time += time.perf_counter() - start
+                model_write_time = time.perf_counter() - started
+                total_model_store_time += model_write_time
 
-            start = time.perf_counter()
+            started = time.perf_counter()
             input_ref = artifact_store.put_json(
                 partition.input_data,
                 kind="input",
                 filename=f"{partition.name}.json",
             )
-            input_store_time += time.perf_counter() - start
+            input_write_time = time.perf_counter() - started
+            total_input_store_time += input_write_time
 
             job = ProofJob(
                 inference_request_name=request.name,
@@ -97,8 +105,8 @@ class RequestBuilder:
                 setup_cache_ref=setup_cache_ref,
                 output_prefix_ref=output_prefix_ref,
                 profiling_file_path=profiling_file_path,
-                model_write_time=model_store_time,
-                input_write_time=0.0,
+                model_write_time=model_write_time,
+                input_write_time=input_write_time,
                 profiling_data=profiling_data,
                 predicted_duration_s=predicted_duration_s,
                 predicted_peak_memory_gb=predicted_peak_memory_gb,
@@ -109,17 +117,17 @@ class RequestBuilder:
             )
             jobs.append(job)
 
-        request.preparation_metrics["artifact_model_store_time(s)"] = model_store_time
-        request.preparation_metrics["artifact_input_store_time(s)"] = input_store_time
-        request.preparation_metrics["input_upload_wall_time(s)"] = input_store_time
-        request.preparation_metrics["input_upload_service_time(s)"] = input_store_time
+        request.preparation_metrics["artifact_model_store_time(s)"] = total_model_store_time
+        request.preparation_metrics["artifact_input_store_time(s)"] = total_input_store_time
+        request.preparation_metrics["input_upload_wall_time(s)"] = total_input_store_time
+        request.preparation_metrics["input_upload_service_time(s)"] = total_input_store_time
         request.preparation_metrics["input_upload_workers"] = 1
 
         self.logger.info(
             "Materialized %d jobs into content-addressed artifact store in %.3fs model + %.3fs input",
             len(jobs),
-            model_store_time,
-            input_store_time,
+            total_model_store_time,
+            total_input_store_time,
         )
         return jobs
 
