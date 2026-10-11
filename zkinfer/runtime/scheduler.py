@@ -2,15 +2,18 @@ from collections import defaultdict
 from typing import Iterable, List, Optional
 
 from zkinfer.runtime.models import NodeResources, ProofJob
+from zkinfer.runtime.resource_profiles import (
+    get_stage_estimate,
+    max_stage_memory_gb,
+)
 
 
 class JobScheduler:
-    """Resource-aware, request-fair ready-queue scheduler.
+    """Request-fair scheduler with resource- and cache-aware placement.
 
-    Nodes report fresh resources when polling. The coordinator chooses one
-    feasible proof job; local concurrency remains a node-supervisor concern.
-    Fairness is enforced across inference requests before applying the selected
-    within-request ranking policy.
+    The coordinator leases whole proof jobs to nodes. Historical stage resource
+    profiles are used to decide whether a job can start useful work on the node
+    now. Node-local admission remains responsible for each later stage transition.
     """
 
     def __init__(self, policy: str = "fifo"):
@@ -42,8 +45,6 @@ class JobScheduler:
         return job
 
     def requeue(self, job: ProofJob) -> None:
-        # Queue order is intentionally simple. Fairness and policy are evaluated
-        # against the fresh node state at dispatch time.
         self._queue.append(job)
 
     def _select_index(self, node: NodeResources) -> Optional[int]:
@@ -55,8 +56,8 @@ class JobScheduler:
         if not feasible:
             return None
 
-        # First choose the least-served request. Last-dispatch breaks ties so
-        # requests with equal service counts rotate rather than stick to one.
+        # Fairness is applied before within-request ranking so a large request
+        # cannot monopolize the cluster simply because it has more ready jobs.
         request_ids = {job.inference_request_id for _, job in feasible}
         chosen_request = min(
             request_ids,
@@ -84,20 +85,64 @@ class JobScheduler:
             idx, job = item
             cache_hit = 1 if job.artifact_key in cached else 0
             duration = job.predicted_duration_s or 0.0
-            memory = job.predicted_peak_memory_gb or 0.0
-            memory_slack = max(node.memory_available_gb - memory, 0.0)
+            start_memory = self._starting_stage_memory_gb(job)
+            if start_memory <= 0.0:
+                start_memory = job.predicted_peak_memory_gb or 0.0
+            memory_slack = max(node.memory_available_gb - start_memory, 0.0)
+
             if self.policy == "cache_aware":
-                return (cache_hit, duration, -idx)
+                return (cache_hit, duration, -memory_slack, -idx)
+
+            # resource_aware uses best-fit memory packing after cache locality.
+            # A smaller positive slack means this job makes better use of the
+            # memory the polling node reports as currently available.
             return (cache_hit, -memory_slack, duration, -idx)
 
         return max(candidates, key=score)[0]
 
     @staticmethod
-    def _fits_node(job: ProofJob, node: NodeResources) -> bool:
-        required_memory = job.predicted_peak_memory_gb or 0.0
-        if required_memory > 0 and node.memory_available_gb > 0:
-            if required_memory > node.memory_available_gb:
+    def _starting_stage(job: ProofJob) -> str:
+        # A persisted profile means this setup key has completed before and its
+        # reusable setup artifacts should exist in shared storage. The node may
+        # still need to restore them locally, but proof computation can start at
+        # witness generation once that restore completes.
+        return "GENERATING_WITNESS" if job.profiling_data else "CALIBRATING"
+
+    @classmethod
+    def _starting_stage_memory_gb(cls, job: ProofJob) -> float:
+        estimate = get_stage_estimate(job.profiling_data, cls._starting_stage(job))
+        try:
+            return max(0.0, float(estimate.get("memory_gb") or 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    @classmethod
+    def _fits_node(cls, job: ProofJob, node: NodeResources) -> bool:
+        """Check permanent feasibility and whether the job can start now.
+
+        Later high-memory stages are intentionally not required to fit the node's
+        *current* free memory. The node-local admission controller can wait for
+        those stages when other work releases resources. We only reject a job if
+        its predicted peak cannot fit the machine at all, or if its first useful
+        stage cannot fit the node's currently reported capacity.
+        """
+        predicted_peak = max_stage_memory_gb(job.profiling_data)
+        if predicted_peak <= 0.0:
+            predicted_peak = max(0.0, float(job.predicted_peak_memory_gb or 0.0))
+
+        if predicted_peak > 0.0 and node.memory_total_gb > 0.0:
+            if predicted_peak > node.memory_total_gb:
                 return False
+
+        start_memory = cls._starting_stage_memory_gb(job)
+        if start_memory <= 0.0:
+            # Without stage history, keep the conservative whole-job check.
+            start_memory = predicted_peak
+
+        if start_memory > 0.0 and node.memory_available_gb > 0.0:
+            if start_memory > node.memory_available_gb:
+                return False
+
         return True
 
     def clear(self) -> None:
