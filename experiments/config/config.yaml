@@ -3,33 +3,42 @@ defaults:
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
 
-# python experiments/run_local_exp.py suite.workloads='[mnist_classifier,mobilenet_v2]'
+# Example:
+# python experiments/run_local_exp.py \
+#   suite.workloads='[mnist_gan,mobilenet_v2]' \
+#   node.local_concurrency_limit=2 node.max_heavy_phases=1
+
 suite:
   workloads:
-    # - mnist_classifier, 
-     - mnist_gan
-    #  - mobilenet_v2
-    # - mnist_gan
+    - mnist_gan
 
 execution:
-  split_mode: fixed #none, fixed, auto
+  split_mode: fixed # none | fixed | auto
   ops_per_chunk: 1
   simplify_model: true
 
 jobs:
   scheduler: lpt
 
+# One local NodeSupervisor represents this machine. Increase local concurrency
+# to study concurrent prover subprocesses; max_heavy_phases controls how many of
+# them may simultaneously enter key generation/proving.
+node:
+  node_id: local-node
+  local_concurrency_limit: 1
+  max_heavy_phases: 1
+  memory_reserve_gb: 8
+
 launch:
-  num_workers: 1
   coordinator_host: localhost
   coordinator_port: 50051
   coordinator_ready_timeout_sec: 30
-  worker_startup_delay_sec: 1
-  shutdown_when_done: true
+  node_startup_delay_sec: 1
   poll_completion_interval_sec: 5
 
 paths:
   runs_dir: experiments/runs
+
 hydra:
   run:
     dir: .
