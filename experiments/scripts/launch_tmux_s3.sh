@@ -2,12 +2,11 @@
 
 set -euo pipefail
 
-LOCAL_CONCURRENCY="${1:-1}"
-WORKLOAD="${2:-mnist_gan}"
-COORDINATOR_HOST="${3:-127.0.0.1}"
-COORDINATOR_PORT="${4:-50051}"
-OPS_PER_CHUNK="${5:-1}"
-HEAVY_PHASE_LIMIT="${6:-${LOCAL_CONCURRENCY}}"
+WORKLOAD="${1:-mnist_gan}"
+COORDINATOR_HOST="${2:-127.0.0.1}"
+COORDINATOR_PORT="${3:-50051}"
+OPS_PER_CHUNK="${4:-1}"
+PHASE_ADMISSION="${5:-true}"
 
 SESSION="${TMUX_SESSION:-zkexp}"
 CONDA_ENV="${CONDA_ENV:-zk}"
@@ -15,13 +14,14 @@ S3_BUCKET="${ZKINFER_S3_BUCKET:-zkinfer}"
 S3_PREFIX="${ZKINFER_S3_PREFIX:-zkinfer-reviewer}"
 ROOT_DIR="$(pwd)"
 
-for value_name in LOCAL_CONCURRENCY OPS_PER_CHUNK HEAVY_PHASE_LIMIT; do
-    value="${!value_name}"
-    if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
-        echo "Error: ${value_name,,} must be a positive integer."
-        exit 1
-    fi
-done
+if [[ ! "$OPS_PER_CHUNK" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: ops_per_chunk must be a positive integer."
+    exit 1
+fi
+if [[ "$PHASE_ADMISSION" != "true" && "$PHASE_ADMISSION" != "false" ]]; then
+    echo "Error: phase_admission must be true or false."
+    exit 1
+fi
 if [[ -z "$S3_BUCKET" ]]; then
     echo "Error: ZKINFER_S3_BUCKET is not set."
     exit 1
@@ -31,7 +31,7 @@ if [[ ! -f "${ROOT_DIR}/experiments/submit_job.py" ]]; then
     exit 1
 fi
 
-RUN_ID="$(date -u +%Y-%m-%d_%H-%M-%S)_${WORKLOAD}_g${OPS_PER_CHUNK}_c${LOCAL_CONCURRENCY}_h${HEAVY_PHASE_LIMIT}"
+RUN_ID="$(date -u +%Y-%m-%d_%H-%M-%S)_${WORKLOAD}_g${OPS_PER_CHUNK}_admission-${PHASE_ADMISSION}"
 CAMPAIGN_DIR="${ROOT_DIR}/experiments/runs/${RUN_ID}"
 REQUESTS_DIR="${CAMPAIGN_DIR}/requests"
 LOGS_DIR="${CAMPAIGN_DIR}/logs"
@@ -56,8 +56,7 @@ coordinator.logs_dir=${LOGS_DIR} \
 node.runs_dir=${REQUESTS_DIR} \
 node.logs_dir=${LOGS_DIR} \
 node.local_cache_dir=${NODE_CACHE_DIR} \
-node.local_concurrency_limit=${LOCAL_CONCURRENCY} \
-node.max_heavy_phases=${HEAVY_PHASE_LIMIT} \
+node.phase_admission.enabled=${PHASE_ADMISSION} \
 storage.backend=s3 \
 storage.s3_bucket=${S3_BUCKET} \
 storage.s3_prefix=${S3_PREFIX} \
@@ -108,8 +107,7 @@ tmux send-keys -t "$SESSION:submit" \
     "${BASE_CMD} && \
     echo 'Campaign directory: ${CAMPAIGN_DIR}' && \
     echo 'Workload: ${WORKLOAD}' && \
-    echo 'Local concurrency: ${LOCAL_CONCURRENCY}' && \
-    echo 'Heavy phase limit: ${HEAVY_PHASE_LIMIT}' && \
+    echo 'Phase admission: ${PHASE_ADMISSION}' && \
     echo 'ops_per_chunk: ${OPS_PER_CHUNK}' && \
     python experiments/submit_job.py \
     +workload=${WORKLOAD} \
@@ -122,5 +120,5 @@ tmux send-keys -t "$SESSION:submit" \
 echo "Started tmux session: ${SESSION}"
 echo "Campaign directory: ${CAMPAIGN_DIR}"
 echo "S3 location: s3://${S3_BUCKET}/${S3_PREFIX}"
-echo "Local concurrency: ${LOCAL_CONCURRENCY}; heavy phase limit: ${HEAVY_PHASE_LIMIT}"
+echo "Phase admission: ${PHASE_ADMISSION}"
 tmux attach -t "$SESSION"
