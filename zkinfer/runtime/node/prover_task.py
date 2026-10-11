@@ -19,6 +19,7 @@ from zkinfer.profiling.msm_fft_parser import (
 )
 from zkinfer.profiling.resource_parser import parse_resource_usage_file
 from zkinfer.runtime.data_plane import ArtifactRef
+from zkinfer.runtime.node.phase_admission import PhaseAdmissionGate
 from zkinfer.storage.s3 import upload_file
 
 
@@ -41,6 +42,8 @@ class LocalProverTask:
     model_materialize_time_s: float = 0.0
     input_materialize_time_s: float = 0.0
     transfer_metrics: Dict[str, Any] = field(default_factory=dict)
+    phase_gate_dir: str = ""
+    heavy_phase_limit: int = 1
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -77,11 +80,42 @@ class ProverTaskResult:
         )
 
 
+class PhaseAwareEZKLProofStages(EZKLProofStages):
+    """EZKL stages with node-local admission around memory-heavy phases."""
+
+    def __init__(self, *args, phase_gate: PhaseAdmissionGate, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.phase_gate = phase_gate
+        self.phase_admission_wait_s = 0.0
+
+    def _hold_heavy_phase(self, stage: str):
+        return self.phase_gate.hold(stage)
+
+    def gen_keys(self):
+        with self._hold_heavy_phase("KEY_GEN") as wait_s:
+            self.phase_admission_wait_s += wait_s
+            return super().gen_keys()
+
+    def compute_proof(self):
+        with self._hold_heavy_phase("PROVING") as wait_s:
+            self.phase_admission_wait_s += wait_s
+            return super().compute_proof()
+
+    def setup_and_compute_proof(self) -> Dict[str, float]:
+        # The fused Rust call transitions from key generation directly into
+        # proving without returning to Python. Reserve one heavy-phase token for
+        # the whole fused region; stage logging still distinguishes KEY_GEN and
+        # PROVING in resource_usage.csv.
+        with self._hold_heavy_phase("FUSED_KEYGEN_PROVE") as wait_s:
+            self.phase_admission_wait_s += wait_s
+            return super().setup_and_compute_proof()
+
+
 class ProverTaskRunner:
     """Execute one proof using local paths only.
 
-    This runner is intended to execute inside an isolated OS process. It has no
-    coordinator or cache-management responsibilities.
+    This runner executes inside an isolated OS process. It has no coordinator or
+    node-cache policy responsibilities.
     """
 
     def __init__(self, logger: Optional[logging.Logger] = None):
@@ -100,6 +134,8 @@ class ProverTaskRunner:
         try:
             proof_stages = self._build_proof_stages(task, status_file)
             ezkl_metrics, _ = proof_stages.run_all(setup_only=False)
+            ezkl_metrics["phase_admission_wait_time(s)"] = proof_stages.phase_admission_wait_s
+
             metrics = self._collect_metrics(
                 task=task,
                 resource_usage_file=resource_usage_file,
@@ -165,8 +201,17 @@ class ProverTaskRunner:
         except Exception:
             process.kill()
 
-    def _build_proof_stages(self, task: LocalProverTask, status_file: str) -> EZKLProofStages:
-        return EZKLProofStages(
+    def _build_proof_stages(
+        self,
+        task: LocalProverTask,
+        status_file: str,
+    ) -> PhaseAwareEZKLProofStages:
+        phase_gate_dir = task.phase_gate_dir or os.path.join(task.tmp_dir, "phase-gate")
+        gate = PhaseAdmissionGate(
+            root_dir=phase_gate_dir,
+            limit=task.heavy_phase_limit,
+        )
+        return PhaseAwareEZKLProofStages(
             input_data_path=task.input_path,
             onnx_model_path=task.model_path,
             artifact_dir=task.output_dir,
@@ -179,6 +224,7 @@ class ProverTaskRunner:
             status_file=status_file,
             local_tmp_dir=task.tmp_dir,
             logger=self.logger,
+            phase_gate=gate,
         )
 
     def _collect_metrics(
@@ -222,7 +268,10 @@ class ProverTaskRunner:
             return os.path.abspath(str(a)) == os.path.abspath(str(b))
 
     def _publish_file(
-        self, local_path: str, task: LocalProverTask, artifact_name: str
+        self,
+        local_path: str,
+        task: LocalProverTask,
+        artifact_name: str,
     ) -> Tuple[str, Dict[str, Any]]:
         started = time.perf_counter()
         size_bytes = os.path.getsize(local_path)
@@ -251,10 +300,13 @@ class ProverTaskRunner:
                 "bytes_written": 0,
                 "publish_time(s)": time.perf_counter() - started,
             }
+
         raise ValueError(f"Unsupported output backend: {task.output_backend}")
 
     def _publish_job_artifacts(
-        self, task: LocalProverTask, proof_stages: EZKLProofStages
+        self,
+        task: LocalProverTask,
+        proof_stages: EZKLProofStages,
     ) -> Tuple[ArtifactRef, Dict[str, Any]]:
         artifact_sources = {
             "proof.pf": proof_stages.proof_path,
@@ -292,11 +344,21 @@ class ProverTaskRunner:
                 else:
                     shutil.copy2(str(source), output_path)
 
-            published_uri, file_metrics = self._publish_file(output_path, task, artifact_name)
+            published_uri, file_metrics = self._publish_file(
+                output_path,
+                task,
+                artifact_name,
+            )
             publish_metrics["artifacts"][artifact_name] = file_metrics
-            publish_metrics["output_bytes_uploaded"] += int(file_metrics.get("bytes_uploaded", 0) or 0)
-            publish_metrics["output_bytes_written"] += int(file_metrics.get("bytes_written", 0) or 0)
-            publish_metrics["output_publish_time(s)"] += float(file_metrics.get("publish_time(s)", 0.0) or 0.0)
+            publish_metrics["output_bytes_uploaded"] += int(
+                file_metrics.get("bytes_uploaded", 0) or 0
+            )
+            publish_metrics["output_bytes_written"] += int(
+                file_metrics.get("bytes_written", 0) or 0
+            )
+            publish_metrics["output_publish_time(s)"] += float(
+                file_metrics.get("publish_time(s)", 0.0) or 0.0
+            )
             artifact_metadata[artifact_name] = {
                 "file": artifact_name,
                 "local_path": output_path,
@@ -321,11 +383,21 @@ class ProverTaskRunner:
         with open(manifest_path, "w", encoding="utf-8") as file:
             json.dump(manifest, file, indent=4)
 
-        published_manifest, manifest_metrics = self._publish_file(manifest_path, task, "manifest.json")
+        published_manifest, manifest_metrics = self._publish_file(
+            manifest_path,
+            task,
+            "manifest.json",
+        )
         publish_metrics["artifacts"]["manifest.json"] = manifest_metrics
-        publish_metrics["output_bytes_uploaded"] += int(manifest_metrics.get("bytes_uploaded", 0) or 0)
-        publish_metrics["output_bytes_written"] += int(manifest_metrics.get("bytes_written", 0) or 0)
-        publish_metrics["output_publish_time(s)"] += float(manifest_metrics.get("publish_time(s)", 0.0) or 0.0)
+        publish_metrics["output_bytes_uploaded"] += int(
+            manifest_metrics.get("bytes_uploaded", 0) or 0
+        )
+        publish_metrics["output_bytes_written"] += int(
+            manifest_metrics.get("bytes_written", 0) or 0
+        )
+        publish_metrics["output_publish_time(s)"] += float(
+            manifest_metrics.get("publish_time(s)", 0.0) or 0.0
+        )
 
         return ArtifactRef(
             backend=task.output_backend,
@@ -344,12 +416,22 @@ class ProverTaskRunner:
             "transfer_input_cache_hit": bool(input_metrics.get("cache_hit", False)),
             "transfer_model_bytes_downloaded": int(model.get("bytes_downloaded", 0) or 0),
             "transfer_input_bytes_downloaded": int(input_metrics.get("bytes_downloaded", 0) or 0),
-            "transfer_model_bytes_from_local_cache": int(model.get("bytes_from_local_cache", 0) or 0),
-            "transfer_input_bytes_from_local_cache": int(input_metrics.get("bytes_from_local_cache", 0) or 0),
+            "transfer_model_bytes_from_local_cache": int(
+                model.get("bytes_from_local_cache", 0) or 0
+            ),
+            "transfer_input_bytes_from_local_cache": int(
+                input_metrics.get("bytes_from_local_cache", 0) or 0
+            ),
             "transfer_setup_bytes_downloaded": int(setup.get("bytes_downloaded", 0) or 0),
-            "transfer_setup_bytes_from_local_cache": int(setup.get("bytes_from_local_cache", 0) or 0),
-            "transfer_setup_restore_time(s)": float(setup.get("restore_time(s)", 0.0) or 0.0),
-            "transfer_pk_decompress_time(s)": float(setup.get("pk_decompress_time(s)", 0.0) or 0.0),
+            "transfer_setup_bytes_from_local_cache": int(
+                setup.get("bytes_from_local_cache", 0) or 0
+            ),
+            "transfer_setup_restore_time(s)": float(
+                setup.get("restore_time(s)", 0.0) or 0.0
+            ),
+            "transfer_pk_decompress_time(s)": float(
+                setup.get("pk_decompress_time(s)", 0.0) or 0.0
+            ),
         }
 
     @staticmethod
@@ -357,5 +439,7 @@ class ProverTaskRunner:
         return {
             "output_bytes_uploaded": int(metrics.get("output_bytes_uploaded", 0) or 0),
             "output_bytes_written": int(metrics.get("output_bytes_written", 0) or 0),
-            "output_publish_time(s)": float(metrics.get("output_publish_time(s)", 0.0) or 0.0),
+            "output_publish_time(s)": float(
+                metrics.get("output_publish_time(s)", 0.0) or 0.0
+            ),
         }
