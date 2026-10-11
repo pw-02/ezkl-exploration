@@ -82,10 +82,15 @@ def write_job_report(
         "transfer_only": perf_metrics.get("transfer_only", False),
     }
 
-    # Preserve phase-level measurements in the human-facing report without
-    # hard-coding every stage name.
+    # Preserve stage/resource/data-movement measurements without hard-coding
+    # every field emitted by the prover runtime.
     for key, value in perf_metrics.items():
-        if key.startswith("stage_") or key.startswith("transfer_") or key.startswith("output_"):
+        if (
+            key.startswith("stage_")
+            or key.startswith("phase_")
+            or key.startswith("transfer_")
+            or key.startswith("output_")
+        ):
             report[key] = value
 
     write_dict_to_csv(report, os.path.join(out_dir, "job_report.csv"))
@@ -131,6 +136,10 @@ def write_request_report(request, out_dir: str = "reports") -> Dict[str, Any]:
         "agg_ezkl_setup_time(s)": _safe_sum(job_data, "ezkl_setup_time(s)"),
         "agg_ezkl_key_gen_time(s)": _safe_sum(job_data, "ezkl_key_gen_time(s)"),
         "agg_ezkl_proof_time(s)": _safe_sum(job_data, "ezkl_proof_time(s)"),
+        "agg_phase_admission_wait_time(s)": _safe_sum(
+            job_data,
+            "phase_admission_wait_time(s)",
+        ),
         "agg_fft_time(s)": _safe_sum(job_data, "fft_total_time(s)"),
         "agg_msm_time(s)": _safe_sum(job_data, "msm_total_time(s)"),
         "max_system_memory(GB)": _safe_max(job_data, "max_system_memory(GB)"),
