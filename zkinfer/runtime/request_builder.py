@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 
 from zkinfer.config.runtime import FileTransferConfig, ProvingCacheConfig
 from zkinfer.graph.onnx_splitter import split_onnx_model_with_inputs
-from zkinfer.runtime.models import ProofJob
+from zkinfer.runtime.models import ArtifactRef, ProofJob
 from zkinfer.storage.io import (
     exists,
     load_json,
@@ -45,15 +45,8 @@ class RequestBuilder:
                 item.sub_hash,
             )
 
-            model_file_path = os.path.join(
-                job_dir,
-                "model.onnx",
-            )
-
-            input_file_path = os.path.join(
-                job_dir,
-                "input.json",
-            )
+            model_file_path = os.path.join(job_dir, "model.onnx")
+            input_file_path = os.path.join(job_dir, "input.json")
 
             cache_path = self._build_cache_path(
                 request=request,
@@ -63,19 +56,23 @@ class RequestBuilder:
                 model_hash=item.sub_hash,
             )
 
+            output_prefix = os.path.join(
+                file_transfer.root_dir,
+                request.request_id,
+                "artifacts",
+                "jobs",
+                f"{item.name}_{item.sub_hash[:8]}",
+            )
+
             if transfer_only:
-                # The transfer-only benchmark measures request inputs.
-                # Model transfer and proving profiles are therefore skipped.
                 model_write_time = 0.0
                 profiling_file_path = None
                 profiling_data = {}
                 predicted_duration = 0.0
+                predicted_peak_memory_gb = 0.0
 
             else:
-                profiling_file_path = os.path.join(
-                    cache_path,
-                    "profiling.json",
-                )
+                profiling_file_path = os.path.join(cache_path, "profiling.json")
 
                 model_write_time = self._save_model_if_needed(
                     model_proto=item.model,
@@ -90,38 +87,49 @@ class RequestBuilder:
                 )
 
                 predicted_duration = float(
+                    profiling_data.get("job_runtime(s)", 0.0) or 0.0
+                )
+
+                predicted_peak_memory_gb = float(
                     profiling_data.get(
-                        "job_runtime(s)",
-                        0.0,
+                        "max_process_memory(GB)",
+                        profiling_data.get("max_system_memory(GB)", 0.0),
                     )
                     or 0.0
                 )
+
+            model_ref = self._artifact_ref(file_transfer, model_file_path)
+            input_ref = self._artifact_ref(file_transfer, input_file_path)
+            cache_ref = self._artifact_ref(
+                proving_cache,
+                cache_path,
+            )
+            output_prefix_ref = self._artifact_ref(file_transfer, output_prefix)
 
             job = ProofJob(
                 inference_request_name=request.name,
                 model_name=item.name,
                 inference_request_id=request.request_id,
-                model_path=model_file_path,
-                input_path=input_file_path,
+                model_ref=model_ref,
+                input_ref=input_ref,
+                cache_ref=cache_ref,
+                output_prefix_ref=output_prefix_ref,
                 profiling_file_path=profiling_file_path,
                 model_write_time=(
-                    model_write_time
-                    if file_transfer.backend == "s3"
-                    else 0.0
+                    model_write_time if file_transfer.backend == "s3" else 0.0
                 ),
                 input_write_time=0.0,
                 profiling_data=profiling_data,
                 predicted_duration=predicted_duration,
+                predicted_peak_memory_gb=predicted_peak_memory_gb,
+                artifact_key=item.sub_hash,
                 max_retries=max_retries,
                 parent_model_hash=item.parent_hash,
                 model_hash=item.sub_hash,
-                cache_path=cache_path,
             )
 
             jobs.append(job)
 
-            # Delay the input upload until every job has been constructed.
-            # The pending inputs are uploaded concurrently below.
             pending_input_uploads.append(
                 (
                     job,
@@ -138,6 +146,14 @@ class RequestBuilder:
 
         return jobs
 
+    @staticmethod
+    def _artifact_ref(config, uri: str) -> ArtifactRef:
+        return ArtifactRef(
+            backend=config.backend,
+            uri=uri,
+            s3_bucket=config.s3_bucket or "",
+        )
+
     def _save_inputs(
         self,
         pending_input_uploads,
@@ -145,38 +161,22 @@ class RequestBuilder:
         preparation_metrics: Dict[str, Any],
     ) -> None:
         if not pending_input_uploads:
-            preparation_metrics[
-                "input_upload_wall_time(s)"
-            ] = 0.0
-
-            preparation_metrics[
-                "input_upload_service_time(s)"
-            ] = 0.0
-
-            preparation_metrics[
-                "input_upload_workers"
-            ] = 0
-
+            preparation_metrics["input_upload_wall_time(s)"] = 0.0
+            preparation_metrics["input_upload_service_time(s)"] = 0.0
+            preparation_metrics["input_upload_workers"] = 0
             return
 
         # Concurrent uploads are useful for S3. Keep filesystem writes
         # sequential to avoid unnecessary local I/O contention.
         if file_transfer.backend == "s3":
-            upload_workers = min(
-                self.input_upload_workers,
-                len(pending_input_uploads),
-            )
+            upload_workers = min(self.input_upload_workers, len(pending_input_uploads))
         else:
             upload_workers = 1
 
         upload_start = time.perf_counter()
 
         if upload_workers == 1:
-            for (
-                job,
-                input_data,
-                input_file_path,
-            ) in pending_input_uploads:
+            for job, input_data, input_file_path in pending_input_uploads:
                 duration = self._save_input(
                     input_data=input_data,
                     input_file_path=input_file_path,
@@ -198,39 +198,19 @@ class RequestBuilder:
                         input_file_path,
                         file_transfer,
                     ): job
-                    for (
-                        job,
-                        input_data,
-                        input_file_path,
-                    ) in pending_input_uploads
+                    for job, input_data, input_file_path in pending_input_uploads
                 }
 
                 for future in as_completed(future_to_job):
                     job = future_to_job[future]
-
-                    # Calling result() also propagates upload failures.
                     job.input_write_time = future.result()
 
-        input_upload_wall_time = (
-            time.perf_counter() - upload_start
-        )
+        input_upload_wall_time = time.perf_counter() - upload_start
+        input_upload_service_time = sum(job.input_write_time for job, _, _ in pending_input_uploads)
 
-        input_upload_service_time = sum(
-            job.input_write_time
-            for job, _, _ in pending_input_uploads
-        )
-
-        preparation_metrics[
-            "input_upload_wall_time(s)"
-        ] = input_upload_wall_time
-
-        preparation_metrics[
-            "input_upload_service_time(s)"
-        ] = input_upload_service_time
-
-        preparation_metrics[
-            "input_upload_workers"
-        ] = upload_workers
+        preparation_metrics["input_upload_wall_time(s)"] = input_upload_wall_time
+        preparation_metrics["input_upload_service_time(s)"] = input_upload_service_time
+        preparation_metrics["input_upload_workers"] = upload_workers
 
         self.logger.info(
             "Saved %d job inputs using %d upload workers in %.3fs "
@@ -242,21 +222,14 @@ class RequestBuilder:
         )
 
     def _load_or_split_model(self, request):
-        split_mode = (
-            request.split_mode or "none"
-        ).lower()
+        split_mode = (request.split_mode or "none").lower()
 
         self.logger.info(
-            "Preparing request %s using split_mode=%s "
-            "ops_per_chunk=%s simplify_model=%s",
+            "Preparing request %s using split_mode=%s ops_per_chunk=%s simplify_model=%s",
             request.request_id,
             split_mode,
             request.ops_per_chunk,
-            getattr(
-                request,
-                "simplify_model",
-                False,
-            ),
+            getattr(request, "simplify_model", False),
         )
 
         return split_onnx_model_with_inputs(
@@ -264,21 +237,9 @@ class RequestBuilder:
             input_data_path=request.input_data_path,
             split_mode=split_mode,
             split_group_size=request.ops_per_chunk,
-            simplify_model=getattr(
-                request,
-                "simplify_model",
-                False,
-            ),
-            simplified_model_path=getattr(
-                request,
-                "simplified_model_path",
-                None,
-            ),
-            input_shapes=getattr(
-                request,
-                "input_shapes",
-                None,
-            ),
+            simplify_model=getattr(request, "simplify_model", False),
+            simplified_model_path=getattr(request, "simplified_model_path", None),
+            input_shapes=getattr(request, "input_shapes", None),
             model_name=request.name,
             metrics=request.preparation_metrics,
         )
@@ -296,20 +257,12 @@ class RequestBuilder:
             f"{request.name}_{parent_model_hash}",
         )
 
-        split_mode = (
-            request.split_mode or "none"
-        ).lower()
+        split_mode = (request.split_mode or "none").lower()
 
         if split_mode == "none":
-            return os.path.join(
-                parent_cache_dir,
-                "full",
-                parent_model_hash,
-            )
+            return os.path.join(parent_cache_dir, "full", parent_model_hash)
 
-        split_key = (
-            f"{split_mode}_{request.ops_per_chunk}"
-        )
+        split_key = f"{split_mode}_{request.ops_per_chunk}"
 
         return os.path.join(
             parent_cache_dir,
@@ -354,12 +307,10 @@ class RequestBuilder:
             s3_bucket=file_transfer.s3_bucket,
         ):
             self.logger.warning(
-                "Profiling data not found for %s at %s. "
-                "Using predicted_duration=0.0",
+                "Profiling data not found for %s at %s. Using conservative defaults.",
                 model_name,
                 profiling_file_path,
             )
-
             return {}
 
         return load_json(
