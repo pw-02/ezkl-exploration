@@ -110,12 +110,17 @@ def write_job_report(
         "transfer_only": perf_metrics.get("transfer_only", False),
     }
 
+    # job_report.csv is the single scalar report, so preserve all useful metric
+    # families here rather than writing a second overlapping perf_metrics.csv.
     for key, value in perf_metrics.items():
         if (
-            key.startswith("stage_")
+            key.startswith("ezkl_")
+            or key.startswith("stage_")
             or key.startswith("phase_")
             or key.startswith("transfer_")
             or key.startswith("output_")
+            or key.startswith("prover_")
+            or key.startswith("node_")
         ):
             report[key] = value
 
