@@ -36,7 +36,7 @@ Prover subprocess
   |- receives local filesystem paths
   |- runs EZKL/Halo2
   |- asks for admission before each major EZKL phase
-  |- records its exact stage in resource samples
+  |- records exact stage transitions and sampled resources
   `- exits after one proof job
 
 Shared storage
@@ -110,25 +110,53 @@ The fused cold EZKL operation is the one exception to phase boundaries visible t
 
 ### Admission metrics
 
-Each job records whether phase admission was enabled, total wait time, and stage-level prediction metadata, for example:
+Each job records whether phase admission was enabled, total wait time, stage-level prediction metadata, and prediction error, for example:
 
 ```text
 phase_admission_enabled
 phase_admission_wait_time(s)
 phase_admission_proving_wait_time(s)
 phase_admission_proving_predicted_memory(GB)
+phase_admission_proving_actual_memory(GB)
+phase_admission_proving_memory_error(GB)
+phase_admission_proving_memory_abs_pct_error
 phase_admission_proving_predicted_cpu_machine(%)
+phase_admission_proving_actual_cpu_machine(%)
+phase_admission_proving_cpu_abs_pct_error
 phase_admission_proving_estimate_source
 phase_admission_proving_estimate_samples
 ```
 
-This makes admission behavior directly measurable rather than hidden inside the runtime.
+This makes both the admission decision and the quality of the learned estimate directly measurable.
 
 ## Exact stage/resource traces
 
-Each prover writes its current stage to `status.txt`, and every `resource_usage.csv` sample carries the same stage label. Waiting is labelled explicitly as `WAITING_FOR_<STAGE>` so queueing at the local admission controller is not misattributed to the previous EZKL phase.
+Each prover writes its current stage to `status.txt`. Two complementary traces are emitted:
 
-The resource logger tracks the prover process tree while excluding the logger itself. `resource_parser.py` derives whole-job and per-stage CPU/RSS measurements, and successful jobs feed those measurements back into the historical profile store.
+```text
+stage_transitions.csv
+  exact enter-time for every stage/wait state
+  microsecond wall-clock timestamp
+  monotonic elapsed_s
+
+resource_usage.csv
+  periodic CPU/RSS samples
+  microsecond wall-clock timestamp
+  monotonic elapsed_s
+  current stage label
+```
+
+Waiting is labelled explicitly as `WAITING_FOR_<STAGE>` so queueing at the local admission controller is not misattributed to the previous EZKL phase. Exact stage durations therefore do not depend on the resource sampling interval.
+
+The normal resource sampling period is 1.0s, but `node.resource_monitor_interval_sec` is a floating-point value. Characterization runs can use `0.25` or `0.5` seconds when short NanoGPT-style phases need finer CPU/RSS resolution.
+
+The resource logger tracks the prover process tree while excluding the logger itself. System rows additionally expose node packing context such as active job count and the set of currently observed job phases. Where reservation metadata is available, the trace also has columns for predicted memory/CPU reserved by concurrent phases.
+
+`resource_parser.py` derives whole-job and per-stage CPU/RSS measurements, and successful jobs feed those measurements back into the historical profile store.
+
+Every `perf_metrics.csv` and `job_report.csv` row now carries the stable `setup_key`, so repeated executions of the same circuit can be grouped directly across requests and inputs.
+
+Before a proof starts, zkInfer writes `admission_profile_before.json` into the job artifact directory. This is the exact historical profile visible to the admission controller before that execution contributes a new observation, making learned-profile experiments reproducible.
 
 ## Multi-request execution
 
@@ -149,6 +177,18 @@ offline / batch
 The runtime is intentionally not tied to only one of these modes. Resource-aware local admission is especially relevant to batch proof generation because the scheduler can keep nodes busy while preventing combinations of proof phases that exceed machine capacity.
 
 A natural batch workload is repeated proof generation for a model over many inputs: setup artifacts can be reused while witness/proof work is scheduled across the cluster. Evaluation should therefore report both per-request latency and aggregate throughput/makespan.
+
+`experiments/submit_batch.py` reports both request throughput and proof-job throughput:
+
+```text
+completed_requests_per_s
+completed_proof_jobs_per_s
+batch makespan
+completed/failed requests
+completed/total proof jobs
+```
+
+Proof-job throughput is important because request sizes can differ substantially after partitioning.
 
 ## Node cache
 
@@ -260,10 +300,13 @@ request_artifact_manifest.json
 verification_report.json        when verification is enabled
 ```
 
-Backend instrumentation may additionally produce:
+Per-job instrumentation may additionally produce:
 
 ```text
+status.txt
+stage_transitions.csv
 resource_usage.csv
+admission_profile_before.json
 halo2_circuit.csv
 halo2_prover_cpu.csv
 halo2_ffts.csv
@@ -294,7 +337,38 @@ python experiments/run_local_exp.py \
   node.phase_admission.enabled=false
 ```
 
-`analysis/analyze_phase_admission.py` summarizes request- and stage-level measurements. The important comparison is no longer a manually chosen heavy-phase count; it is the same workload/hardware with resource-aware admission **off versus on**.
+For Section-3-style characterization, use finer sampling while keeping jobs otherwise isolated:
+
+```bash
+python experiments/run_local_exp.py \
+  "suite.workloads=[mobilenet_v2]" \
+  node.resource_monitor_interval_sec=0.25
+```
+
+`analysis/analyze_phase_admission.py` summarizes request- and stage-level measurements, including `setup_key`, actual/predicted memory and CPU, prediction error, history sample count, estimate source, and admission waiting time.
+
+A useful paper workflow is:
+
+```text
+1. Granularity characterization
+   existing full-model -> operator-level time/memory experiment
+
+2. Phase characterization
+   isolated cold and warm jobs
+   stage duration + stage peak RSS/CPU
+
+3. Repeatability
+   same setup_key across many inputs/runs
+   prediction from runs 1..k versus actual run k+1
+
+4. Reservation opportunity
+   compare whole-job peak reservation with phase-specific envelopes
+   using traces, without yet claiming end-to-end speedup
+
+5. Runtime evaluation
+   phase admission disabled versus enabled
+   single request, concurrent requests, batch and mixed workloads
+```
 
 Useful admission experiments include:
 
@@ -360,7 +434,7 @@ python -m compileall zkinfer experiments analysis tests
 python -m unittest tests.test_runtime_core -v
 ```
 
-Then run one tiny cold proof, repeat it warm so a historical phase profile is created, inspect `resource_usage.csv`, compare `node.phase_admission.enabled=false` and `true`, exercise multiple simultaneous requests, kill a prover subprocess and then a whole node to test recovery, restart the coordinator against an existing SQLite DB, and finally enable verification.
+Then run one tiny cold proof, repeat it warm so a historical phase profile is created, inspect `stage_transitions.csv` and `resource_usage.csv`, compare `node.phase_admission.enabled=false` and `true`, exercise multiple simultaneous requests, kill a prover subprocess and then a whole node to test recovery, restart the coordinator against an existing SQLite DB, and finally enable verification.
 
 ## Research/evaluation direction
 
@@ -370,7 +444,8 @@ The runtime is set up to evaluate:
 - cold vs warm setup state
 - fused cold setup/prove vs the previous file round trip
 - historical-resource-aware local admission
-- prediction error for stage resource estimates
+- repeatability and prediction error for stage resource estimates
+- whole-job reservation slack versus phase-specific reservation
 - memory feasibility and OOM avoidance
 - multi-request fairness and throughput
 - online latency versus offline batch makespan
