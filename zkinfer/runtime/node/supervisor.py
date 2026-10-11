@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -21,28 +22,27 @@ import zkinfer.proto.zkservice_pb2_grpc as pb_grpc
 from zkinfer.config.runtime import RuntimeConfig, build_runtime_config
 from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.runtime.node.cache import NodeCache
-from zkinfer.runtime.node.prover_task import LocalProverTask, ProverTaskRunner
+from zkinfer.runtime.node.prover_task import LocalProverTask, ProverTaskResult
 from zkinfer.utils.network import get_ip
+
+
+HEAVY_PHASES = {"KEY_GEN", "PROVING", "PERSISTING_KEYS"}
 
 
 def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
     logger.propagate = False
-
     if logger.handlers:
         return logger
-
     formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(formatter)
     logger.addHandler(console)
-
     if log_file:
         file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
-
     return logger
 
 
@@ -71,11 +71,12 @@ def to_pb_artifact(ref: Optional[ArtifactRef]):
 
 
 class NodeSupervisor:
-    """One node-level agent per machine or instance.
+    """One control agent per machine.
 
-    The supervisor owns local cache, resource reporting, admission control, and
-    local prover subprocesses. Prover workers themselves are stateless local
-    tasks that only receive local filesystem paths.
+    The supervisor owns local storage, admission, isolated prover subprocesses,
+    and coordinator communication. The ThreadPoolExecutor below only manages
+    subprocess lifecycles; EZKL/Halo2 itself never runs in those supervisor
+    threads.
     """
 
     def __init__(self, runtime_config: RuntimeConfig, logger: Optional[logging.Logger] = None):
@@ -84,7 +85,9 @@ class NodeSupervisor:
         self.logger = logger or logging.getLogger("node-supervisor")
         self.target = f"{self.cfg.coordinator.host}:{self.cfg.coordinator.port}"
         self.poll_interval_sec = self.cfg.node.job_poll_interval_sec
-        self.max_concurrent_jobs = max(1, int(self.cfg.node.max_concurrent_jobs or 1))
+        self.local_concurrency_limit = max(1, int(self.cfg.node.local_concurrency_limit or 1))
+        self.max_heavy_phases = max(1, int(self.cfg.node.max_heavy_phases or 1))
+        self.memory_reserve_gb = max(0.0, float(self.cfg.node.memory_reserve_gb or 0.0))
         self.grpc_max_message_bytes = self.cfg.coordinator.grpc_max_message_mb * 1024 * 1024
 
         self.cache = NodeCache(
@@ -92,15 +95,14 @@ class NodeSupervisor:
             max_bytes=self.cfg.node.local_cache_max_bytes,
             default_s3_bucket=self.cfg.artifact_store.s3_bucket or self.cfg.file_transfer.s3_bucket or "",
         )
-        self.runner = ProverTaskRunner(logger=self.logger)
-        self.executor = ThreadPoolExecutor(
-            max_workers=self.max_concurrent_jobs,
-            thread_name_prefix="prover-task",
+        self.controller_pool = ThreadPoolExecutor(
+            max_workers=self.local_concurrency_limit,
+            thread_name_prefix="prover-controller",
         )
         self.active_jobs: Dict[str, Future] = {}
+        self.active_tasks: Dict[str, LocalProverTask] = {}
         self.active_lock = threading.Lock()
         self.stop_event = threading.Event()
-
         self.channel = None
         self.stub = None
 
@@ -159,16 +161,34 @@ class NodeSupervisor:
         with self.active_lock:
             return len(self.active_jobs)
 
+    @staticmethod
+    def _read_task_stage(task: LocalProverTask) -> str:
+        status_file = Path(task.output_dir) / "status.txt"
+        try:
+            return status_file.read_text(encoding="utf-8").strip() or "STARTING"
+        except OSError:
+            return "STARTING"
+
+    def active_phases(self) -> Dict[str, str]:
+        with self.active_lock:
+            items = list(self.active_tasks.items())
+        return {job_id: self._read_task_stage(task) for job_id, task in items}
+
     def can_accept_more_work(self) -> bool:
-        return self.active_job_count() < self.max_concurrent_jobs
+        if self.active_job_count() >= self.local_concurrency_limit:
+            return False
+        memory = psutil.virtual_memory()
+        available_gb = float(memory.available) / (1024 ** 3)
+        if available_gb <= self.memory_reserve_gb:
+            return False
+        heavy_count = sum(1 for stage in self.active_phases().values() if stage in HEAVY_PHASES)
+        return heavy_count < self.max_heavy_phases
 
     def build_node_status(self):
         memory = psutil.virtual_memory()
         cpu_total = psutil.cpu_count(logical=False) or psutil.cpu_count(logical=True) or 1
         cpu_percent = psutil.cpu_percent(interval=None)
         cpu_available = max(0.0, float(cpu_total) * (1.0 - cpu_percent / 100.0))
-        cache_used_bytes = self.cache.total_bytes()
-
         return pb.NodeStatus(
             node_id=self.node_id,
             memory_total_gb=float(memory.total) / 1e9,
@@ -176,8 +196,10 @@ class NodeSupervisor:
             cpu_total_cores=float(cpu_total),
             cpu_available_cores=cpu_available,
             cache_limit_gb=float(self.cfg.node.local_cache_max_bytes) / (1024 ** 3),
-            cache_used_gb=float(cache_used_bytes) / (1024 ** 3),
-            max_concurrent_jobs=self.max_concurrent_jobs,
+            cache_used_gb=float(self.cache.total_bytes()) / (1024 ** 3),
+            # This field remains in the wire schema for compatibility but is not
+            # used by coordinator admission. Local concurrency stays local.
+            max_concurrent_jobs=0,
             active_job_ids=self.active_job_ids(),
             cached_setup_keys=self.cache.cached_setup_keys(),
         )
@@ -209,21 +231,20 @@ class NodeSupervisor:
                     artifact_manifest=to_pb_artifact(artifact_manifest_ref),
                 )
             )
-
         self.safe_grpc_call(_call, action=f"SubmitJobResult({status})")
         self.logger.info("Submitted %s for job %s", status, lease.job_id)
 
     def send_heartbeat(self) -> None:
+        phases = self.active_phases()
         def _call():
             return self.stub.SendNodeHeartbeat(
                 pb.NodeHeartbeat(
                     node_id=self.node_id,
                     active_job_ids=self.active_job_ids(),
                     status="RUNNING",
-                    message="",
+                    message=json.dumps({"phases": phases}, sort_keys=True),
                 )
             )
-
         self.safe_grpc_call(_call, action="SendNodeHeartbeat", max_retries=1)
 
     def heartbeat_loop(self) -> None:
@@ -238,33 +259,92 @@ class NodeSupervisor:
             if lease.job_id in self.active_jobs:
                 self.logger.warning("Ignoring duplicate lease for active job %s", lease.job_id)
                 return
-            future = self.executor.submit(self.run_lease, lease)
+            future = self.controller_pool.submit(self.run_lease, lease)
             self.active_jobs[lease.job_id] = future
-            future.add_done_callback(lambda fut, job_id=lease.job_id: self._finish_active_job(job_id, fut))
-
-        self.logger.info("Started local prover task for job %s lease=%s", lease.job_id, lease.lease_id)
+            future.add_done_callback(
+                lambda fut, job_id=lease.job_id: self._finish_active_job(job_id, fut)
+            )
+        self.logger.info("Started prover subprocess controller for job %s lease=%s", lease.job_id, lease.lease_id)
 
     def _finish_active_job(self, job_id: str, future: Future) -> None:
         with self.active_lock:
             self.active_jobs.pop(job_id, None)
-
+            self.active_tasks.pop(job_id, None)
         try:
             future.result()
         except Exception:
-            self.logger.error("Local prover task failed after result handling: %s", job_id, exc_info=True)
+            self.logger.error("Prover controller failed after result handling: %s", job_id, exc_info=True)
+
+    def _run_prover_subprocess(self, task: LocalProverTask) -> ProverTaskResult:
+        task_file = Path(task.tmp_dir) / "prover_task.json"
+        result_file = Path(task.tmp_dir) / "prover_result.json"
+        log_file = Path(task.output_dir) / "prover_process.log"
+        task_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(task_file, "w", encoding="utf-8") as file:
+            json.dump(task.to_dict(), file, indent=2)
+
+        started = time.perf_counter()
+        with open(log_file, "w", encoding="utf-8") as log:
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "zkinfer.runtime.node.prover_process",
+                    "--task_file",
+                    str(task_file),
+                    "--result_file",
+                    str(result_file),
+                ],
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                env=os.environ.copy(),
+            )
+            return_code = proc.wait()
+        wall_time = time.perf_counter() - started
+
+        if not result_file.exists():
+            raise RuntimeError(
+                f"Prover subprocess exited with code {return_code} without a result; see {log_file}"
+            )
+        with open(result_file, "r", encoding="utf-8") as file:
+            payload = json.load(file)
+        if not payload.get("ok"):
+            raise RuntimeError(
+                f"Prover subprocess failed ({payload.get('error_type', 'error')}): "
+                f"{payload.get('error', 'unknown error')}; see {log_file}"
+            )
+        result = ProverTaskResult.from_dict(payload["result"])
+        result.metrics["prover_subprocess_wall_time(s)"] = wall_time
+        result.metrics["prover_subprocess_pid"] = int(payload.get("pid") or 0)
+        return result
 
     def run_lease(self, lease) -> None:
         local_task = None
+        setup_pinned = False
         try:
             local_task = self.prepare_local_task(lease)
-            result = self.runner.run(local_task)
+            with self.active_lock:
+                self.active_tasks[lease.job_id] = local_task
 
-            setup_publish_metrics = {}
-            if not self.cfg.jobs.transfer_only:
-                setup_publish_metrics = self.cache.publish_setup_cache_with_metrics(
-                    local_task.setup_cache_dir,
-                    from_pb_artifact(lease.setup_cache),
-                )
+            # A cold setup key is serialized until the first process has created
+            # and published its reusable setup artifacts. Warm jobs only pin the
+            # directory and may execute concurrently subject to node admission.
+            if self.cache.setup_ready(local_task.setup_key):
+                self.cache.pin_setup(local_task.setup_key)
+                setup_pinned = True
+                result = self._run_prover_subprocess(local_task)
+                setup_publish_metrics = {}
+            else:
+                with self.cache.setup_guard(local_task.setup_key, pin=True):
+                    if self.cache.setup_ready(local_task.setup_key):
+                        result = self._run_prover_subprocess(local_task)
+                        setup_publish_metrics = {}
+                    else:
+                        result = self._run_prover_subprocess(local_task)
+                        setup_publish_metrics = self.cache.publish_setup_cache_with_metrics(
+                            local_task.setup_cache_dir,
+                            from_pb_artifact(lease.setup_cache),
+                        )
 
             metrics = {
                 "node_id": self.node_id,
@@ -279,7 +359,6 @@ class NodeSupervisor:
                 message=result.message,
                 metrics=metrics,
             )
-
         except Exception as exc:
             self.logger.error("Job %s failed on node %s: %s", lease.job_id, self.node_id, exc, exc_info=True)
             self.submit_job_result(
@@ -288,8 +367,9 @@ class NodeSupervisor:
                 message=str(exc),
                 metrics={"node_id": self.node_id},
             )
-
         finally:
+            if setup_pinned and local_task:
+                self.cache.unpin_setup(local_task.setup_key)
             if local_task and os.path.exists(local_task.tmp_dir):
                 shutil.rmtree(local_task.tmp_dir, ignore_errors=True)
 
@@ -307,24 +387,20 @@ class NodeSupervisor:
             model_path = ""
         else:
             model_path, model_metrics = self.cache.materialize_with_metrics(
-                from_pb_artifact(lease.model),
-                filename_hint="model.onnx",
+                from_pb_artifact(lease.model), filename_hint="model.onnx"
             )
             model_materialize_time_s = float(model_metrics.get("materialize_time(s)", 0.0) or 0.0)
 
         input_path, input_metrics = self.cache.materialize_with_metrics(
-            from_pb_artifact(lease.input),
-            filename_hint="input.json",
+            from_pb_artifact(lease.input), filename_hint="input.json"
         )
         input_materialize_time_s = float(input_metrics.get("materialize_time(s)", 0.0) or 0.0)
 
         setup_key = lease.setup_key or lease.job_id
-        setup_cache_dir, setup_metrics = self.cache.hydrate_setup_cache_with_metrics(
-            from_pb_artifact(lease.setup_cache),
-            setup_key,
+        setup_cache_dir, setup_metrics = self.cache.restore_setup_cache_with_metrics(
+            from_pb_artifact(lease.setup_cache), setup_key
         )
         output_ref = from_pb_artifact(lease.output_prefix)
-
         transfer_metrics = {
             "model": model_metrics,
             "input": input_metrics,
@@ -365,29 +441,23 @@ class NodeSupervisor:
     def run(self) -> None:
         self.connect()
         heartbeat_thread = threading.Thread(
-            target=self.heartbeat_loop,
-            name="node-heartbeat",
-            daemon=True,
+            target=self.heartbeat_loop, name="node-heartbeat", daemon=True
         )
         heartbeat_thread.start()
-
         try:
             while True:
                 if not self.can_accept_more_work():
                     time.sleep(self.poll_interval_sec)
                     continue
-
                 lease = self.poll_for_job()
                 if not lease.job_available:
                     time.sleep(self.poll_interval_sec)
                     continue
-
                 self.start_lease(lease)
-
         finally:
             self.stop_event.set()
             heartbeat_thread.join(timeout=5)
-            self.executor.shutdown(wait=True)
+            self.controller_pool.shutdown(wait=True)
             if self.channel:
                 self.channel.close()
 
