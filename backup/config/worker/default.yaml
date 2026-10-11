@@ -1,3 +1,0 @@
-# Coordinator service config
-# worker_id: "worker_1"  # Unique identifier for the worker
-worker_id: null  # Unique identifier for the worker

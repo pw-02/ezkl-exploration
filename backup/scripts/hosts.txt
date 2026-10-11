@@ -1,1 +1,0 @@
-ec2-35-87-99-93.us-west-2.compute.amazonaws.com
