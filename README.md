@@ -1,142 +1,162 @@
 # zkInfer
 
-zkInfer is a distributed runtime for partitioned zkML proving. The current `sacdad27` branch focuses on systems infrastructure around an EZKL/Halo2 backend: model partitioning, node-level resource management, reusable proving artifacts, distributed scheduling, bounded caching, verification, and experiment accounting.
+zkInfer is a distributed runtime for partitioned zkML proving with an EZKL/Halo2 backend. The `sacdad27` branch focuses on systems behavior: partitioning, node-level resource control, reusable proving artifacts, distributed scheduling, verification, failure recovery, and experiment accounting.
 
-This branch is intentionally not backward-compatible with the older worker-centric runtime.
+Backward compatibility with the older worker-centric runtime is not a goal on this branch.
 
-## Current architecture
+## Architecture
 
 ```text
 Client
   |
-  | SubmitInferenceRequest
   v
 Coordinator
-  |- partitions/prepares one inference request into proving jobs
+  |- prepares one request as many proof jobs
   |- keeps the global ready queue
-  |- chooses a job for each polling node
-  |- issues job leases
-  |- persists requests/jobs/events in SQLite
-  |- detects dead nodes and requeues unfinished leases
-  |- records job reports and request reports
-  `- optionally verifies completed request proofs
+  |- schedules jobs when nodes poll
+  |- issues leases and persists state in SQLite
+  |- requeues jobs from failed nodes
+  |- writes job/request/transfer reports
+  `- optionally verifies all proofs and split boundaries
           |
           | gRPC control plane only
           v
-Node Supervisor / Node Agent   (one per machine/instance)
-  |- reports node memory/CPU/cache state
-  |- owns the node-local cache
-  |- materializes model/input/setup artifacts directly
-  |- applies local concurrency safety limits
-  |- launches local prover tasks
-  `- publishes proof artifacts + metrics
+NodeSupervisor                 one per machine
+  |- reports fresh CPU/memory/cache state
+  |- owns the bounded node cache
+  |- restores reusable setup files from shared storage
+  |- applies local phase-aware admission
+  |- launches one isolated OS process per proof job
+  `- publishes results and metrics
           |
           v
-Stateless Prover Task
+Prover subprocess
   |- receives local filesystem paths
-  |- invokes EZKL/Halo2
-  |- emits proof/witness/settings/vk
-  `- does not know about gRPC, scheduling, or distributed state
+  |- runs EZKL/Halo2
+  |- records exact proof stage in resource samples
+  `- exits after one proof job
 
 Shared storage
-  |- content-addressed immutable artifacts
-  |- shared setup cache
-  |- proof output manifests
-  `- S3 or filesystem backend
+  |- content-addressed model/input artifacts
+  |- reusable setup cache
+  `- proof/result manifests
 ```
 
-The coordinator is a control plane. Large proof/model/key objects do not move through gRPC.
+Large model, witness, key, and proof objects do not move through gRPC.
 
-## Main design decisions
+## Node execution model
 
-### One node agent per machine
+The coordinator schedules **nodes**, not fixed prover slots. A node decides locally whether it can take more work.
 
-The distributed scheduling unit is a **node**, not an individual long-running prover worker. A `NodeSupervisor` represents one physical/virtual machine and reports fresh resource information when asking for work.
-
-Coordinator-facing scheduling therefore uses resource state rather than abstract worker slots:
-
-- available and total memory
-- available and total CPU cores
-- current active jobs
-- cache size and capacity
-- resident setup/proving artifacts
-
-`node.max_concurrent_jobs` still exists, but only as a local safety cap to prevent runaway local overcommit. It is not the main global scheduling abstraction.
-
-### Stateless prover tasks
-
-`zkinfer/runtime/node/prover_task.py` contains the local proof execution path. A prover task receives local paths, runs the backend, writes results, and returns metrics. It does not communicate with the coordinator or own distributed cache policy.
-
-This makes the proof execution layer independently testable and leaves distributed policy in the supervisor/coordinator layers.
-
-### Node-level cache
-
-The cache belongs to the node supervisor and is shared by all local prover tasks.
-
-The cache is bounded by:
+The important local controls are:
 
 ```yaml
 node:
-  local_cache_dir: storage/node_cache
-  local_cache_max_gb: 100
+  local_concurrency_limit: 1
+  max_heavy_phases: 1
+  memory_reserve_gb: 8
 ```
 
-A value of `0` disables eviction.
+`local_concurrency_limit` is a safety ceiling on proof processes. `max_heavy_phases` limits how many subprocesses may simultaneously enter memory-heavy key-generation/proving regions. `memory_reserve_gb` keeps a node from accepting new work when free RAM is too low.
 
-The cache stores reusable models, inputs, compiled circuits, settings, verification keys, and proving keys. Shared proving keys are stored compressed as `pk.json.gz` when possible; the local hot cache keeps the uncompressed `pk.json` expected by EZKL.
-
-The current eviction implementation is LRU-style. More specialized proving-key-aware retention/eviction policies are a possible research direction, but are not implemented yet.
-
-### Content-addressed artifacts
-
-Large immutable artifacts are represented by `ArtifactRef` metadata and stored in a content-addressed artifact store.
-
-An artifact reference currently carries:
+Each proof job runs in its own OS process through:
 
 ```text
-backend
-uri
-sha256
-size_bytes
-s3_bucket
+zkinfer/runtime/node/prover_process.py
 ```
 
-The node materializes artifacts directly from filesystem/S3 and verifies SHA-256 when present.
+The supervisor itself never calls EZKL/Halo2 inside its controller threads. This keeps `EZKL_LOG_DIR`, process memory accounting, and native prover state isolated per job.
 
-### Job leases
+## Phase-aware local admission
 
-A coordinator assignment is a lease containing metadata such as:
+Each prover writes its current stage to `status.txt`. Resource samples carry the same stage label.
+
+Important stages include:
 
 ```text
-lease_id
-request_id
-job_id
-model ArtifactRef
-input ArtifactRef
-setup-cache reference
-output location
-predicted runtime
-predicted peak memory
-setup/cache key
+CALIBRATING
+COMPILING
+GETTING_SRS
+GENERATING_WITNESS
+KEY_GEN
+PROVING
+PERSISTING_KEYS
+PERSISTING_PROOF
+DONE
 ```
 
-Results are accepted only from the node holding the current lease. Dead-node jobs are requeued.
+Before entering a heavy stage, prover subprocesses acquire a node-local interprocess admission token. This prevents several already-running jobs from all entering key generation/proving at once after being admitted during lighter stages.
 
-### Persistent coordinator state
+The fused cold EZKL path is treated as one heavy region because Rust moves directly from key generation into proving without returning to Python. Resource logs still distinguish its `KEY_GEN` and `PROVING` portions.
 
-Coordinator state is stored in SQLite when enabled:
+## Node cache
 
-```yaml
-coordinator:
-  state_store_enabled: true
-  state_db_path: experiments/runs/coordinator_state.sqlite3
+The node cache lives in:
+
+```text
+zkinfer/runtime/node/cache.py
 ```
 
-Requests, jobs, assignments, and state-change events are persisted. On restart, unfinished work is conservatively requeued while completed artifacts remain reusable.
+It contains two kinds of data:
+
+```text
+objects/       content-addressed model/input artifacts
+setup/         reusable settings, compiled circuits, PKs and VKs
+```
+
+The cache now provides:
+
+- per-object locking so duplicate downloads do not race
+- per-setup-key locking so duplicate cold setup does not race
+- pinning so active setup directories cannot be evicted
+- bounded LRU-style eviction
+- PK compression when publishing to shared storage
+- PK decompression when restoring from shared storage
+
+Terminology in the runtime is intentionally plain:
+
+```text
+materialize artifact   -> make a local copy of an immutable object
+restore setup cache    -> copy reusable setup files into the node cache
+publish setup cache    -> write newly generated setup files to shared storage
+```
+
+## EZKL cold path
+
+The custom EZKL fork adds a fused setup-and-prove operation for a cold setup miss:
+
+```text
+load circuit + witness
+load SRS once
+KEY_GEN
+  generate PK/VK in memory
+PROVING
+  prove with the same in-memory PK
+PERSISTING_KEYS
+  save PK/VK for later warm requests
+PERSISTING_PROOF
+  save proof
+```
+
+This avoids generating a large PK, serializing it, returning to Python, and immediately reading/deserializing the same PK for the first proof.
+
+Warm requests continue to use the ordinary cached-PK prove path.
+
+The fused path records:
+
+```text
+keygen_time_s
+prove_time_s
+key_persist_time_s
+proof_persist_time_s
+total_time_s
+```
+
+See `docs/EZKL_BACKEND.md` for details.
 
 ## Scheduling
 
-Current scheduling policies are:
+Coordinator policies are:
 
 ```text
 fifo
@@ -145,24 +165,31 @@ resource_aware
 cache_aware
 ```
 
-A node polls with current resources. The coordinator first filters to jobs that fit the node and then ranks feasible jobs according to the selected policy.
+All policies first filter jobs that fit the node's currently available memory. Scheduling is request-aware: the coordinator first chooses a least-served request and then applies the selected job-ranking policy within that request. This prevents one large partitioned request from monopolizing the queue.
 
-`cache_aware` prefers jobs whose reusable setup key is already resident on the node. `resource_aware` additionally considers memory fit and expected runtime.
+`cache_aware` prefers jobs whose setup key is already present on the node. `resource_aware` also considers memory fit and predicted runtime.
 
-Stage-aware scheduling is **not implemented** in this branch yet. It is intentionally being left for later discussion/characterization.
+The coordinator ignores the old protobuf `max_concurrent_jobs` field for admission. Local concurrency is owned by the node supervisor.
+
+## Failure recovery
+
+Coordinator requests, jobs, leases, and events can be persisted in SQLite:
+
+```yaml
+coordinator:
+  state_store_enabled: true
+  state_db_path: experiments/runs/coordinator_state.sqlite3
+```
+
+The state store performs in-place migration for older databases that lack `assigned_node_id`, `lease_id`, or lease timestamp columns.
+
+A dead node causes **all** `IN_PROGRESS` jobs assigned to that node to be requeued; recovery does not rely only on the node's last heartbeat list.
+
+Heartbeat updates that omit an active-job list preserve the previously known list instead of accidentally replacing it with an empty list.
 
 ## Verification
 
-Runtime verification lives under:
-
-```text
-zkinfer/verification/
-  verifier.py
-  request_manifest.py
-  split_chain.py
-```
-
-Enable it with:
+Enable runtime verification with:
 
 ```yaml
 verification:
@@ -172,178 +199,40 @@ verification:
   write_request_manifest: true
 ```
 
-When enabled, the coordinator materializes each completed job's proof artifacts and runs `ezkl.verify(...)` using:
+A request enters `VERIFYING` after every proof job succeeds. Its completion time is recorded only after verification, so request E2E time includes verification when enabled.
+
+Verification does two things:
+
+1. verifies every individual EZKL proof with `proof.pf`, `settings.json`, `vk.json`, and the required SRS;
+2. verifies split boundaries by copying each downstream proof, applying `ezkl.swap_proof_commitments(...)` with the preceding partition's witness, and verifying the rewritten proof.
+
+Original proof files are never modified during split-boundary verification.
+
+Failed proof requests skip verification entirely.
+
+## Measurement and reports
+
+Every proof subprocess records `resource_usage.csv` with:
 
 ```text
-proof.pf
-settings.json
-vk.json
-required SRS
+timestamp
+stage
+process-tree CPU
+process-tree RSS
+system CPU
+system memory
 ```
 
-A request is not considered successfully verified unless all job proofs verify. Split-chain verification status is recorded separately so that "all subproofs are valid" is not silently treated as "their boundaries form a valid composed execution."
-
-`require_split_chain` should only be enabled when the request artifacts contain the boundary evidence required by the split-chain checker.
-
-A completed request can also emit:
+`resource_parser.py` derives both whole-job and per-stage metrics such as:
 
 ```text
-request_artifact_manifest.json
+stage_key_gen_max_memory(GB)
+stage_key_gen_avg_cpu_machine(%)
+stage_proving_max_memory(GB)
+stage_proving_avg_cpu_machine(%)
 ```
 
-which records the final artifact references, verification information, and aggregate experiment metrics.
-
-## Transfer and cache overhead accounting
-
-The runtime records data-plane overhead so scale-out experiments can distinguish useful proving speedup from storage/network cost.
-
-Current job-level accounting includes values such as:
-
-```text
-model/input cache hit
-model/input bytes downloaded
-model/input bytes served locally
-setup-cache hydrate time
-setup bytes downloaded
-PK decompression time
-setup publish bytes/time
-PK compression time
-proof/output publish bytes/time
-cache evictions and evicted bytes
-```
-
-Request-level aggregation is written by:
-
-```text
-zkinfer/profiling/overhead.py
-```
-
-and produces:
-
-```text
-transfer_overhead_report.json
-transfer_overhead_report.csv
-```
-
-Useful scale-out metrics include:
-
-- bytes downloaded from shared storage
-- bytes uploaded to shared storage
-- bytes served from the node cache
-- node-cache byte hit rate
-- setup hydrate/publish time
-- proof output publish time
-- cache eviction cost
-
-## Important runtime directories
-
-```text
-zkinfer/
-  backends/
-    ezkl/
-      ezkl_prover.py
-
-  config/
-    config.yaml
-    runtime.py
-
-  profiling/
-    overhead.py
-    reports.py
-    resource_logger.py
-    resource_parser.py
-    msm_fft_parser.py
-
-  proto/
-    zkservice.proto
-    zkservice_pb2.py
-    zkservice_pb2_grpc.py
-
-  runtime/
-    coordinator.py
-    coordinator_grpc.py
-    data_plane.py
-    models.py
-    request_builder.py
-    scheduler.py
-    state_store.py
-
-    node/
-      cache.py
-      prover_task.py
-      supervisor.py
-
-  storage/
-    artifact_store.py
-    io.py
-    s3.py
-
-  verification/
-    verifier.py
-    request_manifest.py
-    split_chain.py
-```
-
-`zkinfer/runtime/worker.py` is currently only a compatibility entrypoint/shim around the node-supervisor architecture. New code should use the node terminology.
-
-## Storage layout
-
-With the filesystem backend, the important namespaces are conceptually:
-
-```text
-storage/
-  artifacts/        # canonical immutable/content-addressed objects
-  cache/            # shared setup/proving cache
-  node_cache/       # bounded cache local to a node
-  transfer/         # request-scoped scratch/control-plane related staging
-```
-
-For distributed runs, the shared namespaces can live in S3 while `node_cache` remains local SSD/NVMe.
-
-## Configuration sketch
-
-The current defaults are approximately:
-
-```yaml
-coordinator:
-  host: localhost
-  port: 50051
-  state_store_enabled: true
-  state_db_path: experiments/runs/coordinator_state.sqlite3
-
-node:
-  node_id: null
-  job_poll_interval_sec: 5
-  resource_monitor_interval_sec: 3
-  max_concurrent_jobs: 1
-  local_cache_dir: storage/node_cache
-  local_cache_max_gb: 100
-
-jobs:
-  scheduler: cache_aware
-  max_retries: 1
-  transfer_only: false
-
-verification:
-  enabled: false
-  srs_dir: srs
-  require_split_chain: false
-  write_request_manifest: true
-
-storage:
-  backend: filesystem       # filesystem | s3
-  transfer_prefix: storage/transfer
-  artifact_prefix: storage/artifacts
-  proving_cache_enabled: true
-  proving_cache_prefix: storage/cache
-  proving_cache_overwrite: false
-  s3_bucket: null
-  s3_prefix: zkinfer
-```
-
-## Generated reports
-
-A normal request can generate files under its run/report directory such as:
+A normal request writes:
 
 ```text
 job_report.csv
@@ -352,91 +241,104 @@ request_report.csv
 transfer_overhead_report.csv
 transfer_overhead_report.json
 request_artifact_manifest.json
+verification_report.json        when verification is enabled
 ```
 
-Backend profiling may additionally generate:
+Backend profiling may additionally produce:
 
 ```text
-resource_usage.csv
 halo2_circuit.csv
 halo2_prover_cpu.csv
 halo2_ffts.csv
 halo2_msms.csv
 ```
 
-These are useful for later characterization of key generation, proving, FFT/MSM work, memory pressure, and transfer overhead.
+Transfer accounting distinguishes bytes from shared storage, bytes served from the node cache, bytes uploaded, artifact materialization time, setup restore time, PK compression/decompression, setup publish time, and output publish time. `agg_data_movement_service_time(s)` is explicitly an aggregate service-time metric, not request critical-path time.
 
-## Running after a proto change
+## Storage layout
 
-Whenever `zkinfer/proto/zkservice.proto` changes, regenerate Python bindings:
+For the filesystem backend:
 
-```bash
-python -m grpc_tools.protoc \
-  -Izkinfer \
-  --python_out=zkinfer/proto \
-  --grpc_python_out=zkinfer/proto \
-  zkinfer/proto/zkservice.proto
+```text
+storage/
+  artifacts/        canonical immutable objects
+  cache/            shared reusable setup files
+  node_cache/       bounded local node cache
+  transfer/         request-scoped staging
 ```
 
-Then run a syntax/import compilation pass:
+For distributed deployments, `artifacts`, `cache`, and `transfer` can live in S3 while `node_cache` stays on local SSD/NVMe.
+
+## Main runtime files
+
+```text
+zkinfer/
+  backends/ezkl/ezkl_prover.py
+
+  profiling/
+    overhead.py
+    reports.py
+    resource_logger.py
+    resource_parser.py
+
+  runtime/
+    coordinator.py
+    scheduler.py
+    state_store.py
+    request_builder.py
+
+    node/
+      cache.py
+      phase_admission.py
+      prover_task.py
+      prover_process.py
+      supervisor.py
+
+  verification/
+    verifier.py
+    request_manifest.py
+    split_chain.py
+```
+
+The old `runtime/worker_cache.py` implementation has been removed; the cache now belongs solely to the node runtime.
+
+## Suggested validation sequence
+
+Before large experiments, validate in this order:
+
+```text
+1. Build/install the custom EZKL wheel.
+2. Run one tiny cold proof and confirm fused setup+prove is used.
+3. Run the same proof warm and confirm cached-PK proving is used.
+4. Inspect resource_usage.csv for correct phase transitions.
+5. Run two local proof jobs and verify heavy-phase admission waits are recorded.
+6. Kill a prover subprocess and then a whole node; confirm lease recovery.
+7. Restart the coordinator against an existing SQLite DB.
+8. Enable verification and confirm split-boundary checks pass.
+9. Move to multi-node/S3 experiments.
+```
+
+After code or proto changes, run at least:
 
 ```bash
 python -m compileall zkinfer
 ```
 
-The generated protobuf files are checked into the repository, so regenerate and commit them whenever the schema changes.
+If `zkservice.proto` changes, regenerate the Python bindings before compiling.
 
-## Suggested test progression
+## Research/evaluation direction
 
-Start with the filesystem backend before moving to S3.
+The runtime now supports clean experiments around:
 
-```text
-1. Coordinator + one node, verification disabled.
-2. Same run with a warm node cache.
-3. Verification enabled.
-4. Multiple node agents using filesystem/shared storage where applicable.
-5. S3-backed distributed run.
-6. Cache-capacity experiments.
-7. Multiple concurrent inference requests.
-```
-
-For early correctness testing, keep `node.max_concurrent_jobs: 1`. Increase it only after memory/resource accounting has been validated.
-
-## What is not implemented yet
-
-The following are deliberately not claimed as finished:
-
-- stage-aware scheduling inside the proving pipeline
-- SLO/deadline-aware request scheduling
-- request batching
-- sophisticated multi-tenant fairness/admission control
-- proving-key regeneration-cost-aware eviction
-- automatic proving-key replication/prefetch
-- autoscaling
-
-Those are potential next research/system directions rather than hidden behavior in the current code.
-
-## Current research/evaluation framing
-
-The current system already provides a useful base for studying:
-
-- monolithic vs partitioned zkML proving
-- cold vs warm reusable setup state
+- monolithic vs partitioned proving
+- cold vs warm setup state
 - memory feasibility and peak-memory reduction
-- scale-out across node agents
-- cache/proving-key locality
-- storage/network overhead as nodes are added
+- request-aware distributed scheduling
+- setup-cache locality
+- phase-aware local admission
+- scale-out efficiency
+- data-movement overhead
 - verification overhead
-- multiple concurrent requests
+- concurrent requests
 
-A reasonable baseline ladder is:
-
-```text
-monolithic EZKL
-partitioned zkInfer on one node
-partitioned distributed FIFO
-memory/resource-aware placement
-cache-aware placement
-```
-
-The infrastructure in this branch is intended to make those experiments reproducible before introducing more speculative scheduling mechanisms.
+The next research step should be empirical rather than architectural: characterize keygen/proving memory and CPU by phase, then measure whether phase-aware admission improves throughput, latency, and OOM avoidance under realistic concurrent load.
