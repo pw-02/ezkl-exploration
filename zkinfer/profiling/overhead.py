@@ -45,10 +45,10 @@ def _to_bool(value) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
-def read_perf_metrics(perf_metrics_csv: str) -> list[Dict[str, str]]:
-    if not os.path.exists(perf_metrics_csv):
+def read_job_report(job_report_csv: str) -> list[Dict[str, str]]:
+    if not os.path.exists(job_report_csv):
         return []
-    with open(perf_metrics_csv, "r", encoding="utf-8") as file:
+    with open(job_report_csv, "r", encoding="utf-8") as file:
         return list(csv.DictReader(file))
 
 
@@ -82,17 +82,15 @@ def aggregate_transfer_overhead(rows: Iterable[Dict[str, str]]) -> Dict[str, flo
     report["agg_bytes_downloaded_from_shared_store"] = total_downloaded
     report["agg_bytes_served_from_node_cache"] = total_local
     report["agg_bytes_uploaded_to_shared_store"] = total_uploaded
-    report["agg_downloaded_MiB"] = total_downloaded / (1024 ** 2)
-    report["agg_node_cache_served_MiB"] = total_local / (1024 ** 2)
-    report["agg_uploaded_MiB"] = total_uploaded / (1024 ** 2)
+    report["agg_downloaded_MiB"] = total_downloaded / (1024**2)
+    report["agg_node_cache_served_MiB"] = total_local / (1024**2)
+    report["agg_uploaded_MiB"] = total_uploaded / (1024**2)
     report["node_cache_byte_hit_rate"] = (
         total_local / (total_local + total_downloaded)
         if (total_local + total_downloaded)
         else 0.0
     )
 
-    # This is aggregate service time, not wall-clock critical-path time. It now
-    # includes model/input materialization as well as setup restore and publish.
     report["agg_data_movement_service_time(s)"] = (
         report.get("agg_model_materialize_time(s)", 0.0)
         + report.get("agg_input_materialize_time(s)", 0.0)
@@ -104,8 +102,8 @@ def aggregate_transfer_overhead(rows: Iterable[Dict[str, str]]) -> Dict[str, flo
 
 
 def write_transfer_overhead_report(out_dir: str) -> Dict[str, float | int]:
-    perf_metrics_csv = os.path.join(out_dir, "perf_metrics.csv")
-    rows = read_perf_metrics(perf_metrics_csv)
+    job_report_csv = os.path.join(out_dir, "job_report.csv")
+    rows = read_job_report(job_report_csv)
     report = aggregate_transfer_overhead(rows)
 
     os.makedirs(out_dir, exist_ok=True)
