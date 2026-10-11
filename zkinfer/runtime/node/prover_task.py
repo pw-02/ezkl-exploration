@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import os
@@ -9,6 +10,7 @@ import sys
 import time
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, Optional, Tuple
 
@@ -39,7 +41,7 @@ class LocalProverTask:
     output_backend: str
     output_s3_bucket: str = ""
     transfer_only: bool = False
-    resource_monitor_interval_sec: int = 1
+    resource_monitor_interval_sec: float = 1.0
     model_materialize_time_s: float = 0.0
     input_materialize_time_s: float = 0.0
     transfer_metrics: Dict[str, Any] = field(default_factory=dict)
@@ -106,10 +108,45 @@ class ResourceAwareEZKLProofStages(EZKLProofStages):
             "phase_admission_enabled": admission.enabled,
             "phase_admission_wait_time(s)": 0.0,
         }
+        self._transition_started = time.perf_counter()
+        self._transition_path = (
+            Path(self.status_file).with_name("stage_transitions.csv")
+            if self.status_file
+            else None
+        )
 
     @staticmethod
     def _metric_stage(stage: str) -> str:
         return stage.lower().replace("-", "_")
+
+    def _update_status(self, stage: str) -> None:
+        """Update the live stage and append an exact transition event.
+
+        Resource samples remain periodic, but stage duration no longer depends
+        on the resource sampling interval. Every transition carries both a
+        microsecond wall-clock timestamp and monotonic elapsed time.
+        """
+        super()._update_status(stage)
+        if self._transition_path is None:
+            return
+        self._transition_path.parent.mkdir(parents=True, exist_ok=True)
+        write_header = not self._transition_path.exists()
+        with self._transition_path.open("a", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(
+                file,
+                fieldnames=["timestamp", "elapsed_s", "stage", "event"],
+            )
+            if write_header:
+                writer.writeheader()
+            writer.writerow(
+                {
+                    "timestamp": datetime.now().isoformat(timespec="microseconds"),
+                    "elapsed_s": time.perf_counter() - self._transition_started,
+                    "stage": stage,
+                    "event": "enter",
+                }
+            )
+            file.flush()
 
     @contextmanager
     def _admit(self, stage: str) -> Iterator[Dict[str, Any]]:
@@ -194,6 +231,20 @@ class ProverTaskRunner:
 
         try:
             proof_stages = self._build_proof_stages(task, status_file)
+            # Preserve the exact history used by admission before this run adds a
+            # new observation. This makes experiments reproducible.
+            with open(
+                os.path.join(task.output_dir, "admission_profile_before.json"),
+                "w",
+                encoding="utf-8",
+            ) as file:
+                json.dump(
+                    proof_stages.admission.profiles.load(task.setup_key),
+                    file,
+                    indent=2,
+                    sort_keys=True,
+                )
+
             ezkl_metrics, _ = proof_stages.run_all(setup_only=False)
             ezkl_metrics.update(proof_stages.admission_metrics)
 
@@ -222,6 +273,7 @@ class ProverTaskRunner:
         input_parse_time_s = time.perf_counter() - parse_start
         metrics = {
             "node_id": task.node_id,
+            "setup_key": task.setup_key,
             "transfer_only": True,
             "model_materialize_time(s)": task.model_materialize_time_s,
             "input_materialize_time(s)": task.input_materialize_time_s,
@@ -297,6 +349,74 @@ class ProverTaskRunner:
             admission=admission,
         )
 
+    @staticmethod
+    def _prediction_error_metrics(
+        resource_metrics: Dict[str, Any],
+        admission_metrics: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        prefix = "phase_admission_"
+        suffix = "_predicted_memory(GB)"
+        for key, predicted_raw in admission_metrics.items():
+            if not (key.startswith(prefix) and key.endswith(suffix)):
+                continue
+            stage = key[len(prefix) : -len(suffix)]
+            try:
+                predicted = float(predicted_raw or 0.0)
+            except (TypeError, ValueError):
+                continue
+
+            if stage == "fused_keygen_prove":
+                actual_values = [
+                    resource_metrics.get("stage_key_gen_max_memory(GB)"),
+                    resource_metrics.get("stage_proving_max_memory(GB)"),
+                ]
+                actual_values = [
+                    float(value)
+                    for value in actual_values
+                    if value is not None and float(value) > 0
+                ]
+                actual = max(actual_values) if actual_values else 0.0
+            else:
+                actual = float(
+                    resource_metrics.get(f"stage_{stage}_max_memory(GB)") or 0.0
+                )
+
+            result[f"phase_admission_{stage}_actual_memory(GB)"] = actual
+            if actual > 0:
+                error = predicted - actual
+                result[f"phase_admission_{stage}_memory_error(GB)"] = error
+                result[f"phase_admission_{stage}_memory_abs_pct_error"] = (
+                    abs(error) / actual * 100.0
+                )
+
+            cpu_key = f"phase_admission_{stage}_predicted_cpu_machine(%)"
+            try:
+                predicted_cpu = float(admission_metrics.get(cpu_key) or 0.0)
+            except (TypeError, ValueError):
+                predicted_cpu = 0.0
+            if stage == "fused_keygen_prove":
+                cpu_values = [
+                    resource_metrics.get("stage_key_gen_avg_cpu_machine(%)"),
+                    resource_metrics.get("stage_proving_avg_cpu_machine(%)"),
+                ]
+                cpu_values = [
+                    float(value)
+                    for value in cpu_values
+                    if value is not None and float(value) > 0
+                ]
+                actual_cpu = max(cpu_values) if cpu_values else 0.0
+            else:
+                actual_cpu = float(
+                    resource_metrics.get(f"stage_{stage}_avg_cpu_machine(%)") or 0.0
+                )
+            result[f"phase_admission_{stage}_actual_cpu_machine(%)"] = actual_cpu
+            if actual_cpu > 0:
+                result[f"phase_admission_{stage}_cpu_abs_pct_error"] = (
+                    abs(predicted_cpu - actual_cpu) / actual_cpu * 100.0
+                )
+        return result
+
     def _collect_metrics(
         self,
         task: LocalProverTask,
@@ -316,9 +436,15 @@ class ProverTaskRunner:
                 "avg_system_cpu(%)": None,
             }
 
+        prediction_metrics = self._prediction_error_metrics(
+            resource_metrics,
+            ezkl_metrics,
+        )
         return {
             "node_id": task.node_id,
+            "setup_key": task.setup_key,
             "predicted_peak_memory(GB)": task.predicted_peak_memory_gb,
+            "resource_monitor_interval(s)": task.resource_monitor_interval_sec,
             "model_materialize_time(s)": task.model_materialize_time_s,
             "input_materialize_time(s)": task.input_materialize_time_s,
             **resource_metrics,
@@ -329,6 +455,7 @@ class ProverTaskRunner:
             **summarize_fft_report(os.path.join(task.output_dir, "halo2_ffts.csv")),
             **summarize_msm_report(os.path.join(task.output_dir, "halo2_msms.csv")),
             **ezkl_metrics,
+            **prediction_metrics,
         }
 
     @staticmethod
