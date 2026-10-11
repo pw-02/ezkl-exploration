@@ -22,15 +22,22 @@ node:
   runs_dir: experiments/runs
   logs_dir: logs/nodes
   job_poll_interval_sec: 5
-  # One-second sampling is a better default for distinguishing key generation
-  # from proving in stage-level CPU/RSS traces.
   resource_monitor_interval_sec: 1
 
-  # Purely local safety controls. The coordinator schedules from fresh resource
-  # reports; it does not allocate abstract prover slots.
-  local_concurrency_limit: 1
-  max_heavy_phases: 1
-  memory_reserve_gb: 8
+  # Phase admission is resource-driven rather than count-driven. Historical
+  # per-stage CPU/RSS observations for the same setup key are used when
+  # available; otherwise the job's whole-job peak-memory estimate is used as a
+  # conservative fallback. Toggle enabled=false for the no-admission baseline.
+  phase_admission:
+    enabled: true
+    memory_reserve_gb: 8
+    cpu_budget_percent: 100
+    profile_percentile: 0.90
+    fallback_cpu_percent: 100
+    # Optional last-resort protection against a software bug spawning an
+    # unbounded number of local prover processes. Null means no process-count
+    # policy is applied during normal scheduling/admission.
+    emergency_process_limit: null
 
   # Node-level cache shared by all local prover subprocesses. Set
   # local_cache_max_gb to 0 to disable eviction.
