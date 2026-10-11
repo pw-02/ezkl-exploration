@@ -64,6 +64,17 @@ def read_stage(status_file: Optional[str]) -> str:
         return "UNKNOWN"
 
 
+def infer_runs_dir(status_file: Optional[str]) -> Optional[str]:
+    if not status_file:
+        return None
+    path = Path(status_file).resolve()
+    # runs/<request>/artifacts/jobs/<job>/status.txt
+    try:
+        return str(path.parents[4])
+    except IndexError:
+        return None
+
+
 def _active_job_phases(runs_dir: Optional[str]) -> list[str]:
     if not runs_dir:
         return []
@@ -217,6 +228,7 @@ def run(
     ensure_parent_dir(output_file)
     if status_file is None:
         status_file = os.path.join(os.path.dirname(output_file), "status.txt")
+    runs_dir = runs_dir or infer_runs_dir(status_file)
 
     process = resolve_process(pid)
     num_logical_cpus = psutil.cpu_count(logical=True) or 1
