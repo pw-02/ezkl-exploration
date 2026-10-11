@@ -15,6 +15,7 @@ Coordinator
   |- prepares each request as many proof jobs
   |- keeps one global ready queue across requests
   |- applies request-aware scheduling/fairness
+  |- uses historical resource profiles during placement
   |- chooses feasible jobs when nodes poll
   |- issues leases and persists state in SQLite
   |- requeues jobs from failed nodes
@@ -104,9 +105,9 @@ sum(reserved phase CPU) + predicted phase CPU
     <= configured CPU budget
 ```
 
-This means a node may run one, two, or several phases concurrently depending on their measured envelopes. There is no fixed statement such as "only one keygen" or "at most four jobs".
+This means a node may run one, two, or several phases concurrently depending on their measured resource demand. There is no fixed statement such as "only one keygen" or "at most four jobs".
 
-The fused cold EZKL operation is the one exception to phase boundaries visible to Python: Rust moves directly from key generation into proving. zkInfer therefore reserves the larger historical envelope of `KEY_GEN` and `PROVING` for that combined region while the stage trace still records the internal transition.
+The fused cold EZKL operation is the one exception to phase boundaries visible to Python: Rust moves directly from key generation into proving. zkInfer therefore reserves the larger historical resource estimate of `KEY_GEN` and `PROVING` for that combined region while the stage trace still records the internal transition.
 
 ### Admission metrics
 
@@ -154,13 +155,17 @@ The resource logger tracks the prover process tree while excluding the logger it
 
 `resource_parser.py` derives whole-job and per-stage CPU/RSS measurements, and successful jobs feed those measurements back into the historical profile store.
 
-Every `perf_metrics.csv` and `job_report.csv` row now carries the stable `setup_key`, so repeated executions of the same circuit can be grouped directly across requests and inputs.
+Every `perf_metrics.csv` and `job_report.csv` row carries the stable `setup_key`, so repeated executions of the same circuit can be grouped directly across requests and inputs.
 
 Before a proof starts, zkInfer writes `admission_profile_before.json` into the job artifact directory. This is the exact historical profile visible to the admission controller before that execution contributes a new observation, making learned-profile experiments reproducible.
+
+The custom Halo2 profiler additionally emits labels such as `PROVING::<subphase>` and `halo2_stage_transitions.csv`, allowing proving itself to be characterized without making Halo2 subphases independently schedulable.
 
 ## Multi-request execution
 
 The coordinator supports multiple inference/proof requests being active at once. Jobs from all active requests share the global ready queue, but scheduling is request-aware: zkInfer first chooses among least-served requests and then applies the configured job-ranking policy within the chosen request. This prevents one large partitioned request from consuming the cluster simply because it contains many more partitions.
+
+Scheduling policy is configured once at the coordinator through `jobs.scheduler`. Requests do not select independent policies through the client API.
 
 This supports two useful operating modes:
 
@@ -198,7 +203,7 @@ The node cache lives in `zkinfer/runtime/node/cache.py` and contains:
 objects/       content-addressed model/input artifacts
 setup/         reusable settings, compiled circuits, PKs and VKs
 phase_admission/
-  profiles/    measured per-setup-key stage resource history
+  profiles/     measured per-setup-key stage resource history
   reservations/ current cross-process phase reservations
 ```
 
@@ -224,12 +229,12 @@ KEY_GEN
 PROVING
   prove with the same in-memory PK
 PERSISTING_KEYS
-  save PK/VK for future warm requests
+  save PK/VK for future cached-setup requests
 PERSISTING_PROOF
   save proof
 ```
 
-This avoids generating a large PK, serializing it, returning to Python, and immediately reading/deserializing the same PK for the first proof. Warm requests still use the normal cached-PK prove path. There is deliberately no cross-request in-memory PK cache.
+This avoids generating a large PK, serializing it, returning to Python, and immediately reading/deserializing the same PK for the first proof. Cached-setup requests still use the normal cached-PK prove path. There is deliberately no cross-request in-memory PK cache.
 
 See `docs/EZKL_BACKEND.md` for details.
 
@@ -244,17 +249,21 @@ resource_aware
 cache_aware
 ```
 
-All policies first require a job to fit the node's current reported resources. `cache_aware` prefers jobs whose setup key is already present on the node. The old protobuf `max_concurrent_jobs` field is retained only for wire compatibility and is ignored as an admission primitive.
+There is no coordinator-facing job-slot count. Nodes report memory, CPU, cache state, and active jobs. `resource_aware` uses historical stage profiles to determine whether a proof can start useful work on a node while the node-local controller remains responsible for later stage admission. `cache_aware` prefers jobs whose setup key is already present on the node.
 
 Global scheduling and local phase admission are separate responsibilities:
 
 ```text
 Coordinator
-  decides which whole proof job should run on which node
+  chooses which whole proof job should run on which node
+  uses request fairness, cache state, and historical resource profiles
 
 NodeSupervisor / ResourceAdmissionController
+  uses live node state and historical profiles
   decides when each local phase can safely enter execution
 ```
+
+A proof job remains on the node to which it was leased; zkInfer does not migrate a partially executed proof between machines.
 
 ## Failure recovery and persistent state
 
@@ -266,7 +275,7 @@ coordinator:
   state_db_path: experiments/runs/coordinator_state.sqlite3
 ```
 
-The state store migrates older databases that lack `assigned_node_id`, `lease_id`, or lease timestamps, including copying legacy `assigned_worker_id` values into `assigned_node_id`.
+The current state store still contains migration code for older worker-centric databases. This is not part of the new runtime abstraction and can be removed once old experiment databases are no longer needed.
 
 A dead node causes every `IN_PROGRESS` job assigned to that node to be requeued. Recovery does not depend only on the node's last heartbeat list. Heartbeat updates that omit an active-job list preserve the previously known list.
 
@@ -307,6 +316,7 @@ status.txt
 stage_transitions.csv
 resource_usage.csv
 admission_profile_before.json
+halo2_stage_transitions.csv
 halo2_circuit.csv
 halo2_prover_cpu.csv
 halo2_ffts.csv
@@ -337,15 +347,27 @@ python experiments/run_local_exp.py \
   node.phase_admission.enabled=false
 ```
 
-For Section-3-style characterization, use finer sampling while keeping jobs otherwise isolated:
+For Section 3 characterization, use finer sampling and keep admission disabled:
 
 ```bash
 python experiments/run_local_exp.py \
   "suite.workloads=[mobilenet_v2]" \
-  node.resource_monitor_interval_sec=0.25
+  node.resource_monitor_interval_sec=0.25 \
+  node.phase_admission.enabled=false
 ```
 
-`analysis/analyze_phase_admission.py` summarizes request- and stage-level measurements, including `setup_key`, actual/predicted memory and CPU, prediction error, history sample count, estimate source, and admission waiting time.
+The full Section 3 experiment matrix, interpretation rules, expected tables, and expected figures are documented in `analysis/section_3/README.md`.
+
+Generate the Section 3 analysis with:
+
+```bash
+python analysis/section_3/analyze_characterization.py \
+  --runs-dir experiments/runs \
+  --output-dir analysis/section_3/generated \
+  --memory-budget-gb <usable-node-memory>
+```
+
+The analysis compares whole-job, EZKL-stage, and Halo2-subphase memory accounting; measures repeatability by setup key; evaluates historical prediction accuracy; separates cold and cached-setup executions; and summarizes observed multi-request concurrency.
 
 A useful paper workflow is:
 
@@ -354,7 +376,7 @@ A useful paper workflow is:
    existing full-model -> operator-level time/memory experiment
 
 2. Phase characterization
-   isolated cold and warm jobs
+   isolated cold and cached-setup jobs
    stage duration + stage peak RSS/CPU
 
 3. Repeatability
@@ -362,23 +384,12 @@ A useful paper workflow is:
    prediction from runs 1..k versus actual run k+1
 
 4. Reservation opportunity
-   compare whole-job peak reservation with phase-specific envelopes
+   compare whole-job peak reservation with stage-specific resource estimates
    using traces, without yet claiming end-to-end speedup
 
 5. Runtime evaluation
    phase admission disabled versus enabled
    single request, concurrent requests, batch and mixed workloads
-```
-
-Useful admission experiments include:
-
-```text
-single request, admission off/on
-multiple simultaneous requests, admission off/on
-cold setup versus warm setup
-one node versus multiple nodes
-profiles empty versus profiles learned from prior runs
-interactive latency versus batch throughput/makespan
 ```
 
 ## Main runtime files
@@ -396,6 +407,7 @@ zkinfer/
   runtime/
     coordinator.py
     coordinator_grpc.py
+    resource_profiles.py
     scheduler.py
     state_store.py
     request_builder.py
@@ -412,8 +424,6 @@ zkinfer/
     request_manifest.py
     split_chain.py
 ```
-
-`runtime/worker_cache.py` has been removed. `runtime/worker.py` remains only as a compatibility entrypoint that forwards to the node supervisor.
 
 ## Validation sequence
 
@@ -434,18 +444,20 @@ python -m compileall zkinfer experiments analysis tests
 python -m unittest tests.test_runtime_core -v
 ```
 
-Then run one tiny cold proof, repeat it warm so a historical phase profile is created, inspect `stage_transitions.csv` and `resource_usage.csv`, compare `node.phase_admission.enabled=false` and `true`, exercise multiple simultaneous requests, kill a prover subprocess and then a whole node to test recovery, restart the coordinator against an existing SQLite DB, and finally enable verification.
+Then run one tiny cold proof and one cached-setup repeat, inspect `stage_transitions.csv`, `halo2_stage_transitions.csv`, and `resource_usage.csv`, and confirm the resource trace contains Halo2 labels such as `PROVING::<subphase>` before starting the larger characterization campaign.
 
 ## Research/evaluation direction
 
 The runtime is set up to evaluate:
 
 - monolithic vs partitioned proving
-- cold vs warm setup state
+- cold vs cached setup state
 - fused cold setup/prove vs the previous file round trip
+- historical-resource-aware global placement
 - historical-resource-aware local admission
 - repeatability and prediction error for stage resource estimates
-- whole-job reservation slack versus phase-specific reservation
+- whole-job reservation slack versus stage-specific reservation
+- EZKL-stage versus Halo2-subphase resource variation
 - memory feasibility and OOM avoidance
 - multi-request fairness and throughput
 - online latency versus offline batch makespan
@@ -454,4 +466,4 @@ The runtime is set up to evaluate:
 - data-movement overhead
 - verification overhead
 
-The main phase-admission experiment should hold hardware, workload, partitioning, and global scheduler fixed while toggling `node.phase_admission.enabled`. If the learned resource envelopes improve utilization/throughput or avoid OOMs without unacceptable latency inflation, the mechanism is a defensible zkInfer contribution.
+The main admission experiment should hold hardware, workload, partitioning, and global scheduler fixed while toggling `node.phase_admission.enabled`. Section 3 should first establish whether measured stage-level resource variation is large and repeatable enough to justify that mechanism.
