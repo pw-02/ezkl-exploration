@@ -17,17 +17,18 @@ coordinator:
   state_db_path: experiments/runs/coordinator_state.sqlite3
 
 node:
-  # One node agent/supervisor runs per machine or cloud instance.
+  # One node supervisor runs per machine or cloud instance.
   node_id: null
   runs_dir: experiments/runs
   logs_dir: logs/nodes
   job_poll_interval_sec: 5
   resource_monitor_interval_sec: 3
 
-  # Local safety cap for prover subprocesses on this node. The coordinator-facing
-  # scheduler uses resource admission, not slots, but this prevents runaway local
-  # overcommit if estimates are wrong.
-  max_concurrent_jobs: 1
+  # Purely local safety controls. The coordinator schedules from fresh resource
+  # reports; it does not allocate abstract prover slots.
+  local_concurrency_limit: 1
+  max_heavy_phases: 1
+  memory_reserve_gb: 8
 
   # Node-level cache shared by all local prover subprocesses. Set
   # local_cache_max_gb to 0 to disable eviction.
@@ -37,14 +38,11 @@ node:
 jobs:
   scheduler: cache_aware
   max_retries: 1
-  # Skip model transfer and proving, but retain real input materialization,
-  # shared-storage staging, scheduling, worker downloads, and JSON parsing.
+  # Skip model transfer and proving while retaining input movement, scheduling,
+  # node materialization, and JSON parsing for transfer-only experiments.
   transfer_only: false
 
 verification:
-  # Coordinator-side verification of job manifests after all jobs finish.
-  # Client-side verification can still be run independently from the final
-  # request_artifact_manifest.json.
   enabled: false
   srs_dir: srs
   require_split_chain: false
@@ -55,38 +53,26 @@ heartbeat:
   timeout_sec: 60
 
 storage:
-  # Keep the default runnable on a single machine. Override with
-  # storage.backend=s3 storage.s3_bucket=<bucket> for distributed runs.
   backend: filesystem # filesystem | s3
-
-  # Request-scoped scratch space for coordinator <-> node communication.
   transfer_prefix: storage/transfer
-
-  # Canonical content-addressed artifact store. Large immutable objects are
-  # stored by SHA-256 here and exchanged through ArtifactRef metadata.
   artifact_prefix: storage/artifacts
 
-  # Shared persistent setup cache namespace. Node agents hydrate local hot caches
-  # from this prefix and publish settings/compiled circuits/keys back to it.
+  # Shared persistent setup cache. Nodes restore reusable setup files from this
+  # location and publish newly generated settings/circuits/keys back to it.
   proving_cache_enabled: true
   proving_cache_prefix: storage/cache
   proving_cache_overwrite: false
 
-  # Used only when backend=s3.
   s3_bucket: null
   s3_prefix: zkinfer
 
 hydra:
   run:
     dir: .
-
   sweep:
     dir: .
-
   output_subdir: null
-
   job_logging:
     level: DISABLE
-
   hydra_logging:
     level: DISABLE
