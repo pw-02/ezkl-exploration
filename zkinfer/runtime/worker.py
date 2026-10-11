@@ -24,7 +24,7 @@ from zkinfer.profiling.msm_fft_parser import (
     summarize_msm_report,
 )
 from zkinfer.profiling.resource_parser import parse_resource_usage_file
-from zkinfer.storage.s3 import download_file
+from zkinfer.storage.s3 import download_file, upload_file
 from zkinfer.utils.network import get_ip
 
 
@@ -59,6 +59,9 @@ class LocalJobPaths:
     tmp_dir: str
     artifact_dir: str
     cache_prefix: str
+    output_prefix: str
+    output_backend: str
+    output_s3_bucket: str = ""
     model_s3_read_time: float = 0.0
     input_s3_read_time: float = 0.0
 
@@ -76,15 +79,11 @@ class ZKProofWorker:
         self.target = f"{self.cfg.coordinator.host}:{self.cfg.coordinator.port}"
 
         self.poll_interval_sec = self.cfg.worker.job_poll_interval_sec
-        self.resource_monitor_interval_sec = (
-            self.cfg.worker.resource_monitor_interval_sec
-        )
+        self.resource_monitor_interval_sec = self.cfg.worker.resource_monitor_interval_sec
         self.send_proofs_to_coordinator = self.cfg.worker.send_proofs_to_coordinator
         self.transfer_only = self.cfg.jobs.transfer_only
 
-        self.grpc_max_message_bytes = (
-            self.cfg.coordinator.grpc_max_message_mb * 1024 * 1024
-        )
+        self.grpc_max_message_bytes = self.cfg.coordinator.grpc_max_message_mb * 1024 * 1024
 
         self.channel = None
         self.stub = None
@@ -146,18 +145,61 @@ class ZKProofWorker:
 
         raise last_error
 
+    def cached_artifact_keys(self) -> list[str]:
+        if self.cfg.proving_cache.backend != "filesystem":
+            return []
+
+        root = Path(self.cfg.proving_cache.root_dir)
+        if not root.exists():
+            return []
+
+        keys = []
+        for path in root.rglob("settings.json"):
+            try:
+                keys.append(path.parent.name.split("_")[-1])
+            except Exception:
+                continue
+        return sorted(set(keys))
+
     def get_next_job(self):
+        mem = psutil.virtual_memory()
+        reserved_gb = max(0.0, (mem.total - mem.available) / 1e9)
+
         return self.safe_grpc_call(
             lambda: self.stub.GetNextJob(
-                pb.WorkerRequest(worker_id=self.worker_id)
+                pb.WorkerRequest(
+                    worker_id=self.worker_id,
+                    memory_budget_gb=self.mem_gb,
+                    reserved_memory_gb=reserved_gb,
+                    free_slots=1,
+                    cached_artifact_keys=self.cached_artifact_keys(),
+                )
             ),
             action="GetNextJob",
+        )
+
+    @staticmethod
+    def artifact_ref(
+        backend: str,
+        uri: str,
+        s3_bucket: str = "",
+        sha256: str = "",
+        size_bytes: int = 0,
+    ):
+        return pb.ArtifactRef(
+            backend=backend or "",
+            uri=uri or "",
+            sha256=sha256 or "",
+            size_bytes=int(size_bytes or 0),
+            s3_bucket=s3_bucket or "",
         )
 
     def submit_job_result(
         self,
         job_id: str,
+        request_id: str,
         status: str,
+        artifact_manifest=None,
         proof: Optional[bytes] = None,
         message: Optional[str] = None,
         perf_metrics: Optional[Dict[str, Any]] = None,
@@ -166,20 +208,35 @@ class ZKProofWorker:
             return self.stub.SubmitJobResult(
                 pb.JobResult(
                     worker_id=self.worker_id,
+                    request_id=request_id,
                     job_id=job_id,
-                    proof=proof or b"",
                     status=status,
                     message=message or "",
                     perf_metrics_json=json.dumps(perf_metrics) if perf_metrics else "",
+                    artifact_manifest=artifact_manifest or pb.ArtifactRef(),
+                    proof=proof or b"",
                 )
             )
 
-        self.safe_grpc_call(
-            _call,
-            action=f"SubmitJobResult({status})",
-        )
-
+        self.safe_grpc_call(_call, action=f"SubmitJobResult({status})")
         self.logger.info("Submitted final result for job %s: %s", job_id, status)
+
+    def _materialize_ref(self, ref, local_path: Path, input_only: bool = False) -> tuple[str, float]:
+        if ref.backend == "filesystem":
+            if not os.path.exists(ref.uri):
+                raise FileNotFoundError(f"Artifact path does not exist: {ref.uri}")
+            return ref.uri, 0.0
+
+        if ref.backend != "s3":
+            raise ValueError(f"Unsupported artifact backend: {ref.backend}")
+
+        bucket = ref.s3_bucket or self.cfg.file_transfer.s3_bucket
+        if not bucket:
+            raise ValueError("S3 artifact ref requires a bucket")
+
+        start = time.perf_counter()
+        download_file(bucket, ref.uri, str(local_path))
+        return str(local_path), time.perf_counter() - start
 
     def prepare_local_paths(
         self,
@@ -187,10 +244,6 @@ class ZKProofWorker:
         input_only: bool = False,
     ) -> LocalJobPaths:
         job_id = assignment.job_id
-
-        model_path = assignment.model_path
-        input_path = assignment.input_path
-
         worker_request_dir = Path(self.cfg.worker.runs_dir) / assignment.request_id
 
         tmp_dir = worker_request_dir / "tmp" / job_id
@@ -199,53 +252,37 @@ class ZKProofWorker:
         tmp_dir.mkdir(parents=True, exist_ok=True)
         artifact_dir.mkdir(parents=True, exist_ok=True)
 
-        cache_prefix = assignment.cache_path or self.cfg.proving_cache.root_dir
-
-        if self.cfg.file_transfer.backend != "s3":
-            if not input_only and not os.path.exists(model_path):
-                raise FileNotFoundError(f"Model path does not exist: {model_path}")
-
-            if not os.path.exists(input_path):
-                raise FileNotFoundError(f"Input path does not exist: {input_path}")
-
-            return LocalJobPaths(
-                model_path=model_path,
-                input_path=input_path,
-                tmp_dir=str(tmp_dir),
-                artifact_dir=str(artifact_dir),
-                cache_prefix=cache_prefix,
-            )
-
-        if not self.cfg.file_transfer.s3_bucket:
-            raise ValueError("storage.s3_bucket must be set when storage.backend=s3")
-
-        local_model_path = tmp_dir / os.path.basename(model_path)
-        local_input_path = tmp_dir / "input.json"
+        cache_ref = assignment.cache
+        output_ref = assignment.output_prefix
 
         model_s3_read_time = 0.0
-        if not input_only:
-            start = time.perf_counter()
-            download_file(
-                self.cfg.file_transfer.s3_bucket,
-                model_path,
-                str(local_model_path),
+        if input_only:
+            model_path = ""
+        else:
+            local_model_path = tmp_dir / os.path.basename(assignment.model.uri or "model.onnx")
+            model_path, model_s3_read_time = self._materialize_ref(
+                assignment.model,
+                local_model_path,
             )
-            model_s3_read_time = time.perf_counter() - start
 
-        start = time.perf_counter()
-        download_file(
-            self.cfg.file_transfer.s3_bucket,
-            input_path,
-            str(local_input_path),
+        local_input_path = tmp_dir / "input.json"
+        input_path, input_s3_read_time = self._materialize_ref(
+            assignment.input,
+            local_input_path,
         )
-        input_s3_read_time = time.perf_counter() - start
+
+        cache_prefix = cache_ref.uri or self.cfg.proving_cache.root_dir
+        output_prefix = output_ref.uri or str(artifact_dir)
 
         return LocalJobPaths(
-            model_path=str(local_model_path),
-            input_path=str(local_input_path),
+            model_path=model_path,
+            input_path=input_path,
             tmp_dir=str(tmp_dir),
             artifact_dir=str(artifact_dir),
             cache_prefix=cache_prefix,
+            output_prefix=output_prefix,
+            output_backend=output_ref.backend or self.cfg.file_transfer.backend,
+            output_s3_bucket=output_ref.s3_bucket or self.cfg.file_transfer.s3_bucket or "",
             model_s3_read_time=model_s3_read_time,
             input_s3_read_time=input_s3_read_time,
         )
@@ -316,14 +353,8 @@ class ZKProofWorker:
     ) -> Dict[str, Any]:
         try:
             resource_metrics = parse_resource_usage_file(resource_usage_file)
-
         except Exception as exc:
-            self.logger.error(
-                "Failed to parse resource usage file: %s",
-                exc,
-                exc_info=True,
-            )
-
+            self.logger.error("Failed to parse resource usage file: %s", exc, exc_info=True)
             resource_metrics = {
                 "max_process_memory(GB)": None,
                 "max_system_memory(GB)": None,
@@ -374,12 +405,33 @@ class ZKProofWorker:
             logger=self.logger,
         )
 
+    def _publish_artifact_file(
+        self,
+        local_path: str,
+        local_paths: LocalJobPaths,
+        artifact_name: str,
+    ) -> str:
+        if local_paths.output_backend == "filesystem":
+            output_path = os.path.join(local_paths.output_prefix, artifact_name)
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            shutil.copy2(local_path, output_path)
+            return output_path
+
+        if local_paths.output_backend == "s3":
+            if not local_paths.output_s3_bucket:
+                raise ValueError("S3 output artifact requires a bucket")
+            key = f"{local_paths.output_prefix.rstrip('/')}/{artifact_name}"
+            upload_file(local_path, local_paths.output_s3_bucket, key)
+            return key
+
+        raise ValueError(f"Unsupported output backend: {local_paths.output_backend}")
+
     def preserve_job_artifacts(
         self,
         assignment,
         local_paths: LocalJobPaths,
         proof_stages: EZKLProofStages,
-    ) -> Dict[str, str]:
+    ):
         artifact_sources = {
             "proof.pf": proof_stages.proof_path,
             "witness.json": proof_stages.witness_path,
@@ -390,8 +442,7 @@ class ZKProofWorker:
         for artifact_name, source_path in artifact_sources.items():
             if not source_path or not os.path.exists(source_path):
                 raise FileNotFoundError(
-                    f"Required artifact {artifact_name} was not generated: "
-                    f"{source_path}"
+                    f"Required artifact {artifact_name} was not generated: {source_path}"
                 )
 
         artifact_paths: Dict[str, str] = {}
@@ -399,11 +450,7 @@ class ZKProofWorker:
         tmp_dir = Path(local_paths.tmp_dir).resolve()
 
         for artifact_name, source_path in artifact_sources.items():
-            output_path = os.path.join(
-                local_paths.artifact_dir,
-                artifact_name,
-            )
-
+            output_path = os.path.join(local_paths.artifact_dir, artifact_name)
             source = Path(source_path).resolve()
             try:
                 source.relative_to(tmp_dir)
@@ -416,9 +463,12 @@ class ZKProofWorker:
             else:
                 shutil.copy2(str(source), output_path)
 
+            published_uri = self._publish_artifact_file(output_path, local_paths, artifact_name)
             artifact_paths[artifact_name] = output_path
             artifact_metadata[artifact_name] = {
                 "file": artifact_name,
+                "local_path": output_path,
+                "published_uri": published_uri,
                 "size_bytes": os.path.getsize(output_path),
             }
 
@@ -434,45 +484,52 @@ class ZKProofWorker:
             "request_id": assignment.request_id,
             "job_id": assignment.job_id,
             "worker_id": self.worker_id,
-            "storage_backend": self.cfg.file_transfer.backend,
-            "s3_bucket": self.cfg.proving_cache.s3_bucket,
-            "model_source": assignment.model_path,
-            "input_source": assignment.input_path,
+            "storage_backend": local_paths.output_backend,
+            "s3_bucket": local_paths.output_s3_bucket,
+            "model_source": assignment.model.uri,
+            "input_source": assignment.input.uri,
             "cache_prefix": cache_prefix,
             "cache_artifacts": cache_artifacts,
             "srs_path": proof_stages.srs_path,
             "artifacts": artifact_metadata,
         }
 
-        manifest_path = os.path.join(
-            local_paths.artifact_dir,
-            "manifest.json",
-        )
-
+        manifest_path = os.path.join(local_paths.artifact_dir, "manifest.json")
         with open(manifest_path, "w", encoding="utf-8") as file:
             json.dump(manifest, file, indent=4)
 
+        published_manifest = self._publish_artifact_file(
+            manifest_path,
+            local_paths,
+            "manifest.json",
+        )
+
         self.logger.info(
-            "Preserved proof, witness, verification key, settings, and "
-            "manifest in %s",
-            local_paths.artifact_dir,
+            "Preserved and published proof artifacts for job %s to %s:%s",
+            assignment.job_id,
+            local_paths.output_backend,
+            local_paths.output_prefix,
         )
 
         artifact_paths["manifest.json"] = manifest_path
-        return artifact_paths
+        manifest_ref = self.artifact_ref(
+            backend=local_paths.output_backend,
+            uri=published_manifest,
+            s3_bucket=local_paths.output_s3_bucket,
+            size_bytes=os.path.getsize(manifest_path),
+        )
+        return artifact_paths, manifest_ref
 
     def run_assignment(self, assignment) -> None:
         job_id = assignment.job_id
+        request_id = assignment.request_id
 
         local_paths = None
         heartbeat_proc = None
         resource_proc = None
 
         try:
-            local_paths = self.prepare_local_paths(
-                assignment,
-                input_only=self.transfer_only,
-            )
+            local_paths = self.prepare_local_paths(assignment, input_only=self.transfer_only)
 
             if self.transfer_only:
                 parse_start = time.perf_counter()
@@ -491,6 +548,7 @@ class ZKProofWorker:
 
                 self.submit_job_result(
                     job_id=job_id,
+                    request_id=request_id,
                     status="COMPLETED",
                     perf_metrics=metrics,
                     message="Transfer-only benchmark completed",
@@ -499,22 +557,13 @@ class ZKProofWorker:
                 return
 
             status_file = os.path.join(local_paths.artifact_dir, "status.txt")
-
-            (
-                heartbeat_proc,
-                resource_proc,
-                resource_usage_file,
-            ) = self.start_monitoring_processes(
+            heartbeat_proc, resource_proc, resource_usage_file = self.start_monitoring_processes(
                 job_id=job_id,
                 artifact_dir=local_paths.artifact_dir,
                 status_file=status_file,
             )
 
-            proof_stages = self.build_proof_stages(
-                local_paths=local_paths,
-                status_file=status_file,
-            )
-
+            proof_stages = self.build_proof_stages(local_paths=local_paths, status_file=status_file)
             ezkl_metrics, _ = proof_stages.run_all(setup_only=False)
 
             metrics = self.collect_metrics(
@@ -528,7 +577,7 @@ class ZKProofWorker:
                 },
             )
 
-            artifact_paths = self.preserve_job_artifacts(
+            artifact_paths, manifest_ref = self.preserve_job_artifacts(
                 assignment=assignment,
                 local_paths=local_paths,
                 proof_stages=proof_stages,
@@ -536,7 +585,9 @@ class ZKProofWorker:
 
             self.submit_job_result(
                 job_id=job_id,
+                request_id=request_id,
                 status="COMPLETED",
+                artifact_manifest=manifest_ref,
                 proof=self.read_proof_bytes(artifact_paths["proof.pf"]),
                 perf_metrics=metrics,
                 message="Proof computation completed successfully",
@@ -545,35 +596,20 @@ class ZKProofWorker:
             self.logger.info("Completed job %s", job_id)
 
         except Exception as exc:
-            self.logger.error(
-                "Job %s failed: %s",
-                job_id,
-                exc,
-                exc_info=True,
-            )
-
+            self.logger.error("Job %s failed: %s", job_id, exc, exc_info=True)
             self.submit_job_result(
                 job_id=job_id,
+                request_id=request_id,
                 status="FAILED",
                 message=str(exc),
             )
 
         finally:
-            self.stop_processes(
-                heartbeat_proc,
-                resource_proc,
-            )
+            self.stop_processes(heartbeat_proc, resource_proc)
 
             if local_paths and os.path.exists(local_paths.tmp_dir):
-                self.logger.info(
-                    "Cleaning up temporary directory: %s",
-                    local_paths.tmp_dir,
-                )
-
-                shutil.rmtree(
-                    local_paths.tmp_dir,
-                    ignore_errors=True,
-                )
+                self.logger.info("Cleaning up temporary directory: %s", local_paths.tmp_dir)
+                shutil.rmtree(local_paths.tmp_dir, ignore_errors=True)
 
     def run_once(self) -> None:
         assignment = self.get_next_job()
@@ -599,17 +635,15 @@ class ZKProofWorker:
     version_base=None,
 )
 def main(cfg: DictConfig) -> None:
-
     runtime_config = build_runtime_config(cfg=cfg, process_role="worker")
     worker_id = cfg.worker.worker_id or get_ip()
-    logger = setup_logger("worker",log_file=f"{runtime_config.worker.logs_dir}/worker_{worker_id}.log")
+    logger = setup_logger(
+        "worker",
+        log_file=f"{runtime_config.worker.logs_dir}/worker_{worker_id}.log",
+    )
     logger.info("Starting ZKProofWorker...")
 
-    worker = ZKProofWorker(
-        runtime_config=runtime_config,
-        logger=logger,
-    )
-
+    worker = ZKProofWorker(runtime_config=runtime_config, logger=logger)
     worker.run()
 
 
