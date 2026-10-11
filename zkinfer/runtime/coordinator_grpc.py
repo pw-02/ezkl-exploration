@@ -97,7 +97,6 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 input_data_path=request.input_data_path,
                 split_mode=request.split_mode,
                 ops_per_chunk=request.ops_per_chunk,
-                scheduler=None,
                 simplify_model=request.simplify_model,
                 input_shapes=input_shapes,
             )
