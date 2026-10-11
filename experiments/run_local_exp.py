@@ -178,16 +178,26 @@ def coordinator_command(cfg: DictConfig) -> List[str]:
 
 
 def node_command(cfg: DictConfig) -> List[str]:
+    phase = cfg.node.phase_admission
+    overrides = [
+        f"node.node_id={cfg.node.node_id}",
+        f"node.phase_admission.enabled={str(bool(phase.enabled)).lower()}",
+        f"node.phase_admission.memory_reserve_gb={phase.memory_reserve_gb}",
+        f"node.phase_admission.cpu_budget_percent={phase.cpu_budget_percent}",
+        f"node.phase_admission.profile_percentile={phase.profile_percentile}",
+        f"node.phase_admission.fallback_cpu_percent={phase.fallback_cpu_percent}",
+    ]
+    if phase.get("emergency_process_limit", None) is not None:
+        overrides.append(
+            f"node.phase_admission.emergency_process_limit={phase.emergency_process_limit}"
+        )
     return [
         sys.executable,
         "-u",
         "-m",
         "zkinfer.runtime.node.supervisor",
         *common_overrides(cfg),
-        f"node.node_id={cfg.node.node_id}",
-        f"node.local_concurrency_limit={cfg.node.local_concurrency_limit}",
-        f"node.max_heavy_phases={cfg.node.max_heavy_phases}",
-        f"node.memory_reserve_gb={cfg.node.memory_reserve_gb}",
+        *overrides,
     ]
 
 
