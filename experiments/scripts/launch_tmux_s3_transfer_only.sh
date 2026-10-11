@@ -5,8 +5,8 @@ set -euo pipefail
 WORKLOAD="${1:-nano_gpt_4_layers_64_embd}"
 COORDINATOR_HOST="${2:-127.0.0.1}"
 COORDINATOR_PORT="${3:-50051}"
-OPS_PER_CHUNK="${4:-1}"
-SPLIT_MODE="${5:-fixed}"
+OPERATORS_PER_PARTITION="${4:-1}"
+PARTITION_MODE="${5:-fixed_size}"
 
 SESSION="${TMUX_SESSION:-zkexp-transfer}"
 CONDA_ENV="${CONDA_ENV:-zk}"
@@ -14,12 +14,12 @@ S3_BUCKET="${ZKINFER_S3_BUCKET:-zkinfer}"
 S3_PREFIX="${ZKINFER_S3_PREFIX:-zkinfer-reviewer}"
 ROOT_DIR="$(pwd)"
 
-if [[ ! "$OPS_PER_CHUNK" =~ ^[1-9][0-9]*$ ]]; then
-    echo "Error: ops_per_chunk must be a positive integer."
+if [[ ! "$OPERATORS_PER_PARTITION" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: operators_per_partition must be a positive integer."
     exit 1
 fi
-if [[ "$SPLIT_MODE" != "fixed" && "$SPLIT_MODE" != "none" ]]; then
-    echo "Error: split_mode must be 'fixed' or 'none'."
+if [[ "$PARTITION_MODE" != "fixed_size" && "$PARTITION_MODE" != "whole_model" && "$PARTITION_MODE" != "single_operator" ]]; then
+    echo "Error: partition_mode must be fixed_size, whole_model, or single_operator."
     exit 1
 fi
 if [[ -z "$S3_BUCKET" ]]; then
@@ -27,18 +27,21 @@ if [[ -z "$S3_BUCKET" ]]; then
     exit 1
 fi
 
-if [[ "$SPLIT_MODE" == "none" ]]; then
+if [[ "$PARTITION_MODE" == "whole_model" ]]; then
     GROUP_TAG="full"
+elif [[ "$PARTITION_MODE" == "single_operator" ]]; then
+    GROUP_TAG="single-operator"
 else
-    GROUP_TAG="g${OPS_PER_CHUNK}"
+    GROUP_TAG="g${OPERATORS_PER_PARTITION}"
 fi
 
 RUN_ID="$(date -u +%Y-%m-%d_%H-%M-%S)_${WORKLOAD}_${GROUP_TAG}_transfer-only"
 CAMPAIGN_DIR="${ROOT_DIR}/experiments/runs/${RUN_ID}"
 REQUESTS_DIR="${CAMPAIGN_DIR}/requests"
 LOGS_DIR="${CAMPAIGN_DIR}/logs"
-NODE_CACHE_DIR="${CAMPAIGN_DIR}/node-cache"
-mkdir -p "$REQUESTS_DIR" "$LOGS_DIR" "$NODE_CACHE_DIR"
+NODE_CACHE_DIR="${CAMPAIGN_DIR}/node/cache"
+NODE_RUNTIME_DIR="${CAMPAIGN_DIR}/node/runtime"
+mkdir -p "$REQUESTS_DIR" "$LOGS_DIR" "$NODE_CACHE_DIR" "$NODE_RUNTIME_DIR"
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
     tmux kill-session -t "$SESSION"
@@ -56,6 +59,7 @@ coordinator.logs_dir=${LOGS_DIR} \
 node.runs_dir=${REQUESTS_DIR} \
 node.logs_dir=${LOGS_DIR} \
 node.local_cache_dir=${NODE_CACHE_DIR} \
+node.runtime_state_dir=${NODE_RUNTIME_DIR} \
 node.job_poll_interval_sec=1 \
 node.phase_admission.enabled=false \
 jobs.scheduler=fifo \
@@ -64,9 +68,9 @@ storage.backend=s3 \
 storage.s3_bucket=${S3_BUCKET} \
 storage.s3_prefix=${S3_PREFIX} \
 storage.transfer_prefix=transfer \
-storage.proving_cache_enabled=false \
-storage.proving_cache_prefix=cache \
-storage.proving_cache_overwrite=false"
+storage.setup_cache_enabled=false \
+storage.setup_cache_prefix=setup-cache \
+storage.setup_cache_overwrite=false"
 
 if command -v aws >/dev/null 2>&1; then
     aws s3api head-bucket --bucket "$S3_BUCKET" >/dev/null
@@ -107,8 +111,8 @@ tmux send-keys -t "$SESSION:submit" \
     echo 'Transfer-only benchmark: true' && \
     python experiments/submit_job.py \
     +workload=${WORKLOAD} \
-    execution.split_mode=${SPLIT_MODE} \
-    execution.ops_per_chunk=${OPS_PER_CHUNK} \
+    execution.partitioning.mode=${PARTITION_MODE} \
+    execution.partitioning.operators_per_partition=${OPERATORS_PER_PARTITION} \
     jobs.scheduler=fifo \
     launch.coordinator_host=${COORDINATOR_HOST} \
     launch.coordinator_port=${COORDINATOR_PORT} \
