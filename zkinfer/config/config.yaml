@@ -22,7 +22,11 @@ node:
   runs_dir: experiments/runs
   logs_dir: logs/nodes
   job_poll_interval_sec: 5
-  resource_monitor_interval_sec: 1
+  # Floating-point seconds are supported. 1.0s is the normal default; use
+  # 0.25-0.5s for short-phase characterization runs when profiling overhead is
+  # acceptable. Exact stage durations are also recorded separately in
+  # stage_transitions.csv and therefore do not depend on this sampling period.
+  resource_monitor_interval_sec: 1.0
 
   # Phase admission is resource-driven rather than count-driven. Historical
   # per-stage CPU/RSS observations for the same setup key are used when
