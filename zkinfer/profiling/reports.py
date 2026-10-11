@@ -3,7 +3,13 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 
-from zkinfer.storage.io import read_csv_as_dict, write_dict_to_csv
+from zkinfer.runtime.resource_profiles import update_resource_profile
+from zkinfer.storage.io import (
+    exists,
+    load_json,
+    read_csv_as_dict,
+    write_dict_to_csv,
+)
 
 
 def _numeric_values(data: Dict[str, Any], key: str) -> list[float]:
@@ -34,6 +40,19 @@ def _duration_seconds(start, end) -> Optional[float]:
     return (end - start).total_seconds()
 
 
+def _load_existing_resource_profile(job) -> Dict[str, Any]:
+    profiling_path = getattr(job, "profiling_file_path", None)
+    setup_ref = getattr(job, "setup_cache_ref", None)
+    if not profiling_path or setup_ref is None:
+        return {}
+
+    backend = getattr(setup_ref, "backend", "filesystem") or "filesystem"
+    s3_bucket = getattr(setup_ref, "s3_bucket", "") or None
+    if not exists(profiling_path, storage_type=backend, s3_bucket=s3_bucket):
+        return {}
+    return load_json(profiling_path, storage_type=backend, s3_bucket=s3_bucket)
+
+
 def write_job_report(
     job,
     perf_metrics: Optional[Dict[str, Any]] = None,
@@ -46,7 +65,7 @@ def write_job_report(
         "request_id": job.inference_request_id,
         "job_id": job.job_id,
         "job_name": job.job_name,
-        "setup_key": perf_metrics.get("setup_key", getattr(job, "setup_key", "")),
+        "setup_key": perf_metrics.get("setup_key") or getattr(job, "artifact_key", ""),
         "node_id": perf_metrics.get("node_id", job.assigned_node_id or "unknown"),
         "model_path": job.model_path,
         "input_path": job.input_path,
@@ -95,12 +114,24 @@ def write_job_report(
         ):
             report[key] = value
 
+    # Human-readable per-request reports contain one row per run. The profile
+    # persisted in the reusable setup cache additionally keeps bounded history
+    # so later requests can schedule from multiple prior observations.
     write_dict_to_csv(report, os.path.join(out_dir, "job_report.csv"))
     if perf_metrics:
         write_dict_to_csv(
             {"request_id": job.inference_request_id, "job_id": job.job_id, **perf_metrics},
             os.path.join(out_dir, "perf_metrics.csv"),
         )
+
+    if report["job_status"] == "COMPLETED" and getattr(job, "profiling_file_path", None):
+        existing_profile = _load_existing_resource_profile(job)
+        return update_resource_profile(
+            existing_profile,
+            report,
+            setup_key=report["setup_key"],
+        )
+
     return report
 
 
@@ -149,7 +180,6 @@ def write_request_report(request, out_dir: str = "reports") -> Dict[str, Any]:
         "agg_pk_size(GB)": _safe_sum(job_data, "pk_file_size(GB)"),
     }
 
-    # Aggregate phase maxima across jobs for easy characterization.
     for key in job_data:
         if key.startswith("stage_") and key.endswith("_max_memory(GB)"):
             report[f"max_{key}"] = _safe_max(job_data, key)
