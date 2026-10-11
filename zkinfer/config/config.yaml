@@ -22,7 +22,9 @@ node:
   runs_dir: experiments/runs
   logs_dir: logs/nodes
   job_poll_interval_sec: 5
-  resource_monitor_interval_sec: 3
+  # One-second sampling is a better default for distinguishing key generation
+  # from proving in stage-level CPU/RSS traces.
+  resource_monitor_interval_sec: 1
 
   # Purely local safety controls. The coordinator schedules from fresh resource
   # reports; it does not allocate abstract prover slots.
