@@ -25,10 +25,7 @@ def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
     if logger.handlers:
         return logger
 
-    formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    )
-
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(formatter)
     logger.addHandler(console)
@@ -44,7 +41,6 @@ def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
 def validate_config(cfg: DictConfig) -> None:
     if cfg.storage.backend not in {"filesystem", "s3"}:
         raise ValueError("storage.backend must be either 'filesystem' or 's3'")
-
     if cfg.storage.backend == "s3" and not cfg.storage.s3_bucket:
         raise ValueError("storage.s3_bucket must be set when storage.backend=s3")
 
@@ -52,19 +48,15 @@ def validate_config(cfg: DictConfig) -> None:
 def parse_optional_json_dict(value: str) -> Optional[Dict]:
     if not value:
         return None
-
     parsed = json.loads(value)
-
     if not isinstance(parsed, dict):
         raise ValueError("Expected JSON object")
-
     return parsed
 
 
 def to_pb_artifact(ref: Optional[ArtifactRef]) -> pb2.ArtifactRef:
     if ref is None:
         return pb2.ArtifactRef()
-
     return pb2.ArtifactRef(
         backend=ref.backend or "",
         uri=ref.uri or "",
@@ -77,7 +69,6 @@ def to_pb_artifact(ref: Optional[ArtifactRef]) -> pb2.ArtifactRef:
 def from_pb_artifact(ref) -> Optional[ArtifactRef]:
     if ref is None or not getattr(ref, "backend", "") or not getattr(ref, "uri", ""):
         return None
-
     return ArtifactRef(
         backend=ref.backend,
         uri=ref.uri,
@@ -88,20 +79,15 @@ def from_pb_artifact(ref) -> Optional[ArtifactRef]:
 
 
 class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
-    """Thin gRPC adapter around the core Coordinator."""
+    """gRPC control-plane adapter around the core Coordinator."""
 
-    def __init__(
-        self,
-        coordinator: Coordinator,
-        logger: Optional[logging.Logger] = None,
-    ):
+    def __init__(self, coordinator: Coordinator, logger: Optional[logging.Logger] = None):
         self.coordinator = coordinator
         self.logger = logger or logging.getLogger(__name__)
 
     def SubmitInferenceRequest(self, request, context):
         try:
             input_shapes = parse_optional_json_dict(request.input_shapes)
-
             request_id = self.coordinator.submit_request(
                 name=request.name,
                 onnx_model_path=request.onnx_model_path,
@@ -112,21 +98,16 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 simplify_model=request.simplify_model,
                 input_shapes=input_shapes,
             )
-
             return pb2.InferenceRequestAck(request_id=request_id)
-
         except json.JSONDecodeError as exc:
             self._set_error(context, grpc.StatusCode.INVALID_ARGUMENT, exc, "Invalid input_shapes JSON")
-
         except Exception as exc:
             self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error submitting inference request")
-
         return pb2.InferenceRequestAck(request_id="")
 
     def GetRequestStatus(self, request, context):
         try:
             status = self.coordinator.get_request_status(request.request_id)
-
             return pb2.RequestStatusResponse(
                 request_id=status["request_id"],
                 status=status["status"],
@@ -137,7 +118,6 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 completed_jobs=status["completed_jobs"],
                 failed_jobs=status["failed_jobs"],
             )
-
         except Exception as exc:
             self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error fetching request status")
             return pb2.RequestStatusResponse(request_id=request.request_id, status="unknown", message=str(exc))
@@ -152,7 +132,6 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 cached_artifact_keys=tuple(request.cached_artifact_keys),
             )
             job = self.coordinator.get_next_job(worker)
-
             if job is None:
                 return pb2.JobAssignment(job_available=False)
 
@@ -162,13 +141,12 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 job_id=job.job_id,
                 model=to_pb_artifact(job.model_ref),
                 input=to_pb_artifact(job.input_ref),
-                cache=to_pb_artifact(job.cache_ref),
+                setup_cache=to_pb_artifact(job.setup_cache_ref),
                 output_prefix=to_pb_artifact(job.output_prefix_ref),
-                predicted_duration_s=job.predicted_duration or 0.0,
+                predicted_duration_s=job.predicted_duration_s or 0.0,
                 predicted_peak_memory_gb=job.predicted_peak_memory_gb or 0.0,
                 artifact_key=job.artifact_key or "",
             )
-
         except Exception as exc:
             self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error fetching next job")
             return pb2.JobAssignment(job_available=False)
@@ -176,23 +154,18 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
     def SubmitJobResult(self, request, context):
         try:
             perf_metrics = json.loads(request.perf_metrics_json) if request.perf_metrics_json else None
-
             ok = self.coordinator.submit_job_result(
                 worker_id=request.worker_id,
                 job_id=request.job_id,
                 status=request.status,
                 artifact_manifest_ref=from_pb_artifact(request.artifact_manifest),
-                zk_proof=request.proof,
                 perf_metrics=perf_metrics,
                 message=request.message,
             )
-
             return pb2.StatusAck(ok=ok)
-
         except json.JSONDecodeError as exc:
             self._set_error(context, grpc.StatusCode.INVALID_ARGUMENT, exc, "Invalid perf_metrics_json JSON")
             return pb2.StatusAck(ok=False)
-
         except Exception as exc:
             self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error submitting job result")
             return pb2.StatusAck(ok=False)
@@ -205,9 +178,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 status=request.status,
                 message=request.message,
             )
-
             return pb2.HeartbeatAck(success=True)
-
         except Exception as exc:
             self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error recording heartbeat")
             return pb2.HeartbeatAck(success=False)
@@ -218,12 +189,8 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
         context.set_details(f"{message}: {exc}")
 
 
-def create_grpc_server(
-    cfg: DictConfig,
-    service: ZKCoordinatorGrpcService,
-) -> grpc.Server:
+def create_grpc_server(cfg: DictConfig, service: ZKCoordinatorGrpcService) -> grpc.Server:
     max_message_bytes = cfg.coordinator.grpc_max_message_mb * 1024 * 1024
-
     server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=cfg.coordinator.grpc_thread_pool_size),
         options=[
@@ -231,7 +198,6 @@ def create_grpc_server(
             ("grpc.max_receive_message_length", max_message_bytes),
         ],
     )
-
     pb_grpc.add_ZKJobServiceServicer_to_server(service, server)
     return server
 
@@ -242,7 +208,6 @@ def run_dead_worker_monitor(
     logger: logging.Logger,
 ) -> None:
     interval_sec = max(1, int(coordinator.heartbeat_config.interval_sec))
-
     while not stop_event.wait(interval_sec):
         try:
             coordinator.check_for_dead_workers()
@@ -253,7 +218,6 @@ def run_dead_worker_monitor(
 @hydra.main(config_path="../config", config_name="config", version_base=None)
 def serve(cfg: DictConfig) -> None:
     validate_config(cfg)
-
     runtime_config = build_runtime_config(cfg=cfg, process_role="coordinator")
     logger = setup_logger(
         "coordinator",
@@ -265,8 +229,8 @@ def serve(cfg: DictConfig) -> None:
 
     coordinator = Coordinator(runtime_config=runtime_config, logger=logger)
     service = ZKCoordinatorGrpcService(coordinator=coordinator, logger=logger)
-
     server = create_grpc_server(cfg, service)
+
     stop_event = threading.Event()
     monitor_thread = threading.Thread(
         target=run_dead_worker_monitor,
@@ -279,16 +243,13 @@ def serve(cfg: DictConfig) -> None:
     server.add_insecure_port(bind_address)
     server.start()
     monitor_thread.start()
-
     logger.info("Coordinator gRPC server running at %s", bind_address)
 
     try:
         while True:
             time.sleep(3600)
-
     except KeyboardInterrupt:
         logger.warning("Shutting down coordinator...")
-
     finally:
         stop_event.set()
         server.stop(0)
