@@ -41,6 +41,15 @@ jobs:
   # shared-storage staging, scheduling, worker downloads, and JSON parsing.
   transfer_only: false
 
+verification:
+  # Coordinator-side verification of job manifests after all jobs finish.
+  # Client-side verification can still be run independently from the final
+  # request_artifact_manifest.json.
+  enabled: false
+  srs_dir: srs
+  require_split_chain: false
+  write_request_manifest: true
+
 heartbeat:
   interval_sec: 15
   timeout_sec: 60
