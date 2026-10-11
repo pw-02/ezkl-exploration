@@ -73,10 +73,6 @@ class Coordinator:
         self.request_builder = RequestBuilder(logger=logger)
         self.lock = threading.RLock()
 
-        # Verification/report generation must not hold open the final
-        # SubmitJobResult RPC. Otherwise the node keeps a completed prover job
-        # counted as active while the coordinator may spend minutes verifying a
-        # large request.
         self.finalization_pool = ThreadPoolExecutor(
             max_workers=2,
             thread_name_prefix="request-finalizer",
@@ -126,18 +122,16 @@ class Coordinator:
         input_data_path: str,
         split_mode: str,
         ops_per_chunk: int,
-        scheduler: Optional[str],
         simplify_model: bool = False,
         input_shapes: Optional[Dict] = None,
     ) -> str:
-        requested_policy = (scheduler or self.scheduler_policy).lower()
         request = InferenceRequest(
             name=name,
             onnx_model_path=onnx_model_path,
             input_data_path=input_data_path,
             split_mode=split_mode,
             ops_per_chunk=ops_per_chunk,
-            scheduler=requested_policy,
+            scheduler=self.scheduler_policy,
             simplify_model=simplify_model,
             input_shapes=input_shapes,
         )
@@ -152,11 +146,13 @@ class Coordinator:
             transfer_only=self.jobs_config.transfer_only,
         )
         request.preparation_metrics["transfer_only"] = self.jobs_config.transfer_only
+        request.preparation_metrics["scheduler_policy"] = self.scheduler_policy
         self._enqueue_request(request)
         self.logger.info(
-            "Submitted request %s with %d jobs | run_dir=%s",
+            "Submitted request %s with %d jobs | scheduler=%s | run_dir=%s",
             request.request_id,
             len(request.proof_jobs),
+            self.scheduler_policy,
             request.run_dir,
         )
         return request.request_id
@@ -190,8 +186,12 @@ class Coordinator:
                 "message": request.error_message or "",
                 "total_jobs": len(jobs),
                 "queued_jobs": sum(1 for job in jobs if job.job_status == JobStatus.QUEUED),
-                "in_progress_jobs": sum(1 for job in jobs if job.job_status == JobStatus.IN_PROGRESS),
-                "completed_jobs": sum(1 for job in jobs if job.job_status == JobStatus.COMPLETED),
+                "in_progress_jobs": sum(
+                    1 for job in jobs if job.job_status == JobStatus.IN_PROGRESS
+                ),
+                "completed_jobs": sum(
+                    1 for job in jobs if job.job_status == JobStatus.COMPLETED
+                ),
                 "failed_jobs": sum(1 for job in jobs if job.job_status == JobStatus.FAILED),
             }
 
@@ -339,9 +339,6 @@ class Coordinator:
                 status=f"JOB_{job_status.value}",
             )
 
-        # Per-job reporting is fast enough to finish before acknowledging the
-        # result. Request verification/final reporting is scheduled separately
-        # so the node is released immediately after this RPC.
         self._finalize_job(job, perf_metrics=perf_metrics)
         self._schedule_request_finalization(job.inference_request_id)
         return True
@@ -360,20 +357,7 @@ class Coordinator:
                     "request_queued",
                     request_id=request.request_id,
                 )
-
-            if request.scheduler == self.scheduler_policy:
-                self.scheduler.add_jobs(request.proof_jobs)
-                return
-
-            request_scheduler = JobScheduler(policy=request.scheduler)
-            request_scheduler.add_jobs(request.proof_jobs)
-            ordered_jobs = []
-            while True:
-                job = request_scheduler.next_job()
-                if job is None:
-                    break
-                ordered_jobs.append(job)
-            self.scheduler.add_jobs(ordered_jobs)
+            self.scheduler.add_jobs(request.proof_jobs)
 
     def _mark_job_in_progress_locked(self, job: ProofJob, node_id: str) -> None:
         job.job_status = JobStatus.IN_PROGRESS
@@ -598,7 +582,6 @@ class Coordinator:
         with self.lock:
             parent_request.request_status = final_status
             parent_request.error_message = error_message
-            # Completion includes verification when verification is enabled.
             parent_request.completed_time = datetime.now(timezone.utc)
             if self.state_store:
                 self.state_store.save_request(parent_request)
@@ -606,13 +589,10 @@ class Coordinator:
                     "request_finished",
                     request_id=parent_request.request_id,
                     payload={
-                        "verification": verification_report
-                        or {"enabled": False},
+                        "verification": verification_report or {"enabled": False},
                     },
                 )
 
-        # Report-generation failures are recorded but do not retroactively turn
-        # valid proofs into failed proofs.
         try:
             write_request_report(
                 parent_request,
