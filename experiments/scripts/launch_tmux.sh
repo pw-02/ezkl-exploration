@@ -2,26 +2,22 @@
 
 set -euo pipefail
 
-LOCAL_CONCURRENCY="${1:-1}"
-WORKLOAD="${2:-mnist_gan}"
-COORDINATOR_HOST="${3:-127.0.0.1}"
-COORDINATOR_PORT="${4:-50051}"
-HEAVY_PHASE_LIMIT="${5:-${LOCAL_CONCURRENCY}}"
+WORKLOAD="${1:-mnist_gan}"
+COORDINATOR_HOST="${2:-127.0.0.1}"
+COORDINATOR_PORT="${3:-50051}"
+PHASE_ADMISSION="${4:-true}"
+
+if [[ "$PHASE_ADMISSION" != "true" && "$PHASE_ADMISSION" != "false" ]]; then
+    echo "Error: phase_admission must be true or false."
+    exit 1
+fi
 
 SESSION="${TMUX_SESSION:-zkexp}"
 CONDA_ENV="${CONDA_ENV:-zk}"
 ROOT_DIR="$(pwd)"
+ADMISSION_TAG="admission-${PHASE_ADMISSION}"
 
-if [[ ! "$LOCAL_CONCURRENCY" =~ ^[1-9][0-9]*$ ]]; then
-    echo "Error: local_concurrency must be a positive integer."
-    exit 1
-fi
-if [[ ! "$HEAVY_PHASE_LIMIT" =~ ^[1-9][0-9]*$ ]]; then
-    echo "Error: heavy_phase_limit must be a positive integer."
-    exit 1
-fi
-
-RUN_ID="$(date +%Y-%m-%d_%H-%M-%S)_${WORKLOAD}_c${LOCAL_CONCURRENCY}_h${HEAVY_PHASE_LIMIT}"
+RUN_ID="$(date +%Y-%m-%d_%H-%M-%S)_${WORKLOAD}_${ADMISSION_TAG}"
 RUN_DIR="${ROOT_DIR}/experiments/runs/${RUN_ID}"
 LOGS_DIR="${RUN_DIR}/logs"
 SHARED_DIR="${RUN_DIR}/shared"
@@ -47,8 +43,7 @@ coordinator.logs_dir=${LOGS_DIR} \
 node.runs_dir=${RUN_DIR} \
 node.logs_dir=${LOGS_DIR} \
 node.local_cache_dir=${NODE_CACHE_DIR} \
-node.local_concurrency_limit=${LOCAL_CONCURRENCY} \
-node.max_heavy_phases=${HEAVY_PHASE_LIMIT} \
+node.phase_admission.enabled=${PHASE_ADMISSION} \
 storage.backend=filesystem \
 storage.transfer_prefix=${SHARED_DIR} \
 storage.proving_cache_prefix=${CACHE_DIR}"
@@ -87,8 +82,7 @@ tmux new-window -t "$SESSION" -n "submit"
 tmux send-keys -t "$SESSION:submit" \
     "${BASE_CMD} && \
     echo 'Run directory: ${RUN_DIR}' && \
-    echo 'Local concurrency: ${LOCAL_CONCURRENCY}' && \
-    echo 'Heavy phase limit: ${HEAVY_PHASE_LIMIT}' && \
+    echo 'Phase admission: ${PHASE_ADMISSION}' && \
     python experiments/submit_job.py \
     +workload=${WORKLOAD} \
     launch.coordinator_host=${COORDINATOR_HOST} \
@@ -97,6 +91,5 @@ tmux send-keys -t "$SESSION:submit" \
 
 echo "Started tmux session: ${SESSION}"
 echo "Run directory: ${RUN_DIR}"
-echo "Local concurrency: ${LOCAL_CONCURRENCY}"
-echo "Heavy phase limit: ${HEAVY_PHASE_LIMIT}"
+echo "Phase admission: ${PHASE_ADMISSION}"
 tmux attach -t "$SESSION"
