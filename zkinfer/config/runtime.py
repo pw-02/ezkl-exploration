@@ -16,7 +16,6 @@ class CoordinatorConfig:
     logs_dir: str
 
 
-
 @dataclass(frozen=True)
 class WorkerConfig:
     worker_id: Optional[str]
@@ -25,6 +24,8 @@ class WorkerConfig:
     job_poll_interval_sec: int
     resource_monitor_interval_sec: int
     send_proofs_to_coordinator: bool
+    local_cache_dir: str
+    local_cache_max_bytes: int
 
 
 @dataclass(frozen=True)
@@ -53,24 +54,24 @@ class FileTransferConfig:
 
             s3 = boto3.client("s3")
             prefix = f"{self.s3_prefix.rstrip('/')}/{relative_path}/".lstrip("/")
-
             paginator = s3.get_paginator("list_objects_v2")
 
             for page in paginator.paginate(Bucket=self.s3_bucket, Prefix=prefix):
-                objects = [
-                    {"Key": item["Key"]}
-                    for item in page.get("Contents", [])
-                ]
-
+                objects = [{"Key": item["Key"]} for item in page.get("Contents", [])]
                 if objects:
-                    s3.delete_objects(
-                        Bucket=self.s3_bucket,
-                        Delete={"Objects": objects},
-                    )
-
+                    s3.delete_objects(Bucket=self.s3_bucket, Delete={"Objects": objects})
             return
 
         raise ValueError(f"Unsupported file transfer backend: {self.backend}")
+
+
+@dataclass(frozen=True)
+class ArtifactStoreConfig:
+    backend: str
+    root_dir: str
+    s3_bucket: Optional[str]
+    s3_prefix: str
+
 
 @dataclass(frozen=True)
 class ProvingCacheConfig:
@@ -96,22 +97,32 @@ class HeartbeatConfig:
 
 
 @dataclass(frozen=True)
+class StateStoreConfig:
+    enabled: bool
+    db_path: str
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     coordinator: CoordinatorConfig
     worker: WorkerConfig
     file_transfer: FileTransferConfig
+    artifact_store: ArtifactStoreConfig
     proving_cache: ProvingCacheConfig
     jobs: JobConfig
     heartbeat: HeartbeatConfig
+    state_store: StateStoreConfig
 
 
 def _resolve_path(path: str) -> Path:
     resolved = Path(path)
-
     if not resolved.is_absolute():
         resolved = Path.cwd() / resolved
-
     return resolved
+
+
+def _gb_to_bytes(value) -> int:
+    return int(float(value or 0) * (1024 ** 3))
 
 
 def _resolve_transfer_config(cfg: DictConfig) -> FileTransferConfig:
@@ -119,20 +130,35 @@ def _resolve_transfer_config(cfg: DictConfig) -> FileTransferConfig:
 
     if backend == "filesystem":
         root_dir = _resolve_path(cfg.storage.transfer_prefix)
-
-        return FileTransferConfig(
-            backend="filesystem",
-            root_dir=str(root_dir),
-            s3_bucket=None,
-            s3_prefix="",
-        )
+        return FileTransferConfig(backend="filesystem", root_dir=str(root_dir), s3_bucket=None, s3_prefix="")
 
     if backend == "s3":
         base_prefix = cfg.storage.s3_prefix.rstrip("/")
         transfer_prefix = cfg.storage.transfer_prefix.strip("/")
         full_prefix = f"{base_prefix}/{transfer_prefix}"
-
         return FileTransferConfig(
+            backend="s3",
+            root_dir=full_prefix,
+            s3_bucket=cfg.storage.s3_bucket,
+            s3_prefix=full_prefix,
+        )
+
+    raise ValueError(f"Unsupported storage.backend: {backend}")
+
+
+def _resolve_artifact_store_config(cfg: DictConfig) -> ArtifactStoreConfig:
+    backend = cfg.storage.backend
+    artifact_prefix = cfg.storage.get("artifact_prefix", "storage/artifacts")
+
+    if backend == "filesystem":
+        root_dir = _resolve_path(artifact_prefix)
+        return ArtifactStoreConfig(backend="filesystem", root_dir=str(root_dir), s3_bucket=None, s3_prefix="")
+
+    if backend == "s3":
+        base_prefix = cfg.storage.s3_prefix.rstrip("/")
+        object_prefix = artifact_prefix.strip("/")
+        full_prefix = f"{base_prefix}/{object_prefix}"
+        return ArtifactStoreConfig(
             backend="s3",
             root_dir=full_prefix,
             s3_bucket=cfg.storage.s3_bucket,
@@ -147,7 +173,6 @@ def _resolve_proving_cache_config(cfg: DictConfig) -> ProvingCacheConfig:
 
     if backend == "filesystem":
         root_dir = _resolve_path(cfg.storage.proving_cache_prefix)
-
         return ProvingCacheConfig(
             enabled=cfg.storage.proving_cache_enabled,
             backend="filesystem",
@@ -161,7 +186,6 @@ def _resolve_proving_cache_config(cfg: DictConfig) -> ProvingCacheConfig:
         base_prefix = cfg.storage.s3_prefix.rstrip("/")
         cache_prefix = cfg.storage.proving_cache_prefix.strip("/")
         full_prefix = f"{base_prefix}/{cache_prefix}"
-
         return ProvingCacheConfig(
             enabled=cfg.storage.proving_cache_enabled,
             backend="s3",
@@ -174,10 +198,15 @@ def _resolve_proving_cache_config(cfg: DictConfig) -> ProvingCacheConfig:
     raise ValueError(f"Unsupported storage.backend: {backend}")
 
 
-def build_runtime_config(
-    cfg: DictConfig,
-    process_role: Optional[str] = None,
-) -> RuntimeConfig:
+def _resolve_state_store_config(cfg: DictConfig) -> StateStoreConfig:
+    db_path = _resolve_path(cfg.coordinator.get("state_db_path", "experiments/runs/coordinator_state.sqlite3"))
+    return StateStoreConfig(
+        enabled=bool(cfg.coordinator.get("state_store_enabled", True)),
+        db_path=str(db_path),
+    )
+
+
+def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) -> RuntimeConfig:
     if cfg.storage.backend not in {"filesystem", "s3"}:
         raise ValueError("storage.backend must be either 'filesystem' or 's3'")
 
@@ -191,24 +220,29 @@ def build_runtime_config(
     worker_runs_dir = _resolve_path(cfg.worker.runs_dir)
     coordinator_logs_dir = _resolve_path(cfg.coordinator.logs_dir)
     worker_logs_dir = _resolve_path(cfg.worker.logs_dir)
+    worker_cache_dir = _resolve_path(cfg.worker.get("local_cache_dir", "storage/worker_cache"))
 
     file_transfer = _resolve_transfer_config(cfg)
+    artifact_store = _resolve_artifact_store_config(cfg)
     proving_cache = _resolve_proving_cache_config(cfg)
+    state_store = _resolve_state_store_config(cfg)
 
     if process_role == "coordinator":
         coordinator_runs_dir.mkdir(parents=True, exist_ok=True)
         coordinator_logs_dir.mkdir(parents=True, exist_ok=True)
+        Path(state_store.db_path).parent.mkdir(parents=True, exist_ok=True)
 
         if file_transfer.backend == "filesystem":
             Path(file_transfer.root_dir).mkdir(parents=True, exist_ok=True)
-
+        if artifact_store.backend == "filesystem":
+            Path(artifact_store.root_dir).mkdir(parents=True, exist_ok=True)
         if proving_cache.backend == "filesystem":
             Path(proving_cache.root_dir).mkdir(parents=True, exist_ok=True)
 
     elif process_role == "worker":
         worker_runs_dir.mkdir(parents=True, exist_ok=True)
         worker_logs_dir.mkdir(parents=True, exist_ok=True)
-
+        worker_cache_dir.mkdir(parents=True, exist_ok=True)
         if proving_cache.backend == "filesystem":
             Path(proving_cache.root_dir).mkdir(parents=True, exist_ok=True)
 
@@ -228,8 +262,11 @@ def build_runtime_config(
             job_poll_interval_sec=cfg.worker.job_poll_interval_sec,
             resource_monitor_interval_sec=cfg.worker.resource_monitor_interval_sec,
             send_proofs_to_coordinator=cfg.worker.send_proofs_to_coordinator,
+            local_cache_dir=str(worker_cache_dir),
+            local_cache_max_bytes=_gb_to_bytes(cfg.worker.get("local_cache_max_gb", 100)),
         ),
         file_transfer=file_transfer,
+        artifact_store=artifact_store,
         proving_cache=proving_cache,
         jobs=JobConfig(
             scheduler=cfg.jobs.scheduler,
@@ -240,4 +277,5 @@ def build_runtime_config(
             interval_sec=cfg.heartbeat.interval_sec,
             timeout_sec=cfg.heartbeat.timeout_sec,
         ),
+        state_store=state_store,
     )
