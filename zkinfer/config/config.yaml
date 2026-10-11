@@ -1,4 +1,4 @@
-# config/config.yaml
+# zkInfer runtime defaults
 
 defaults:
   - _self_
@@ -17,42 +17,47 @@ coordinator:
   state_db_path: experiments/runs/coordinator_state.sqlite3
 
 node:
-  # One node supervisor runs per machine or cloud instance.
+  # One NodeSupervisor runs per physical machine/cloud instance.
   node_id: null
   runs_dir: experiments/runs
   logs_dir: logs/nodes
   job_poll_interval_sec: 5
-  # Floating-point seconds are supported. 1.0s is the normal default; use
-  # 0.25-0.5s for short-phase characterization runs when profiling overhead is
-  # acceptable. Exact stage durations are also recorded separately in
-  # stage_transitions.csv and therefore do not depend on this sampling period.
+
+  # RSS/CPU sampling interval for resource_usage.csv. Exact EZKL and Halo2
+  # transition durations are recorded separately and do not depend on this.
+  # Use 0.25-0.5s for Section 3 characterization; 1.0s is a lighter default.
   resource_monitor_interval_sec: 1.0
 
-  # Phase admission is resource-driven rather than count-driven. Historical
-  # per-stage CPU/RSS observations for the same setup key are used when
-  # available; otherwise the job's whole-job peak-memory estimate is used as a
-  # conservative fallback. Toggle enabled=false for the no-admission baseline.
+  # Optional whole-job concurrency cap on this node.
+  # null = no fixed job-count cap; resource admission determines overlap.
+  # 1    = strictly one proof job at a time (useful sequential baseline).
+  # N    = at most N active proof jobs on this node.
+  max_active_jobs: null
+
+  # Persistent local copies used by this node. The directory contains:
+  #   objects/ : materialized model/input artifacts
+  #   setup/   : local copies of reusable setup files
+  # Runtime coordination state is kept separately under storage/node/runtime.
+  local_cache_dir: storage/node/cache
+  local_cache_max_gb: 50
+
+  # Stage-level resource admission. Historical stage measurements are used when
+  # available; otherwise the whole-job estimate is used conservatively.
   phase_admission:
     enabled: false
     memory_reserve_gb: 8
     cpu_budget_percent: 100
     profile_percentile: 0.90
     fallback_cpu_percent: 100
-    # Optional last-resort protection against a software bug spawning an
-    # unbounded number of local prover processes. Null means no process-count
-    # policy is applied during normal scheduling/admission.
-    emergency_process_limit: null
-
-  # Node-level cache shared by all local prover subprocesses. Set
-  # local_cache_max_gb to 0 to disable eviction.
-  local_cache_dir: storage/node_cache
-  local_cache_max_gb: 50
 
 jobs:
+  # Global coordinator scheduling policy:
+  #   fifo           request-fair queue order
+  #   lpt            longest predicted job first within the selected request
+  #   cache_aware    prefer setup already resident on the polling node
+  #   resource_aware use stage resource profiles plus cache locality
   scheduler: cache_aware
   max_retries: 1
-  # Skip model transfer and proving while retaining input movement, scheduling,
-  # node materialization, and JSON parsing for transfer-only experiments.
   transfer_only: false
 
 verification:
@@ -68,13 +73,16 @@ heartbeat:
 storage:
   backend: filesystem # filesystem | s3
   transfer_prefix: storage/transfer
+
+  # Shared data-plane store. Models, materialized inputs, and published proof
+  # outputs are referenced by metadata over gRPC rather than sent inline.
   artifact_prefix: storage/artifacts
 
-  # Shared persistent setup cache. Nodes restore reusable setup files from this
-  # location and publish newly generated settings/circuits/keys back to it.
-  proving_cache_enabled: true
-  proving_cache_prefix: storage/cache
-  proving_cache_overwrite: false
+  # Shared persistent setup cache. This is the warm/cold proving cache:
+  # settings.json, network.compiled, pk.json, vk.json, and resource_profile.json.
+  setup_cache_enabled: true
+  setup_cache_prefix: storage/setup_cache
+  setup_cache_overwrite: false
 
   s3_bucket: null
   s3_prefix: zkinfer
