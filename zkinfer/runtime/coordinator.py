@@ -6,7 +6,14 @@ from typing import Dict, Optional
 
 from zkinfer.config.runtime import RuntimeConfig
 from zkinfer.profiling.reports import write_job_report, write_request_report
-from zkinfer.runtime.models import InferenceRequest, JobStatus, ProofJob, RequestStatus
+from zkinfer.runtime.models import (
+    ArtifactRef,
+    InferenceRequest,
+    JobStatus,
+    ProofJob,
+    RequestStatus,
+    WorkerResources,
+)
 from zkinfer.runtime.request_builder import RequestBuilder
 from zkinfer.runtime.scheduler import JobScheduler
 from zkinfer.storage.io import save_json
@@ -90,7 +97,6 @@ class Coordinator:
         return req.request_id
 
     def _create_request_dirs(self, req: InferenceRequest) -> None:
-    
         run_dir = self.runs_dir / req.request_id
 
         dirs = {
@@ -133,16 +139,22 @@ class Coordinator:
                 "failed_jobs": sum(1 for job in jobs if job.job_status == JobStatus.FAILED),
             }
 
-    def get_next_job(self) -> Optional[ProofJob]:
+    def get_next_job(self, worker: WorkerResources) -> Optional[ProofJob]:
         with self.lock:
-            job = self.scheduler.next_job()
+            self._record_worker_locked(worker, job_id=None, status="POLLING")
+            job = self.scheduler.next_job(worker)
 
             if job is None:
                 return None
 
-            self._mark_job_in_progress_locked(job)
+            self._mark_job_in_progress_locked(job, worker.worker_id)
 
-            self.logger.info("Dispatched job %s | %s", job.job_id, job.job_name)
+            self.logger.info(
+                "Dispatched job %s | %s to worker=%s",
+                job.job_id,
+                job.job_name,
+                worker.worker_id,
+            )
             return job
 
     def record_heartbeat(
@@ -159,7 +171,9 @@ class Coordinator:
             job_name = job.job_name if job else "none"
 
             self.worker_heartbeats[worker_id] = now
+            existing = self.worker_status.get(worker_id, {})
             self.worker_status[worker_id] = {
+                **existing,
                 "job_id": job_id,
                 "status": status,
                 "message": message,
@@ -173,6 +187,24 @@ class Coordinator:
                 status,
                 len(self.active_jobs),
             )
+
+    def _record_worker_locked(
+        self,
+        worker: WorkerResources,
+        job_id: Optional[str],
+        status: str,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        self.worker_heartbeats[worker.worker_id] = now
+        self.worker_status[worker.worker_id] = {
+            "job_id": job_id,
+            "status": status,
+            "timestamp": now.isoformat(),
+            "memory_budget_gb": worker.memory_budget_gb,
+            "reserved_memory_gb": worker.reserved_memory_gb,
+            "free_slots": worker.free_slots,
+            "cached_artifact_keys": list(worker.cached_artifact_keys or []),
+        }
 
     def check_for_dead_workers(self) -> None:
         timeout_sec = self.heartbeat_config.timeout_sec
@@ -202,7 +234,7 @@ class Coordinator:
             for worker_id in dead_workers:
                 self.worker_heartbeats.pop(worker_id, None)
                 self.worker_status.pop(worker_id, None)
-    
+
     def _cleanup_request_transfer_files(self, request: InferenceRequest) -> None:
         try:
             self.file_transfer.delete_tree(request.request_id)
@@ -217,15 +249,14 @@ class Coordinator:
                 exc,
                 exc_info=True,
             )
- 
 
-
-    
     def submit_job_result(
         self,
+        worker_id: str,
         job_id: str,
-        zk_proof: bytes,
         status: str,
+        artifact_manifest_ref: Optional[ArtifactRef] = None,
+        zk_proof: bytes = b"",
         message: Optional[str] = None,
         perf_metrics: Optional[Dict] = None,
     ) -> bool:
@@ -244,6 +275,7 @@ class Coordinator:
 
             job.completed_time = datetime.now(timezone.utc)
             job.job_status = job_status
+            job.artifact_manifest_ref = artifact_manifest_ref
 
             if job.job_status == JobStatus.FAILED:
                 should_retry = self._handle_failed_job_locked(job, zk_proof, message)
@@ -252,6 +284,12 @@ class Coordinator:
                     return True
             else:
                 self._complete_job_locked(job, zk_proof)
+
+            self._record_worker_locked(
+                WorkerResources(worker_id=worker_id),
+                job_id=None,
+                status=f"JOB_{job_status.value}",
+            )
 
         self._finalize_job(job, perf_metrics=perf_metrics)
         self._maybe_finalize_request(job.inference_request_id)
@@ -286,9 +324,10 @@ class Coordinator:
 
                 self.scheduler.add_jobs(ordered_jobs)
 
-    def _mark_job_in_progress_locked(self, job: ProofJob) -> None:
+    def _mark_job_in_progress_locked(self, job: ProofJob, worker_id: str) -> None:
         job.job_status = JobStatus.IN_PROGRESS
         job.started_time = datetime.now(timezone.utc)
+        job.assigned_worker_id = worker_id
         self.active_jobs[job.job_id] = job
 
         parent_req = self.active_requests.get(job.inference_request_id)
@@ -296,6 +335,12 @@ class Coordinator:
         if parent_req and parent_req.started_time is None:
             parent_req.started_time = datetime.now(timezone.utc)
             parent_req.request_status = RequestStatus.IN_PROGRESS
+
+        status = self.worker_status.get(worker_id, {})
+        status["job_id"] = job.job_id
+        status["status"] = "IN_PROGRESS"
+        status["timestamp"] = datetime.now(timezone.utc).isoformat()
+        self.worker_status[worker_id] = status
 
     def _requeue_active_job_locked(self, job_id: str) -> None:
         job = self.active_jobs.get(job_id)
@@ -306,6 +351,7 @@ class Coordinator:
         job.job_status = JobStatus.QUEUED
         job.started_time = None
         job.completed_time = None
+        job.assigned_worker_id = None
 
         self.scheduler.requeue(job)
         self.active_jobs.pop(job.job_id, None)
@@ -313,7 +359,7 @@ class Coordinator:
         self.logger.info("Requeued job %s after worker failure", job.job_name)
 
     def _complete_job_locked(self, job: ProofJob, zk_proof: bytes) -> None:
-        job.zk_proof = zk_proof
+        job.zk_proof = zk_proof or None
         self.active_jobs.pop(job.job_id, None)
 
         self.logger.info(
@@ -342,6 +388,8 @@ class Coordinator:
             job.job_status = JobStatus.QUEUED
             job.started_time = None
             job.completed_time = None
+            job.assigned_worker_id = None
+            job.artifact_manifest_ref = None
             job.error_message = None
 
             self.active_jobs.pop(job.job_id, None)
@@ -350,7 +398,7 @@ class Coordinator:
             return True
 
         job.error_message = message or "Job failed permanently after retries."
-        job.zk_proof = zk_proof
+        job.zk_proof = zk_proof or None
 
         self.active_jobs.pop(job.job_id, None)
 
@@ -373,6 +421,10 @@ class Coordinator:
             perf_metrics=perf_metrics,
             out_dir=parent_req.reports_dir,
         )
+
+        if job.artifact_manifest_ref:
+            job_report["artifact_manifest_backend"] = job.artifact_manifest_ref.backend
+            job_report["artifact_manifest_uri"] = job.artifact_manifest_ref.uri
 
         if job.job_status == JobStatus.COMPLETED and job.profiling_file_path:
             save_json(
@@ -411,7 +463,7 @@ class Coordinator:
         else:
             parent_req.request_status = RequestStatus.COMPLETED
             self.logger.info("Request %s completed.", parent_req.request_id)
-        
+
         write_request_report(
             parent_req,
             out_dir=parent_req.reports_dir,
