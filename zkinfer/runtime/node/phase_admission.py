@@ -163,8 +163,6 @@ class HistoricalResourceProfiles:
             ]
             if not memory_values and not cpu_values:
                 return None
-            # With only a few observations, the observed maximum is safer and
-            # easier to interpret than a percentile interpolation.
             memory_gb = (
                 max(memory_values)
                 if len(memory_values) < 5
@@ -244,7 +242,9 @@ class ResourceAdmissionController:
         self.reservations_dir = self.root_dir / "reservations"
         self.reservations_dir.mkdir(parents=True, exist_ok=True)
         self.holder_path = self.reservations_dir / f"{os.getpid()}.json"
-        self.profiles = HistoricalResourceProfiles(self.root_dir / "profiles")
+        self.profiles = HistoricalResourceProfiles(
+            self.root_dir / "resource_profiles"
+        )
 
     def _clean_stale_reservations(self) -> None:
         for path in self.reservations_dir.glob("*.json"):
