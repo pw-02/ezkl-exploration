@@ -23,7 +23,9 @@ class NodeConfig:
     logs_dir: str
     job_poll_interval_sec: int
     resource_monitor_interval_sec: int
-    max_concurrent_jobs: int
+    local_concurrency_limit: int
+    max_heavy_phases: int
+    memory_reserve_gb: float
     local_cache_dir: str
     local_cache_max_bytes: int
 
@@ -39,28 +41,21 @@ class FileTransferConfig:
         relative_path = relative_path.strip("/")
         if not relative_path:
             raise ValueError("Refusing to delete empty transfer path")
-
         if self.backend == "filesystem":
-            path = Path(self.root_dir) / relative_path
-            shutil.rmtree(path, ignore_errors=True)
+            shutil.rmtree(Path(self.root_dir) / relative_path, ignore_errors=True)
             return
-
         if self.backend == "s3":
             import boto3
-
             if not self.s3_bucket:
                 raise ValueError("s3_bucket must be set when backend=s3")
-
-            s3 = boto3.client("s3")
+            client = boto3.client("s3")
             prefix = f"{self.s3_prefix.rstrip('/')}/{relative_path}/".lstrip("/")
-            paginator = s3.get_paginator("list_objects_v2")
-
+            paginator = client.get_paginator("list_objects_v2")
             for page in paginator.paginate(Bucket=self.s3_bucket, Prefix=prefix):
                 objects = [{"Key": item["Key"]} for item in page.get("Contents", [])]
                 if objects:
-                    s3.delete_objects(Bucket=self.s3_bucket, Delete={"Objects": objects})
+                    client.delete_objects(Bucket=self.s3_bucket, Delete={"Objects": objects})
             return
-
         raise ValueError(f"Unsupported file transfer backend: {self.backend}")
 
 
@@ -124,9 +119,7 @@ class RuntimeConfig:
 
 def _resolve_path(path: str) -> Path:
     resolved = Path(path)
-    if not resolved.is_absolute():
-        resolved = Path.cwd() / resolved
-    return resolved
+    return resolved if resolved.is_absolute() else Path.cwd() / resolved
 
 
 def _gb_to_bytes(value) -> int:
@@ -136,50 +129,25 @@ def _gb_to_bytes(value) -> int:
 def _resolve_transfer_config(cfg: DictConfig) -> FileTransferConfig:
     backend = cfg.storage.backend
     if backend == "filesystem":
-        return FileTransferConfig(
-            backend="filesystem",
-            root_dir=str(_resolve_path(cfg.storage.transfer_prefix)),
-            s3_bucket=None,
-            s3_prefix="",
-        )
-
+        return FileTransferConfig("filesystem", str(_resolve_path(cfg.storage.transfer_prefix)), None, "")
     if backend == "s3":
         base_prefix = cfg.storage.s3_prefix.rstrip("/")
         transfer_prefix = cfg.storage.transfer_prefix.strip("/")
         full_prefix = f"{base_prefix}/{transfer_prefix}"
-        return FileTransferConfig(
-            backend="s3",
-            root_dir=full_prefix,
-            s3_bucket=cfg.storage.s3_bucket,
-            s3_prefix=full_prefix,
-        )
-
+        return FileTransferConfig("s3", full_prefix, cfg.storage.s3_bucket, full_prefix)
     raise ValueError(f"Unsupported storage.backend: {backend}")
 
 
 def _resolve_artifact_store_config(cfg: DictConfig) -> ArtifactStoreConfig:
     backend = cfg.storage.backend
     artifact_prefix = cfg.storage.get("artifact_prefix", "storage/artifacts")
-
     if backend == "filesystem":
-        return ArtifactStoreConfig(
-            backend="filesystem",
-            root_dir=str(_resolve_path(artifact_prefix)),
-            s3_bucket=None,
-            s3_prefix="",
-        )
-
+        return ArtifactStoreConfig("filesystem", str(_resolve_path(artifact_prefix)), None, "")
     if backend == "s3":
         base_prefix = cfg.storage.s3_prefix.rstrip("/")
         object_prefix = artifact_prefix.strip("/")
         full_prefix = f"{base_prefix}/{object_prefix}"
-        return ArtifactStoreConfig(
-            backend="s3",
-            root_dir=full_prefix,
-            s3_bucket=cfg.storage.s3_bucket,
-            s3_prefix=full_prefix,
-        )
-
+        return ArtifactStoreConfig("s3", full_prefix, cfg.storage.s3_bucket, full_prefix)
     raise ValueError(f"Unsupported storage.backend: {backend}")
 
 
@@ -187,36 +155,31 @@ def _resolve_proving_cache_config(cfg: DictConfig) -> ProvingCacheConfig:
     backend = cfg.storage.backend
     if backend == "filesystem":
         return ProvingCacheConfig(
-            enabled=cfg.storage.proving_cache_enabled,
-            backend="filesystem",
-            overwrite=cfg.storage.proving_cache_overwrite,
-            root_dir=str(_resolve_path(cfg.storage.proving_cache_prefix)),
-            s3_bucket=None,
-            s3_prefix="",
+            bool(cfg.storage.proving_cache_enabled),
+            "filesystem",
+            bool(cfg.storage.proving_cache_overwrite),
+            str(_resolve_path(cfg.storage.proving_cache_prefix)),
+            None,
+            "",
         )
-
     if backend == "s3":
         base_prefix = cfg.storage.s3_prefix.rstrip("/")
         cache_prefix = cfg.storage.proving_cache_prefix.strip("/")
         full_prefix = f"{base_prefix}/{cache_prefix}"
         return ProvingCacheConfig(
-            enabled=cfg.storage.proving_cache_enabled,
-            backend="s3",
-            overwrite=cfg.storage.proving_cache_overwrite,
-            root_dir=full_prefix,
-            s3_bucket=cfg.storage.s3_bucket,
-            s3_prefix=full_prefix,
+            bool(cfg.storage.proving_cache_enabled),
+            "s3",
+            bool(cfg.storage.proving_cache_overwrite),
+            full_prefix,
+            cfg.storage.s3_bucket,
+            full_prefix,
         )
-
     raise ValueError(f"Unsupported storage.backend: {backend}")
 
 
 def _resolve_state_store_config(cfg: DictConfig) -> StateStoreConfig:
     db_path = _resolve_path(cfg.coordinator.get("state_db_path", "experiments/runs/coordinator_state.sqlite3"))
-    return StateStoreConfig(
-        enabled=bool(cfg.coordinator.get("state_store_enabled", True)),
-        db_path=str(db_path),
-    )
+    return StateStoreConfig(bool(cfg.coordinator.get("state_store_enabled", True)), str(db_path))
 
 
 def _resolve_verification_config(cfg: DictConfig) -> VerificationConfig:
@@ -259,13 +222,18 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
             Path(artifact_store.root_dir).mkdir(parents=True, exist_ok=True)
         if proving_cache.backend == "filesystem":
             Path(proving_cache.root_dir).mkdir(parents=True, exist_ok=True)
-
     elif process_role == "node":
         node_runs_dir.mkdir(parents=True, exist_ok=True)
         node_logs_dir.mkdir(parents=True, exist_ok=True)
         node_cache_dir.mkdir(parents=True, exist_ok=True)
         if proving_cache.backend == "filesystem":
             Path(proving_cache.root_dir).mkdir(parents=True, exist_ok=True)
+
+    # local_concurrency_limit supersedes the old max_concurrent_jobs name. Keep
+    # the fallback here so existing config files fail gracefully during upgrade.
+    local_concurrency_limit = int(
+        cfg.node.get("local_concurrency_limit", cfg.node.get("max_concurrent_jobs", 1))
+    )
 
     return RuntimeConfig(
         coordinator=CoordinatorConfig(
@@ -280,9 +248,11 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
             node_id=cfg.node.node_id,
             runs_dir=str(node_runs_dir),
             logs_dir=str(node_logs_dir),
-            job_poll_interval_sec=cfg.node.job_poll_interval_sec,
-            resource_monitor_interval_sec=cfg.node.resource_monitor_interval_sec,
-            max_concurrent_jobs=int(cfg.node.get("max_concurrent_jobs", 1)),
+            job_poll_interval_sec=int(cfg.node.job_poll_interval_sec),
+            resource_monitor_interval_sec=int(cfg.node.resource_monitor_interval_sec),
+            local_concurrency_limit=max(1, local_concurrency_limit),
+            max_heavy_phases=max(1, int(cfg.node.get("max_heavy_phases", local_concurrency_limit))),
+            memory_reserve_gb=max(0.0, float(cfg.node.get("memory_reserve_gb", 8.0))),
             local_cache_dir=str(node_cache_dir),
             local_cache_max_bytes=_gb_to_bytes(cfg.node.get("local_cache_max_gb", 100)),
         ),
@@ -291,12 +261,12 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
         proving_cache=proving_cache,
         jobs=JobConfig(
             scheduler=cfg.jobs.scheduler,
-            max_retries=cfg.jobs.max_retries,
+            max_retries=int(cfg.jobs.max_retries),
             transfer_only=bool(cfg.jobs.get("transfer_only", False)),
         ),
         heartbeat=HeartbeatConfig(
-            interval_sec=cfg.heartbeat.interval_sec,
-            timeout_sec=cfg.heartbeat.timeout_sec,
+            interval_sec=int(cfg.heartbeat.interval_sec),
+            timeout_sec=int(cfg.heartbeat.timeout_sec),
         ),
         state_store=state_store,
         verification=verification,
