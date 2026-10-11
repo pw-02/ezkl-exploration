@@ -14,7 +14,8 @@ import zkinfer.proto.zkservice_pb2 as pb2
 import zkinfer.proto.zkservice_pb2_grpc as pb_grpc
 from zkinfer.config.runtime import build_runtime_config
 from zkinfer.runtime.coordinator import Coordinator
-from zkinfer.runtime.models import ArtifactRef, WorkerResources
+from zkinfer.runtime.data_plane import ArtifactRef
+from zkinfer.runtime.models import NodeResources
 
 
 def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
@@ -55,7 +56,7 @@ def parse_optional_json_dict(value: str) -> Optional[Dict]:
 
 
 def to_pb_artifact(ref: Optional[ArtifactRef]) -> pb2.ArtifactRef:
-    if ref is None:
+    if ref is None or ref.is_empty:
         return pb2.ArtifactRef()
     return pb2.ArtifactRef(
         backend=ref.backend or "",
@@ -122,21 +123,27 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
             self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error fetching request status")
             return pb2.RequestStatusResponse(request_id=request.request_id, status="unknown", message=str(exc))
 
-    def GetNextJob(self, request, context):
+    def PollNode(self, request, context):
         try:
-            worker = WorkerResources(
-                worker_id=request.worker_id,
-                memory_budget_gb=request.memory_budget_gb,
-                reserved_memory_gb=request.reserved_memory_gb,
-                free_slots=request.free_slots or 1,
-                cached_artifact_keys=tuple(request.cached_artifact_keys),
+            node = NodeResources(
+                node_id=request.node_id,
+                memory_total_gb=request.memory_total_gb,
+                memory_available_gb=request.memory_available_gb,
+                cpu_total_cores=request.cpu_total_cores,
+                cpu_available_cores=request.cpu_available_cores,
+                cache_limit_gb=request.cache_limit_gb,
+                cache_used_gb=request.cache_used_gb,
+                max_concurrent_jobs=request.max_concurrent_jobs or 1,
+                active_job_ids=tuple(request.active_job_ids),
+                cached_setup_keys=tuple(request.cached_setup_keys),
             )
-            job = self.coordinator.get_next_job(worker)
+            job = self.coordinator.poll_node(node)
             if job is None:
-                return pb2.JobAssignment(job_available=False)
+                return pb2.JobLease(job_available=False)
 
-            return pb2.JobAssignment(
+            return pb2.JobLease(
                 job_available=True,
+                lease_id=job.lease_id or "",
                 request_id=job.inference_request_id,
                 job_id=job.job_id,
                 model=to_pb_artifact(job.model_ref),
@@ -145,17 +152,18 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 output_prefix=to_pb_artifact(job.output_prefix_ref),
                 predicted_duration_s=job.predicted_duration_s or 0.0,
                 predicted_peak_memory_gb=job.predicted_peak_memory_gb or 0.0,
-                artifact_key=job.artifact_key or "",
+                setup_key=job.artifact_key or "",
             )
         except Exception as exc:
-            self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error fetching next job")
-            return pb2.JobAssignment(job_available=False)
+            self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error polling node")
+            return pb2.JobLease(job_available=False)
 
     def SubmitJobResult(self, request, context):
         try:
             perf_metrics = json.loads(request.perf_metrics_json) if request.perf_metrics_json else None
             ok = self.coordinator.submit_job_result(
-                worker_id=request.worker_id,
+                node_id=request.node_id,
+                lease_id=request.lease_id,
                 job_id=request.job_id,
                 status=request.status,
                 artifact_manifest_ref=from_pb_artifact(request.artifact_manifest),
@@ -170,17 +178,17 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
             self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error submitting job result")
             return pb2.StatusAck(ok=False)
 
-    def SendHeartbeat(self, request, context):
+    def SendNodeHeartbeat(self, request, context):
         try:
-            self.coordinator.record_heartbeat(
-                worker_id=request.worker_id,
-                job_id=request.job_id,
+            self.coordinator.record_node_heartbeat(
+                node_id=request.node_id,
+                active_job_ids=list(request.active_job_ids),
                 status=request.status,
                 message=request.message,
             )
             return pb2.HeartbeatAck(success=True)
         except Exception as exc:
-            self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error recording heartbeat")
+            self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error recording node heartbeat")
             return pb2.HeartbeatAck(success=False)
 
     def _set_error(self, context, code, exc: Exception, message: str) -> None:
@@ -202,7 +210,7 @@ def create_grpc_server(cfg: DictConfig, service: ZKCoordinatorGrpcService) -> gr
     return server
 
 
-def run_dead_worker_monitor(
+def run_dead_node_monitor(
     coordinator: Coordinator,
     stop_event: threading.Event,
     logger: logging.Logger,
@@ -210,9 +218,9 @@ def run_dead_worker_monitor(
     interval_sec = max(1, int(coordinator.heartbeat_config.interval_sec))
     while not stop_event.wait(interval_sec):
         try:
-            coordinator.check_for_dead_workers()
+            coordinator.check_for_dead_nodes()
         except Exception:
-            logger.exception("Dead-worker monitor failed")
+            logger.exception("Dead-node monitor failed")
 
 
 @hydra.main(config_path="../config", config_name="config", version_base=None)
@@ -233,9 +241,9 @@ def serve(cfg: DictConfig) -> None:
 
     stop_event = threading.Event()
     monitor_thread = threading.Thread(
-        target=run_dead_worker_monitor,
+        target=run_dead_node_monitor,
         args=(coordinator, stop_event, logger),
-        name="dead-worker-monitor",
+        name="dead-node-monitor",
         daemon=True,
     )
 
@@ -243,6 +251,7 @@ def serve(cfg: DictConfig) -> None:
     server.add_insecure_port(bind_address)
     server.start()
     monitor_thread.start()
+
     logger.info("Coordinator gRPC server running at %s", bind_address)
 
     try:
