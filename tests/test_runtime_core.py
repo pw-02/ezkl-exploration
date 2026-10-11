@@ -7,6 +7,7 @@ import time
 import unittest
 from pathlib import Path
 
+import zkinfer.proto.zkservice_pb2 as pb
 from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.runtime.models import NodeResources, ProofJob
 from zkinfer.runtime.node.cache import NodeCache
@@ -52,6 +53,16 @@ def _wait_on_resource_admission(root: str, output: mp.Queue) -> None:
         output.put((info["wait_time_s"], time.perf_counter() - started))
 
 
+class ProtocolTests(unittest.TestCase):
+    def test_client_does_not_select_scheduler_per_request(self):
+        fields = pb.InferenceRequest.DESCRIPTOR.fields_by_name
+        self.assertNotIn("scheduler", fields)
+
+    def test_node_status_has_no_job_slot_limit(self):
+        fields = pb.NodeStatus.DESCRIPTOR.fields_by_name
+        self.assertNotIn("max_concurrent_jobs", fields)
+
+
 class SchedulerTests(unittest.TestCase):
     def test_requests_rotate_before_one_request_monopolizes_queue(self):
         scheduler = JobScheduler("fifo")
@@ -72,13 +83,12 @@ class SchedulerTests(unittest.TestCase):
         self.assertIsNotNone(second)
         self.assertNotEqual(first.inference_request_id, second.inference_request_id)
 
-    def test_coordinator_does_not_filter_on_local_slot_count(self):
+    def test_active_jobs_do_not_impose_a_slot_limit(self):
         scheduler = JobScheduler("fifo")
         scheduler.add_jobs([_job("request-a", "a1")])
         node = NodeResources(
             node_id="node",
             memory_available_gb=64,
-            max_concurrent_jobs=0,
             active_job_ids=("already-running",),
         )
         self.assertIsNotNone(scheduler.next_job(node))
