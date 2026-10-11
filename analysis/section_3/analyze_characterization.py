@@ -135,15 +135,20 @@ def _find_job_dirs(runs_dir: Path) -> list[Path]:
 
 
 def _load_perf_metrics(runs_dir: Path) -> pd.DataFrame:
+    """Load the canonical per-job scalar report.
+
+    The historical function name is kept to avoid unnecessary churn in the
+    analysis code. The runtime no longer writes a duplicate perf_metrics.csv.
+    """
     frames = []
-    for path in runs_dir.glob("*/reports/perf_metrics.csv"):
+    for path in runs_dir.glob("*/reports/job_report.csv"):
         try:
             frame = pd.read_csv(path)
         except Exception:
             continue
         if frame.empty or "job_id" not in frame.columns:
             continue
-        frame["_perf_source"] = str(path)
+        frame["_job_report_source"] = str(path)
         frames.append(frame)
     if not frames:
         return pd.DataFrame()
@@ -604,7 +609,10 @@ def _boxplot(
     categories = list(counts.index)
     if limit_categories:
         categories = categories[:limit_categories]
-    series = [data.loc[data[category] == item, value].astype(float).values for item in categories]
+    series = [
+        data.loc[data[category] == item, value].astype(float).values
+        for item in categories
+    ]
     fig, ax = plt.subplots(figsize=(max(7, 0.55 * len(categories)), 4.5))
     ax.boxplot(series, tick_labels=categories, showfliers=False)
     ax.set_ylabel(ylabel)
@@ -659,7 +667,11 @@ def _render_figures(
         summary = reservation.groupby("granularity")[
             "normalized_reservation_waste"
         ].median()
-        order = [x for x in ["whole_job", "ezkl_stage", "halo2_subphase"] if x in summary]
+        order = [
+            x
+            for x in ["whole_job", "ezkl_stage", "halo2_subphase"]
+            if x in summary
+        ]
         if order:
             fig, ax = plt.subplots(figsize=(6.5, 4.2))
             ax.bar(order, [summary[x] * 100.0 for x in order])
@@ -675,7 +687,9 @@ def _render_figures(
         if not plot.empty:
             grouped = plot.groupby("stage")["memory_cv"].median().sort_values()
             grouped = grouped.tail(15)
-            fig, ax = plt.subplots(figsize=(7.5, max(4.0, 0.3 * len(grouped))))
+            fig, ax = plt.subplots(
+                figsize=(7.5, max(4.0, 0.3 * len(grouped)))
+            )
             ax.barh(grouped.index, grouped.values * 100.0)
             ax.set_xlabel("Median memory CV across setup keys (%)")
             ax.set_title("Repeatability of stage peak memory")
@@ -685,7 +699,11 @@ def _render_figures(
 
     if not prediction.empty:
         fig, ax = plt.subplots(figsize=(5.2, 5.2))
-        ax.scatter(prediction["actual_memory_gb"], prediction["predicted_memory_gb"], alpha=0.6)
+        ax.scatter(
+            prediction["actual_memory_gb"],
+            prediction["predicted_memory_gb"],
+            alpha=0.6,
+        )
         upper = max(
             float(prediction["actual_memory_gb"].max()),
             float(prediction["predicted_memory_gb"].max()),
