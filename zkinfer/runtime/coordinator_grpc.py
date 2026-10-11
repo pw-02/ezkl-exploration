@@ -97,7 +97,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 input_data_path=request.input_data_path,
                 split_mode=request.split_mode,
                 ops_per_chunk=request.ops_per_chunk,
-                scheduler=request.scheduler,
+                scheduler=None,
                 simplify_model=request.simplify_model,
                 input_shapes=input_shapes,
             )
@@ -154,9 +154,6 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 cpu_available_cores=request.cpu_available_cores,
                 cache_limit_gb=request.cache_limit_gb,
                 cache_used_gb=request.cache_used_gb,
-                # Kept only because the protobuf still contains the field.
-                # Coordinator scheduling ignores it.
-                max_concurrent_jobs=int(request.max_concurrent_jobs or 0),
                 active_job_ids=tuple(request.active_job_ids),
                 cached_setup_keys=tuple(request.cached_setup_keys),
             )
@@ -250,9 +247,7 @@ def create_grpc_server(
 ) -> grpc.Server:
     max_message_bytes = cfg.coordinator.grpc_max_message_mb * 1024 * 1024
     server = grpc.server(
-        futures.ThreadPoolExecutor(
-            max_workers=cfg.coordinator.grpc_thread_pool_size
-        ),
+        futures.ThreadPoolExecutor(max_workers=cfg.coordinator.grpc_thread_pool_size),
         options=[
             ("grpc.max_send_message_length", max_message_bytes),
             ("grpc.max_receive_message_length", max_message_bytes),
@@ -278,10 +273,7 @@ def run_dead_node_monitor(
 @hydra.main(config_path="../config", config_name="config", version_base=None)
 def serve(cfg: DictConfig) -> None:
     validate_config(cfg)
-    runtime_config = build_runtime_config(
-        cfg=cfg,
-        process_role="coordinator",
-    )
+    runtime_config = build_runtime_config(cfg=cfg, process_role="coordinator")
     logger = setup_logger(
         "coordinator",
         log_file=f"{runtime_config.coordinator.logs_dir}/coordinator.log",
@@ -290,14 +282,8 @@ def serve(cfg: DictConfig) -> None:
     logger.info("Starting ZK Coordinator gRPC Service")
     logger.debug("Loaded config:\n%s", OmegaConf.to_yaml(cfg, resolve=True))
 
-    coordinator = Coordinator(
-        runtime_config=runtime_config,
-        logger=logger,
-    )
-    service = ZKCoordinatorGrpcService(
-        coordinator=coordinator,
-        logger=logger,
-    )
+    coordinator = Coordinator(runtime_config=runtime_config, logger=logger)
+    service = ZKCoordinatorGrpcService(coordinator=coordinator, logger=logger)
     server = create_grpc_server(cfg, service)
 
     stop_event = threading.Event()
