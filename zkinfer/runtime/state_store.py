@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Tuple
 
@@ -12,7 +11,6 @@ from zkinfer.runtime.models import InferenceRequest, JobStatus, ProofJob, Reques
 
 
 TERMINAL_REQUEST_STATES = {RequestStatus.COMPLETED.value, RequestStatus.FAILED.value, RequestStatus.CANCELLED.value}
-TERMINAL_JOB_STATES = {JobStatus.COMPLETED.value, JobStatus.FAILED.value}
 
 
 def _dt_to_str(value):
@@ -36,9 +34,9 @@ def _artifact_from_dict(data: Dict | None) -> ArtifactRef:
 class CoordinatorStateStore:
     """SQLite-backed coordinator state.
 
-    This is intentionally small.  It persists requests, jobs, and job leases so
-    a coordinator restart can requeue unfinished jobs without recomputing work
-    that already produced a manifest.
+    Persists requests, jobs, and node leases so a coordinator restart can requeue
+    unfinished jobs without recomputing completed jobs that already produced
+    output manifests.
     """
 
     def __init__(self, db_path: str):
@@ -70,7 +68,8 @@ class CoordinatorStateStore:
                     request_id TEXT NOT NULL,
                     status TEXT NOT NULL,
                     payload_json TEXT NOT NULL,
-                    assigned_worker_id TEXT,
+                    assigned_node_id TEXT,
+                    lease_id TEXT,
                     lease_updated_at TEXT,
                     updated_at TEXT NOT NULL
                 )
@@ -115,13 +114,14 @@ class CoordinatorStateStore:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO jobs(job_id, request_id, status, payload_json, assigned_worker_id, lease_updated_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO jobs(job_id, request_id, status, payload_json, assigned_node_id, lease_id, lease_updated_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(job_id) DO UPDATE SET
                     request_id=excluded.request_id,
                     status=excluded.status,
                     payload_json=excluded.payload_json,
-                    assigned_worker_id=excluded.assigned_worker_id,
+                    assigned_node_id=excluded.assigned_node_id,
+                    lease_id=excluded.lease_id,
                     lease_updated_at=excluded.lease_updated_at,
                     updated_at=excluded.updated_at
                 """,
@@ -130,7 +130,8 @@ class CoordinatorStateStore:
                     job.inference_request_id,
                     job.job_status.value,
                     json.dumps(payload),
-                    job.assigned_worker_id,
+                    job.assigned_node_id,
+                    job.lease_id,
                     _dt_to_str(job.started_time),
                     now,
                 ),
@@ -153,12 +154,6 @@ class CoordinatorStateStore:
             )
 
     def load_active_state(self) -> List[Tuple[InferenceRequest, List[ProofJob]]]:
-        """Load non-terminal requests and all their jobs.
-
-        In-progress jobs are returned as queued; completed jobs are preserved.
-        This makes coordinator restart conservative and avoids relying on leases
-        that may have been held by a dead process.
-        """
         with self._connect() as conn:
             req_rows = conn.execute(
                 "SELECT * FROM requests WHERE status NOT IN (?, ?, ?)",
@@ -179,7 +174,8 @@ class CoordinatorStateStore:
                     if job.job_status == JobStatus.IN_PROGRESS:
                         job.job_status = JobStatus.QUEUED
                         job.started_time = None
-                        job.assigned_worker_id = None
+                        job.assigned_node_id = None
+                        job.lease_id = None
                     jobs.append(job)
 
                 request.proof_jobs = jobs
@@ -213,7 +209,7 @@ class CoordinatorStateStore:
 
     @staticmethod
     def _request_from_dict(data: Dict) -> InferenceRequest:
-        req = InferenceRequest(
+        request = InferenceRequest(
             name=data["name"],
             onnx_model_path=data["onnx_model_path"],
             input_data_path=data["input_data_path"],
@@ -223,18 +219,18 @@ class CoordinatorStateStore:
             simplify_model=bool(data.get("simplify_model", False)),
             input_shapes=data.get("input_shapes"),
         )
-        req.request_id = data["request_id"]
-        req.preparation_metrics = data.get("preparation_metrics", {})
-        req.created_time = _dt_from_str(data.get("created_time")) or datetime.now(timezone.utc)
-        req.queued_time = _dt_from_str(data.get("queued_time"))
-        req.started_time = _dt_from_str(data.get("started_time"))
-        req.completed_time = _dt_from_str(data.get("completed_time"))
-        req.error_message = data.get("error_message")
-        req.request_status = RequestStatus(data.get("request_status", RequestStatus.QUEUED.value))
-        req.run_dir = data.get("run_dir")
-        req.logs_dir = data.get("logs_dir")
-        req.reports_dir = data.get("reports_dir")
-        return req
+        request.request_id = data["request_id"]
+        request.preparation_metrics = data.get("preparation_metrics", {})
+        request.created_time = _dt_from_str(data.get("created_time")) or datetime.now(timezone.utc)
+        request.queued_time = _dt_from_str(data.get("queued_time"))
+        request.started_time = _dt_from_str(data.get("started_time"))
+        request.completed_time = _dt_from_str(data.get("completed_time"))
+        request.error_message = data.get("error_message")
+        request.request_status = RequestStatus(data.get("request_status", RequestStatus.QUEUED.value))
+        request.run_dir = data.get("run_dir")
+        request.logs_dir = data.get("logs_dir")
+        request.reports_dir = data.get("reports_dir")
+        return request
 
     @staticmethod
     def _job_to_dict(job: ProofJob) -> Dict:
@@ -261,7 +257,8 @@ class CoordinatorStateStore:
             "started_time": _dt_to_str(job.started_time),
             "completed_time": _dt_to_str(job.completed_time),
             "artifact_manifest_ref": _artifact_to_dict(job.artifact_manifest_ref),
-            "assigned_worker_id": job.assigned_worker_id,
+            "assigned_node_id": job.assigned_node_id,
+            "lease_id": job.lease_id,
             "error_message": job.error_message,
             "retry_count": job.retry_count,
             "parent_model_hash": job.parent_model_hash,
@@ -297,7 +294,8 @@ class CoordinatorStateStore:
         job.completed_time = _dt_from_str(data.get("completed_time"))
         manifest_ref = _artifact_from_dict(data.get("artifact_manifest_ref"))
         job.artifact_manifest_ref = None if manifest_ref.is_empty else manifest_ref
-        job.assigned_worker_id = data.get("assigned_worker_id")
+        job.assigned_node_id = data.get("assigned_node_id")
+        job.lease_id = data.get("lease_id")
         job.error_message = data.get("error_message")
         job.retry_count = int(data.get("retry_count") or 0)
         return job
