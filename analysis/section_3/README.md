@@ -28,24 +28,29 @@ system evaluation.
 
 ## Experimental discipline
 
-Use the same machine configuration for comparisons. Record the exact commit,
-EZKL/Halo2 commits, CPU model, memory capacity, OS, Python version, sampling
+Use the same machine configuration for comparisons. Record the exact zkInfer,
+EZKL, and Halo2 commits, CPU model, memory capacity, OS, Python version, sampling
 interval, partitioning configuration, and coordinator scheduling policy with the
 results.
 
-For the characterization runs use:
+For isolated characterization runs use:
 
 ```yaml
+execution:
+  partitioning:
+    mode: fixed_size
+    operators_per_partition: 1
 node:
+  max_active_jobs: 1
   resource_monitor_interval_sec: 0.25
   phase_admission:
     enabled: false
 ```
 
 Admission is disabled because Section 3 is measuring the workload rather than
-measuring zkInfer's control policy. Run one proof workload at a time for the
-isolated experiments. Avoid unrelated compute or memory-intensive processes on
-the machine.
+measuring zkInfer's control policy. `max_active_jobs: 1` also prevents unrelated
+proof jobs from overlapping during isolated measurements. Avoid unrelated
+compute or memory-intensive processes on the machine.
 
 ## Experiment matrix
 
@@ -61,10 +66,14 @@ For each selected partition collect:
 - one cached-setup execution;
 - `resource_usage.csv`;
 - `stage_transitions.csv`;
-- `halo2_stage_transitions.csv`;
+- `halo2_stage_transitions.csv` (end rows now include `duration_us` and `duration_s`);
 - `halo2_prover_cpu.csv`;
 - `admission_profile_before.json`;
-- the request `perf_metrics.csv` and `job_report.csv`.
+- the request `job_report.csv` and `request_report.csv`.
+
+`job_report.csv` is the canonical derived per-job table. The old duplicate
+`perf_metrics.csv` is no longer produced. Raw traces remain under the per-job
+artifact directory.
 
 Primary outputs: per-stage duration, peak RSS, average CPU, whole-job peak, and
 memory-over-time traces.
@@ -110,7 +119,8 @@ particular runtime policy achieves the replayed optimum.
 
 Submit 1, 4, 8, 16, and 32 same-model requests with different inputs. Repeat for
 both models if runtime permits. Keep admission disabled for the Section 3
-characterization.
+characterization and remove the whole-job cap (`max_active_jobs: null`) when the
+purpose of the experiment is to observe natural phase overlap.
 
 Report:
 
