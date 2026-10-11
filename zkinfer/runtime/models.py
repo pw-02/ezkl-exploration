@@ -45,9 +45,6 @@ class NodeResources:
     cpu_available_cores: float = 0.0
     cache_limit_gb: float = 0.0
     cache_used_gb: float = 0.0
-    # Retained only because the current protobuf still carries this field.
-    # Coordinator admission deliberately ignores it.
-    max_concurrent_jobs: int = 0
     active_job_ids: Sequence[str] = field(default_factory=tuple)
     cached_setup_keys: Sequence[str] = field(default_factory=tuple)
 
@@ -125,7 +122,7 @@ class InferenceRequest:
     input_data_path: str
     split_mode: str
     ops_per_chunk: int
-    scheduler: str
+    scheduler_policy: str
     simplify_model: bool = False
     input_shapes: Optional[Dict] = None
     request_id: str = field(init=False)
@@ -145,7 +142,7 @@ class InferenceRequest:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
         name = slugify(self.name, max_len=48)
         split_mode = slugify(self.split_mode, max_len=24)
-        scheduler = slugify(self.scheduler, max_len=24)
+        scheduler = slugify(self.scheduler_policy, max_len=24)
         simplify_tag = "simplified" if self.simplify_model else "raw"
         unique_suffix = uuid.uuid4().hex[:8]
         self.request_id = (
@@ -162,5 +159,7 @@ class InferenceRequest:
     def compute_progress(self) -> float:
         if not self.proof_jobs:
             return 0.0
-        completed_jobs = sum(1 for job in self.proof_jobs if job.job_status == JobStatus.COMPLETED)
+        completed_jobs = sum(
+            1 for job in self.proof_jobs if job.job_status == JobStatus.COMPLETED
+        )
         return completed_jobs / len(self.proof_jobs) * 100.0
