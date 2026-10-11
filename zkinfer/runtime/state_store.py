@@ -10,7 +10,11 @@ from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.runtime.models import InferenceRequest, JobStatus, ProofJob, RequestStatus
 
 
-TERMINAL_REQUEST_STATES = {RequestStatus.COMPLETED.value, RequestStatus.FAILED.value, RequestStatus.CANCELLED.value}
+TERMINAL_REQUEST_STATES = {
+    RequestStatus.COMPLETED.value,
+    RequestStatus.FAILED.value,
+    RequestStatus.CANCELLED.value,
+}
 
 
 def _dt_to_str(value):
@@ -18,9 +22,7 @@ def _dt_to_str(value):
 
 
 def _dt_from_str(value):
-    if not value:
-        return None
-    return datetime.fromisoformat(value)
+    return datetime.fromisoformat(value) if value else None
 
 
 def _artifact_to_dict(ref: ArtifactRef | None) -> Dict:
@@ -32,22 +34,34 @@ def _artifact_from_dict(data: Dict | None) -> ArtifactRef:
 
 
 class CoordinatorStateStore:
-    """SQLite-backed coordinator state.
-
-    Persists requests, jobs, and node leases so a coordinator restart can requeue
-    unfinished jobs without recomputing completed jobs that already produced
-    output manifests.
-    """
+    """SQLite-backed coordinator state with in-place schema migration."""
 
     def __init__(self, db_path: str):
         self.db_path = db_path
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        parent = os.path.dirname(db_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         self._init_schema()
 
     def _connect(self):
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
         return connection
+
+    @staticmethod
+    def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+        return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+    @classmethod
+    def _ensure_column(
+        cls,
+        conn: sqlite3.Connection,
+        table: str,
+        column: str,
+        definition: str,
+    ) -> None:
+        if column not in cls._table_columns(conn, table):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def _init_schema(self) -> None:
         with self._connect() as conn:
@@ -88,6 +102,23 @@ class CoordinatorStateStore:
                 """
             )
 
+            # Older databases used assigned_worker_id and lacked lease columns.
+            # Add the current columns without destroying prior experiment state.
+            self._ensure_column(conn, "jobs", "assigned_node_id", "TEXT")
+            self._ensure_column(conn, "jobs", "lease_id", "TEXT")
+            self._ensure_column(conn, "jobs", "lease_updated_at", "TEXT")
+            self._ensure_column(conn, "jobs", "updated_at", "TEXT")
+
+            columns = self._table_columns(conn, "jobs")
+            if "assigned_worker_id" in columns:
+                conn.execute(
+                    """
+                    UPDATE jobs
+                    SET assigned_node_id = COALESCE(assigned_node_id, assigned_worker_id)
+                    WHERE assigned_worker_id IS NOT NULL
+                    """
+                )
+
     def save_request(self, request: InferenceRequest) -> None:
         payload = self._request_to_dict(request)
         now = datetime.now(timezone.utc).isoformat()
@@ -114,8 +145,10 @@ class CoordinatorStateStore:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO jobs(job_id, request_id, status, payload_json, assigned_node_id, lease_id, lease_updated_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO jobs(
+                    job_id, request_id, status, payload_json,
+                    assigned_node_id, lease_id, lease_updated_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(job_id) DO UPDATE SET
                     request_id=excluded.request_id,
                     status=excluded.status,
@@ -137,7 +170,13 @@ class CoordinatorStateStore:
                 ),
             )
 
-    def append_event(self, event_type: str, request_id: str = "", job_id: str = "", payload: Dict | None = None) -> None:
+    def append_event(
+        self,
+        event_type: str,
+        request_id: str = "",
+        job_id: str = "",
+        payload: Dict | None = None,
+    ) -> None:
         with self._connect() as conn:
             conn.execute(
                 """
@@ -159,7 +198,6 @@ class CoordinatorStateStore:
                 "SELECT * FROM requests WHERE status NOT IN (?, ?, ?)",
                 tuple(TERMINAL_REQUEST_STATES),
             ).fetchall()
-
             recovered = []
             for req_row in req_rows:
                 request = self._request_from_dict(json.loads(req_row["payload_json"]))
@@ -167,7 +205,6 @@ class CoordinatorStateStore:
                     "SELECT * FROM jobs WHERE request_id = ? ORDER BY updated_at ASC",
                     (request.request_id,),
                 ).fetchall()
-
                 jobs = []
                 for job_row in job_rows:
                     job = self._job_from_dict(json.loads(job_row["payload_json"]))
@@ -177,10 +214,11 @@ class CoordinatorStateStore:
                         job.assigned_node_id = None
                         job.lease_id = None
                     jobs.append(job)
-
                 request.proof_jobs = jobs
+                if request.request_status == RequestStatus.VERIFYING:
+                    request.request_status = RequestStatus.IN_PROGRESS
+                    request.completed_time = None
                 recovered.append((request, jobs))
-
             return recovered
 
     @staticmethod
