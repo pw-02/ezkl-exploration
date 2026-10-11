@@ -72,14 +72,22 @@ def system_row(ts: str, stage: str, num_logical_cpus: int) -> dict:
     }
 
 
-def _process_tree(process: psutil.Process, include_children: bool) -> list[psutil.Process]:
+def _process_tree(
+    process: psutil.Process,
+    include_children: bool,
+) -> list[psutil.Process]:
     processes = [process]
     if include_children:
         try:
             processes.extend(process.children(recursive=True))
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
-    return processes
+
+    # The resource logger itself is launched by the prover process, so it also
+    # appears in process.children(). Do not charge the measurement process to
+    # the prover's CPU/RSS totals.
+    logger_pid = os.getpid()
+    return [proc for proc in processes if proc.pid != logger_pid]
 
 
 def process_row(
@@ -92,8 +100,7 @@ def process_row(
     try:
         cpu_percent = 0.0
         memory_bytes = 0
-        processes = _process_tree(process, include_children)
-        for proc in processes:
+        for proc in _process_tree(process, include_children):
             try:
                 cpu_percent += proc.cpu_percent(interval=None)
                 memory_bytes += proc.memory_info().rss
@@ -140,26 +147,34 @@ def run(
         writer = csv.DictWriter(file, fieldnames=FIELDNAMES)
         if file.tell() == 0:
             writer.writeheader()
+            file.flush()
 
         while True:
-            time.sleep(interval)
             ts = timestamp()
             stage = read_stage(status_file)
             writer.writerow(system_row(ts, stage, num_logical_cpus))
 
             if process is not None:
-                row = process_row(ts, stage, process, num_logical_cpus, include_children)
+                row = process_row(
+                    ts,
+                    stage,
+                    process,
+                    num_logical_cpus,
+                    include_children,
+                )
                 if row is None:
                     print("Process exited.", file=sys.stderr)
+                    file.flush()
                     break
                 writer.writerow(row)
             file.flush()
+            time.sleep(interval)
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output_file", required=True)
-    parser.add_argument("--interval", type=float, default=3)
+    parser.add_argument("--interval", type=float, default=1)
     parser.add_argument("--pid", type=int)
     parser.add_argument("--status_file")
     parser.add_argument(
