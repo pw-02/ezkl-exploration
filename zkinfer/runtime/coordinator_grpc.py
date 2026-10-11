@@ -14,6 +14,7 @@ import zkinfer.proto.zkservice_pb2 as pb2
 import zkinfer.proto.zkservice_pb2_grpc as pb_grpc
 from zkinfer.config.runtime import build_runtime_config
 from zkinfer.runtime.coordinator import Coordinator
+from zkinfer.runtime.models import ArtifactRef, WorkerResources
 
 
 def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
@@ -60,6 +61,32 @@ def parse_optional_json_dict(value: str) -> Optional[Dict]:
     return parsed
 
 
+def to_pb_artifact(ref: Optional[ArtifactRef]) -> pb2.ArtifactRef:
+    if ref is None:
+        return pb2.ArtifactRef()
+
+    return pb2.ArtifactRef(
+        backend=ref.backend or "",
+        uri=ref.uri or "",
+        sha256=ref.sha256 or "",
+        size_bytes=int(ref.size_bytes or 0),
+        s3_bucket=ref.s3_bucket or "",
+    )
+
+
+def from_pb_artifact(ref) -> Optional[ArtifactRef]:
+    if ref is None or not getattr(ref, "backend", "") or not getattr(ref, "uri", ""):
+        return None
+
+    return ArtifactRef(
+        backend=ref.backend,
+        uri=ref.uri,
+        sha256=ref.sha256,
+        size_bytes=int(ref.size_bytes or 0),
+        s3_bucket=ref.s3_bucket,
+    )
+
+
 class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
     """Thin gRPC adapter around the core Coordinator."""
 
@@ -89,20 +116,10 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
             return pb2.InferenceRequestAck(request_id=request_id)
 
         except json.JSONDecodeError as exc:
-            self._set_error(
-                context,
-                grpc.StatusCode.INVALID_ARGUMENT,
-                exc,
-                "Invalid input_shapes JSON",
-            )
+            self._set_error(context, grpc.StatusCode.INVALID_ARGUMENT, exc, "Invalid input_shapes JSON")
 
         except Exception as exc:
-            self._set_error(
-                context,
-                grpc.StatusCode.INTERNAL,
-                exc,
-                "Error submitting inference request",
-            )
+            self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error submitting inference request")
 
         return pb2.InferenceRequestAck(request_id="")
 
@@ -122,22 +139,19 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
             )
 
         except Exception as exc:
-            self._set_error(
-                context,
-                grpc.StatusCode.INTERNAL,
-                exc,
-                "Error fetching request status",
-            )
-
-            return pb2.RequestStatusResponse(
-                request_id=request.request_id,
-                status="unknown",
-                message=str(exc),
-            )
+            self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error fetching request status")
+            return pb2.RequestStatusResponse(request_id=request.request_id, status="unknown", message=str(exc))
 
     def GetNextJob(self, request, context):
         try:
-            job = self.coordinator.get_next_job()
+            worker = WorkerResources(
+                worker_id=request.worker_id,
+                memory_budget_gb=request.memory_budget_gb,
+                reserved_memory_gb=request.reserved_memory_gb,
+                free_slots=request.free_slots or 1,
+                cached_artifact_keys=tuple(request.cached_artifact_keys),
+            )
+            job = self.coordinator.get_next_job(worker)
 
             if job is None:
                 return pb2.JobAssignment(job_available=False)
@@ -146,33 +160,29 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 job_available=True,
                 request_id=job.inference_request_id,
                 job_id=job.job_id,
-                model_path=job.model_path,
-                input_path=job.input_path,
-                cache_path=job.cache_path or "",
+                model=to_pb_artifact(job.model_ref),
+                input=to_pb_artifact(job.input_ref),
+                cache=to_pb_artifact(job.cache_ref),
+                output_prefix=to_pb_artifact(job.output_prefix_ref),
+                predicted_duration_s=job.predicted_duration or 0.0,
+                predicted_peak_memory_gb=job.predicted_peak_memory_gb or 0.0,
+                artifact_key=job.artifact_key or "",
             )
 
         except Exception as exc:
-            self._set_error(
-                context,
-                grpc.StatusCode.INTERNAL,
-                exc,
-                "Error fetching next job",
-            )
-
+            self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error fetching next job")
             return pb2.JobAssignment(job_available=False)
 
     def SubmitJobResult(self, request, context):
         try:
-            perf_metrics = (
-                json.loads(request.perf_metrics_json)
-                if request.perf_metrics_json
-                else None
-            )
+            perf_metrics = json.loads(request.perf_metrics_json) if request.perf_metrics_json else None
 
             ok = self.coordinator.submit_job_result(
+                worker_id=request.worker_id,
                 job_id=request.job_id,
-                zk_proof=request.proof,
                 status=request.status,
+                artifact_manifest_ref=from_pb_artifact(request.artifact_manifest),
+                zk_proof=request.proof,
                 perf_metrics=perf_metrics,
                 message=request.message,
             )
@@ -180,23 +190,11 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
             return pb2.StatusAck(ok=ok)
 
         except json.JSONDecodeError as exc:
-            self._set_error(
-                context,
-                grpc.StatusCode.INVALID_ARGUMENT,
-                exc,
-                "Invalid perf_metrics_json JSON",
-            )
-
+            self._set_error(context, grpc.StatusCode.INVALID_ARGUMENT, exc, "Invalid perf_metrics_json JSON")
             return pb2.StatusAck(ok=False)
 
         except Exception as exc:
-            self._set_error(
-                context,
-                grpc.StatusCode.INTERNAL,
-                exc,
-                "Error submitting job result",
-            )
-
+            self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error submitting job result")
             return pb2.StatusAck(ok=False)
 
     def SendHeartbeat(self, request, context):
@@ -211,13 +209,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
             return pb2.HeartbeatAck(success=True)
 
         except Exception as exc:
-            self._set_error(
-                context,
-                grpc.StatusCode.INTERNAL,
-                exc,
-                "Error recording heartbeat",
-            )
-
+            self._set_error(context, grpc.StatusCode.INTERNAL, exc, "Error recording heartbeat")
             return pb2.HeartbeatAck(success=False)
 
     def _set_error(self, context, code, exc: Exception, message: str) -> None:
@@ -233,9 +225,7 @@ def create_grpc_server(
     max_message_bytes = cfg.coordinator.grpc_max_message_mb * 1024 * 1024
 
     server = grpc.server(
-        futures.ThreadPoolExecutor(
-            max_workers=cfg.coordinator.grpc_thread_pool_size
-        ),
+        futures.ThreadPoolExecutor(max_workers=cfg.coordinator.grpc_thread_pool_size),
         options=[
             ("grpc.max_send_message_length", max_message_bytes),
             ("grpc.max_receive_message_length", max_message_bytes),
@@ -273,15 +263,8 @@ def serve(cfg: DictConfig) -> None:
     logger.info("Starting ZK Coordinator gRPC Service")
     logger.debug("Loaded config:\n%s", OmegaConf.to_yaml(cfg, resolve=True))
 
-    coordinator = Coordinator(
-        runtime_config=runtime_config,
-        logger=logger,
-    )
-
-    service = ZKCoordinatorGrpcService(
-        coordinator=coordinator,
-        logger=logger,
-    )
+    coordinator = Coordinator(runtime_config=runtime_config, logger=logger)
+    service = ZKCoordinatorGrpcService(coordinator=coordinator, logger=logger)
 
     server = create_grpc_server(cfg, service)
     stop_event = threading.Event()
