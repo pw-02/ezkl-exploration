@@ -9,11 +9,13 @@ import subprocess
 import sys
 import threading
 import time
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Dict, Optional
 
 import grpc
+import fcntl
+import hashlib
 import hydra
 import psutil
 from omegaconf import DictConfig
@@ -302,7 +304,7 @@ class NodeSupervisor:
         artifact_manifest_ref: Optional[ArtifactRef] = None,
         message: str = "",
         metrics: Optional[Dict] = None,
-    ) -> None:
+    ) -> bool:
         def _call():
             return self.stub.SubmitJobResult(
                 pb.NodeJobResult(
@@ -323,8 +325,9 @@ class NodeSupervisor:
                 "Coordinator rejected %s for job %s lease=%s",
                 status, lease.job_id, lease.lease_id,
             )
-            return
+            return False
         self.logger.info("Submitted %s for job %s", status, lease.job_id)
+        return True
 
     def send_heartbeat(self) -> None:
         phases = self.active_phases()
@@ -424,12 +427,52 @@ class NodeSupervisor:
         result.metrics["prover_subprocess_pid"] = int(payload.get("pid") or 0)
         return result
 
+    @staticmethod
+    def _validate_job_component(value: str) -> None:
+        if not value or value in {".", ".."} or Path(value).name != value or "\\" in value:
+            raise ValueError("Request, job and lease IDs must be safe path components")
+
+    def _job_paths(self, lease):
+        for value in (lease.request_id, lease.job_id, lease.lease_id):
+            self._validate_job_component(value)
+        request_dir = Path(self.cfg.node.runs_dir) / lease.request_id
+        return request_dir, request_dir / "tmp" / lease.job_id, request_dir / "artifacts" / "jobs" / lease.job_id
+
+    @contextmanager
+    def _job_guard(self, lease):
+        # The same local job directory must never have two writers, including
+        # separate supervisor processes sharing a runs directory.
+        request_dir, _, _ = self._job_paths(lease)
+        key = hashlib.sha256(str((request_dir / lease.job_id).resolve()).encode()).hexdigest()
+        lock_dir = self.phase_admission_dir / "job_locks"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        with (lock_dir / f"{key}.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+    def _cleanup_published_attempt(self, task):
+        # Delete only this worker's files, never another lease's proof.
+        from zkinfer.storage.s3 import delete_file
+        for name in ("proof.pf", "witness.json", "vk.json", "settings.json", "manifest.json"):
+            filename = f"{task.lease_id}--{name}"
+            if task.output_backend == "filesystem":
+                (Path(task.output_prefix) / filename).unlink(missing_ok=True)
+            elif task.output_backend == "s3":
+                delete_file(task.output_s3_bucket, f"{task.output_prefix.rstrip('/')}/{filename}")
+
     def run_lease(self, lease) -> None:
-        with ExitStack() as cache_leases:
+        with self._job_guard(lease), ExitStack() as cache_leases:
             self._run_lease(lease, cache_leases)
 
     def _run_lease(self, lease, cache_leases: ExitStack) -> None:
         local_task = None
+        _, tmp_dir, output_dir = self._job_paths(lease)
+        failed = False
+        completion_attempted = False
+        cleanup_published = False
         try:
             local_task = self.prepare_local_task(lease, cache_leases)
             with self.active_lock:
@@ -467,14 +510,22 @@ class NodeSupervisor:
                 **result.metrics,
                 **self._flatten_setup_publish_metrics(setup_publish_metrics),
             }
-            self.submit_job_result(
+            completion_attempted = True
+            accepted = self.submit_job_result(
                 lease=lease,
                 status="COMPLETED",
                 artifact_manifest_ref=result.artifact_manifest_ref,
                 message=result.message,
                 metrics=metrics,
             )
+            if accepted is False:
+                failed = True
+                cleanup_published = True
         except Exception as exc:
+            failed = not completion_attempted
+            # A lost completion acknowledgement may already have been accepted.
+            # Preserve shared proof bytes until the coordinator resolves it.
+            cleanup_published = not completion_attempted
             self.logger.error(
                 "Job %s failed on node %s: %s",
                 lease.job_id,
@@ -489,20 +540,27 @@ class NodeSupervisor:
                 metrics={"node_id": self.node_id},
             )
         finally:
-            if local_task and os.path.exists(local_task.tmp_dir):
-                shutil.rmtree(local_task.tmp_dir, ignore_errors=True)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            if failed:
+                shutil.rmtree(output_dir, ignore_errors=True)
+            if cleanup_published and local_task:
+                try:
+                    self._cleanup_published_attempt(local_task)
+                except Exception:
+                    self.logger.warning("Could not remove failed job's published files", exc_info=True)
 
     def prepare_local_task(self, lease, cache_leases: ExitStack) -> LocalProverTask:
         prepare_started = time.perf_counter()
         lease_id = lease.lease_id
-        if not lease_id or Path(lease_id).name != lease_id or lease_id in {".", ".."}:
-            raise ValueError("A job attempt requires a valid lease ID")
-        request_dir = Path(self.cfg.node.runs_dir) / lease.request_id
-        tmp_dir = request_dir / "tmp" / lease.job_id / lease_id
-        output_dir = request_dir / "artifacts" / "jobs" / lease.job_id / "attempts" / lease_id
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        copy_run_metadata(self.metadata_snapshot, output_dir)
+        request_dir, tmp_dir, output_dir = self._job_paths(lease)
+        # Retries replace the entire local job record, including old CSVs.
+        for directory in (tmp_dir, output_dir):
+            if directory.is_symlink():
+                directory.unlink()
+            elif directory.exists():
+                shutil.rmtree(directory)
+            directory.mkdir(parents=True, exist_ok=True)
+        copy_run_metadata(self.metadata_snapshot, request_dir)
 
         model_metrics = {}
         model_materialize_time_s = 0.0
@@ -561,10 +619,7 @@ class NodeSupervisor:
             setup_dir=setup_dir,
             tmp_dir=str(tmp_dir),
             output_dir=str(output_dir),
-            output_prefix=(
-                os.path.join(output_ref.uri, "attempts", lease_id)
-                if output_ref.uri else str(output_dir)
-            ),
+            output_prefix=output_ref.uri or str(output_dir),
             output_backend=output_ref.backend or self.cfg.request_store.backend,
             output_s3_bucket=output_ref.s3_bucket
             or self.cfg.request_store.s3_bucket

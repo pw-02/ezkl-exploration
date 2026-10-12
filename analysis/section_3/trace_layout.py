@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 
@@ -34,6 +35,14 @@ def find_job_dirs(runs_dir: Path) -> list[Path]:
             if trace_dir.name != lease_id:
                 continue
         elif lease_id:
-            continue
+            # Flat folders identify their latest writer in the manifest.
+            manifest = trace_dir / "manifest.json"
+            if not manifest.is_file():
+                continue
+            try:
+                if json.loads(manifest.read_text())["lease_id"] != lease_id:
+                    continue
+            except (OSError, ValueError, KeyError):
+                continue
         result.append(trace_dir)
     return sorted(result)
