@@ -198,21 +198,6 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 perf_metrics=perf_metrics,
                 message=request.message,
             )
-            if ok and request.request_id:
-                progress = self.coordinator.get_request_status(request.request_id)
-                total = int(progress["total_jobs"] or 0)
-                completed = int(progress["completed_jobs"] or 0)
-                percent = (100.0 * completed / total) if total else 0.0
-                self.logger.info(
-                    "Request %s progress: %d/%d completed (%.1f%%) | running=%d | queued=%d | failed=%d",
-                    request.request_id,
-                    completed,
-                    total,
-                    percent,
-                    int(progress["in_progress_jobs"] or 0),
-                    int(progress["queued_jobs"] or 0),
-                    int(progress["failed_jobs"] or 0),
-                )
             return pb2.StatusAck(ok=ok)
         except json.JSONDecodeError as exc:
             self._set_error(
