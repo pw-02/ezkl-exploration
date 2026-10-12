@@ -7,7 +7,45 @@ This document describes the settings used by the current `sacdad27` experiment r
 - `zkinfer/config/config.yaml` contains runtime defaults used by the coordinator and NodeSupervisor.
 - `experiments/config/config.yaml` contains experiment-facing choices. `experiments/run_local_exp.py` translates the selected experiment settings into explicit runtime overrides when it launches the coordinator and node.
 
-For local experiments, edit/override `experiments/config/config.yaml`. The launcher saves the resolved experiment and workload configuration under `experiments/runs/<request>/logs/`.
+For local experiments, edit/override `experiments/config/config.yaml`.
+
+## Run directory layout
+
+The Section 3 tmux launcher creates one **campaign directory** for the invocation. The campaign directory carries the human-readable timestamp/workload/configuration label. Individual inference requests use short opaque IDs so that the same information is not repeated in nested directory names.
+
+```text
+experiments/runs/
+  2026-10-12_02-44-54_nano_gpt_4_layers_64_embd_g1_admission-false/
+    logs/
+      coordinator.log
+      coordinator.tmux.log
+      node.tmux.log
+      node_local-node.log
+      submit.tmux.log
+    node/
+      cache/
+      runtime/
+    requests/
+      req_a5b2fa8a2c31/
+        jobs/
+          <job-id>/
+            resource_usage.csv
+            stage_transitions.csv
+            halo2_stage_transitions.csv
+            halo2_prover_cpu.csv
+            admission_profile_before.json
+            prover_process.log
+            ... proof outputs
+        reports/
+          job_report.csv
+          request_report.csv
+          ...
+        tmp/                    temporary while jobs are active
+```
+
+The campaign name describes the experiment. `req_<id>` is only a unique request identifier; workload, partitioning, scheduler, cache state and timestamps belong in the saved configuration/reports rather than being encoded repeatedly in the directory name.
+
+Older runs may still contain verbose request directories such as `nano-gpt-..._split-fixed_ops-1_...`; those are valid historical results, but new requests use concise IDs.
 
 ## Partitioning
 
@@ -28,7 +66,7 @@ execution:
 
 This creates proof jobs containing up to four consecutive meaningful operators. `operators_per_partition` is ignored for `whole_model` and `single_operator`.
 
-The current RPC/splitter implementation still uses older internal strings (`none`, `single_ops`, and `fixed`) and the field name `ops_per_chunk`. `run_local_exp.py` performs that translation. Experiment configs should use the names above.
+The current RPC/splitter implementation still uses older internal strings (`none`, `single_ops`, and `fixed`) and the field name `ops_per_chunk`. Experiment launchers perform that translation. Experiment configs should use the names above.
 
 ## Scheduling
 
@@ -116,11 +154,11 @@ storage/
       resource_profiles/     node-local stage history
 ```
 
-`experiments/runs/` is separate. It is the durable experiment record and contains per-request logs, raw per-job traces, and reports.
+`experiments/runs/` is separate. It is the durable experiment record and contains per-request raw job traces and reports.
 
 ### `storage/artifacts`
 
-This is not the proving cache. It is the shared data plane. The coordinator stores materialized model/input objects there and nodes publish proof-output objects there so only small `ArtifactRef` metadata needs to travel over gRPC. A local node also writes the raw job output under `experiments/runs/<request>/artifacts/jobs/<job>`.
+This is not the proving cache. It is the shared data plane. The coordinator stores materialized model/input objects there and nodes publish proof-output objects there so only small `ArtifactRef` metadata needs to travel over gRPC. A local node also writes the raw job output into the durable request run directory.
 
 For local experiment suites, `storage.delete_artifacts_after_run: true` in `experiments/config/config.yaml` removes `storage/artifacts` after all coordinator/node processes have stopped. It does **not** delete `experiments/runs`, `storage/setup_cache`, or `storage/node/runtime`. Set it to `false` when intentionally retaining the data-plane store, for example when testing persistent/shared storage behavior.
 
@@ -145,7 +183,7 @@ storage:
 
 This is local to one NodeSupervisor machine. `objects/` contains locally materialized model/input artifacts. `setup/` contains local setup files used when the setup cache is enabled. Its purpose is to avoid repeated shared-storage transfers on a distributed deployment.
 
-The model/input object cache is intentionally separate from `setup_cache_enabled`: disabling proving setup reuse should not force every process to repeatedly transfer identical immutable ONNX/input bytes. If an experiment is specifically measuring data-plane transfer behavior, use the transfer-only experiment/launcher and a fresh node-cache directory.
+The model/input cache is intentionally separate from `setup_cache_enabled`: disabling proving setup reuse should not force every process to repeatedly transfer identical immutable ONNX/input bytes. If an experiment is specifically measuring data-plane transfer behavior, use the transfer-only experiment/launcher and a fresh node-cache directory.
 
 ### `storage/node/runtime`
 
@@ -153,23 +191,23 @@ This is runtime state, not cached model data. `reservations/` contains one small
 
 ## Reporting
 
-Raw execution data stays with each proof job:
+Raw execution data stays with each proof job. Under the Section 3 campaign launcher the intended layout is:
 
 ```text
-experiments/runs/<request>/artifacts/jobs/<job>/
+experiments/runs/<campaign>/requests/<request>/jobs/<job>/
   resource_usage.csv
   stage_transitions.csv
   halo2_stage_transitions.csv
   halo2_prover_cpu.csv
   admission_profile_before.json
   prover_process.log
-  ... proof/setup artifacts produced by EZKL
+  ... proof outputs produced by EZKL
 ```
 
 Derived request reports live under:
 
 ```text
-experiments/runs/<request>/reports/
+experiments/runs/<campaign>/requests/<request>/reports/
   job_report.csv
   request_report.csv
   transfer_overhead_report.csv
@@ -180,6 +218,18 @@ experiments/runs/<request>/reports/
 `job_report.csv` is the canonical per-job scalar table. The old duplicate `perf_metrics.csv` is no longer written. `request_report.csv` is an aggregate across jobs. `resource_profile.json` is not a report: it is persistent coordinator/shared setup-key history used for future placement, while `storage/node/runtime/resource_profiles/` is node-local admission history.
 
 Halo2 transition rows contain `timestamp_unix_us,event,stage,duration_us,duration_s`. Start events leave duration blank; matching end events carry the measured duration. Keeping start/end rows makes an incomplete phase visible if a prover terminates unexpectedly.
+
+## Progress reporting
+
+The experiment submit process polls request state and prints request-level progress:
+
+```text
+Request req_a5b2fa8a2c31 | status=in_progress | completed=8/10 | running=2 | queued=0 | failed=0
+```
+
+`queued=0` can be perfectly normal while work remains: it means all remaining jobs have already been leased to nodes and are therefore `running`. Request progress should be read from the completed/running/queued counts together, not from the coordinator's global scheduler queue length alone.
+
+The multi-request batch tool similarly reports aggregate request and proof-job progress while the batch runs.
 
 ## Useful Section 3 configurations
 
