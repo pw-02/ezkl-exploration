@@ -11,20 +11,19 @@ For local experiments, edit/override `experiments/config/config.yaml`.
 
 ## Run directory layout
 
-The Section 3 tmux launcher creates one **campaign directory** for the invocation. The campaign directory carries the human-readable timestamp/workload/configuration label. Individual inference requests use short opaque IDs so that the same information is not repeated in nested directory names.
+The tmux launchers create one **campaign directory** for an experiment invocation. The campaign directory carries the human-readable timestamp/workload/configuration label. Individual inference requests live below an explicit `requests/` directory and use short opaque IDs so the same information is not repeated in nested directory names.
 
 ```text
 experiments/runs/
   2026-10-12_02-44-54_nano_gpt_4_layers_64_embd_g1_admission-false/
+    config/
+      launch.txt
     logs/
       coordinator.log
       coordinator.tmux.log
       node.tmux.log
       node_local-node.log
       submit.tmux.log
-    node/
-      cache/
-      runtime/
     requests/
       req_a5b2fa8a2c31/
         artifacts/
@@ -47,6 +46,8 @@ experiments/runs/
 The campaign name describes the experiment. `req_<id>` is only a unique request identifier; workload, partitioning, scheduler, cache state and timestamps belong in the saved configuration/reports rather than being encoded repeatedly in the directory name.
 
 `artifacts/jobs/` is the durable raw-output area for individual proof jobs, while `reports/` contains request-level derived tables. Keeping these separate prevents generated summaries from being mixed with prover traces and proof files.
+
+Persistent runtime state is intentionally **not** nested under the campaign directory. It lives under `storage/` so cache/setup state can persist across runs when a warm-cache experiment requires it.
 
 Older runs may still contain verbose request directories such as `nano-gpt-..._split-fixed_ops-1_...`; those are valid historical results, but new requests use concise IDs.
 
@@ -84,16 +85,18 @@ Request fairness is applied before the within-request policy.
 
 ## Node concurrency
 
-`node.max_active_jobs` is an optional whole-job cap:
+`node.max_active_jobs` is an optional whole-job cap. The safe runtime and isolated-characterization default is `1`:
 
 ```yaml
 node:
-  max_active_jobs: null
+  max_active_jobs: 1
 ```
 
-- `null`: no fixed job-count cap; stage/resource admission controls overlap.
-- `1`: at most one proof job at a time on the node. This is the sequential baseline.
+- `1`: at most one proof job at a time on the node. This is the isolated/sequential baseline.
 - `N`: at most N active proof jobs.
+- `null`: no fixed job-count cap. Use this only for experiments that intentionally study concurrency or for resource-aware operation with established profiles.
+
+When `max_active_jobs: null`, the node still does **not** blindly lease the entire queue. Newly leased jobs create provisional memory reservations until their first real prover stage is visible. If an active job has no historical memory estimate, the node avoids leasing another unknown job unless the experiment explicitly sets a numeric concurrency limit. This prevents the polling loop from launching hundreds of provers before process RSS catches up.
 
 For a strict sequential baseline use:
 
@@ -104,7 +107,7 @@ node:
     enabled: false
 ```
 
-For unconstrained/naive concurrent execution use:
+For an intentional naive-concurrency experiment, explicitly opt in:
 
 ```yaml
 node:
@@ -113,13 +116,19 @@ node:
     enabled: false
 ```
 
-For normal resource-aware zkInfer execution use:
+For resource-aware zkInfer execution after profiles have been collected:
 
 ```yaml
 node:
   max_active_jobs: null
   phase_admission:
     enabled: true
+```
+
+The tmux launchers default `MAX_ACTIVE_JOBS=1`. To deliberately remove the fixed cap, run them with for example:
+
+```bash
+MAX_ACTIVE_JOBS=null experiments/scripts/launch_tmux.sh ...
 ```
 
 ## Phase admission
@@ -142,11 +151,12 @@ Use approximately `0.25` seconds for Section 3 characterization unless profiling
 
 ## Storage layout
 
-The default layout is:
+The default local layout is:
 
 ```text
 storage/
   artifacts/                 shared data-plane objects and published outputs
+  transfer/                  transient request transfer objects
   setup_cache/               persistent reusable proving setup
   node/
     cache/
@@ -163,9 +173,19 @@ storage/
 
 This is not the proving cache. It is the shared data plane. The coordinator stores materialized model/input objects there and nodes publish proof-output objects there so only small `ArtifactRef` metadata needs to travel over gRPC. A local node also writes the raw job output into the durable request run directory.
 
-For local experiment suites, `storage.delete_artifacts_after_run: true` in `experiments/config/config.yaml` removes `storage/artifacts` after all coordinator/node processes have stopped. It does **not** delete `experiments/runs`, `storage/setup_cache`, or `storage/node/runtime`. Set it to `false` when intentionally retaining the data-plane store, for example when testing persistent/shared storage behavior.
+For local experiment suites, the experiment-facing switch is positive and explicit:
 
-This cleanup switch exists because `storage/artifacts` represents the shared/distributed data plane, not the experiment record. On a local run it is usually just a second transport copy of data already represented by the durable run directory and reports, so retaining it indefinitely is unnecessary.
+```yaml
+storage:
+  retain_artifacts_after_run: false
+```
+
+- `false`: remove `storage/artifacts` after the suite finishes.
+- `true`: keep the data-plane objects for debugging or a follow-up process.
+
+This switch never deletes `experiments/runs`, `storage/setup_cache`, or `storage/node/runtime`.
+
+The cleanup switch exists because `storage/artifacts` represents the shared/distributed data plane, not the experiment record. On a local run it is usually a transport copy of information already represented by the durable run directory and reports, so retaining it indefinitely is unnecessary.
 
 ### `storage/setup_cache`
 
@@ -186,15 +206,17 @@ storage:
 
 This is local to one NodeSupervisor machine. `objects/` contains locally materialized model/input artifacts. `setup/` contains local setup files used when the setup cache is enabled. Its purpose is to avoid repeated shared-storage transfers on a distributed deployment.
 
-The model/input cache is intentionally separate from `setup_cache_enabled`: disabling proving setup reuse should not force every process to repeatedly transfer identical immutable ONNX/input bytes. If an experiment is specifically measuring data-plane transfer behavior, use the transfer-only experiment/launcher and a fresh node-cache directory.
+The model/input cache is intentionally separate from `setup_cache_enabled`: disabling proving setup reuse should not force every process to repeatedly transfer identical immutable ONNX/input bytes. If an experiment is specifically measuring data-plane transfer behavior, use the transfer-only experiment/launcher and clear the node cache deliberately before the measurement.
 
 ### `storage/node/runtime`
 
 This is runtime state, not cached model data. `reservations/` contains one small JSON reservation per admitted prover process. `resource_profiles/` contains node-local historical stage measurements. Separating this from `node/cache` makes it clear that deleting cached bytes is different from deleting scheduling history.
 
+For distributed deployments, each physical node has its own local `storage/node/...` equivalent. The shared data-plane and setup-cache locations may instead be S3 or another shared store.
+
 ## Reporting
 
-Raw execution data stays with each proof job. Under the Section 3 campaign launcher the intended layout is:
+Raw execution data stays with each proof job. Under the campaign launchers the intended layout is:
 
 ```text
 experiments/runs/<campaign>/requests/<request>/artifacts/jobs/<job>/
@@ -224,15 +246,19 @@ Halo2 transition rows contain `timestamp_unix_us,event,stage,duration_us,duratio
 
 ## Progress reporting
 
-The experiment submit process polls request state and prints request-level progress:
+The coordinator logs request progress when each job completes:
 
 ```text
-Request req_a5b2fa8a2c31 | status=in_progress | completed=8/10 | running=2 | queued=0 | failed=0
+Job nano_gpt_..._sub_model_17 completed | request=req_a5b2fa8a2c31 progress=18/192 (9.4%) | running=1 | queued=173 | failed=0
 ```
 
-`queued=0` can be perfectly normal while work remains: it means all remaining jobs have already been leased to nodes and are therefore `running`. Request progress should be read from the completed/running/queued counts together, not from the coordinator's global scheduler queue length alone.
+The submit process also polls request state and prints the same request-level view:
 
-The multi-request batch tool similarly reports aggregate request and proof-job progress while the batch runs.
+```text
+Request req_a5b2fa8a2c31 | status=in_progress | completed=18/192 | running=1 | queued=173 | failed=0
+```
+
+`queued` means jobs that have not yet been leased. It is not used as a proxy for request completion. Track `completed/total`, `running`, `queued`, and `failed` together.
 
 ## Useful Section 3 configurations
 
@@ -257,7 +283,7 @@ storage:
   setup_cache_enabled: false
 ```
 
-Naive concurrent baseline:
+Naive concurrent baseline (explicit opt-in):
 
 ```yaml
 node:
