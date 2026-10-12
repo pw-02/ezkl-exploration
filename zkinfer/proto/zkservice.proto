@@ -22,6 +22,7 @@ message InferenceRequest {
 
 message InferenceRequestAck {
   string request_id = 1;
+  string scheduler = 2;
 }
 
 message RequestStatusRequest {
@@ -37,6 +38,7 @@ message RequestStatusResponse {
   int32 in_progress_jobs = 6;
   int32 completed_jobs = 7;
   int32 failed_jobs = 8;
+  string scheduler = 9;
 }
 
 message ArtifactRef {

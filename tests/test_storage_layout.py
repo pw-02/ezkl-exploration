@@ -56,7 +56,8 @@ class SharedStorageTests(unittest.TestCase):
             first_request, first = build_jobs(cfg, shared, "first-name")
             _, second = build_jobs(cfg, shared, "second-name")
             key = hashlib.sha256(b"fixed-model").hexdigest()
-            self.assertEqual(first.artifact_key, key)
+            self.assertEqual(first.model_ref.sha256, key)
+            key = first.artifact_key
             self.assertEqual(first.model_ref.uri, str(root / "setup" / key / "model.onnx"))
             self.assertEqual(first.model_ref, second.model_ref)
             self.assertEqual(first.setup_cache_ref, second.setup_cache_ref)

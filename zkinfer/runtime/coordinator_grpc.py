@@ -100,7 +100,8 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 simplify_model=request.simplify_model,
                 input_shapes=input_shapes,
             )
-            return pb2.InferenceRequestAck(request_id=request_id)
+            return pb2.InferenceRequestAck(request_id=request_id,
+                                           scheduler=self.coordinator.scheduler_policy)
         except json.JSONDecodeError as exc:
             self._set_error(
                 context,
@@ -129,6 +130,7 @@ class ZKCoordinatorGrpcService(pb_grpc.ZKJobServiceServicer):
                 in_progress_jobs=status["in_progress_jobs"],
                 completed_jobs=status["completed_jobs"],
                 failed_jobs=status["failed_jobs"],
+                scheduler=status["scheduler"],
             )
         except Exception as exc:
             self._set_error(
@@ -281,7 +283,7 @@ def serve(cfg: DictConfig) -> None:
     logger.info("Starting ZK Coordinator gRPC Service")
     logger.debug("Loaded config:\n%s", OmegaConf.to_yaml(cfg, resolve=True))
 
-    coordinator = Coordinator(runtime_config=runtime_config, logger=logger)
+    coordinator = Coordinator(runtime_config=runtime_config, logger=logger, resolved_config=cfg)
     service = ZKCoordinatorGrpcService(coordinator=coordinator, logger=logger)
     server = create_grpc_server(cfg, service)
 

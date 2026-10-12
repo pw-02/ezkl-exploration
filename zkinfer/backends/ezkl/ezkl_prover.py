@@ -469,7 +469,16 @@ class EZKLProofStages:
             self.srs_path = self._resolve_srs_path()
 
         fused_ezkl = self._load_fused_ezkl()
+        trace_options = {}
+        if self.status_file:
+            Path(self.status_file).with_name("fused_stage_transitions.csv").unlink(missing_ok=True)
+        if getattr(fused_ezkl, "stage_trace_version", 0) >= 1:
+            trace_options["stage_trace_elapsed_base_s"] = (
+                time.perf_counter() - self._transition_started
+                if hasattr(self, "_transition_started") else 0.0
+            )
         result = fused_ezkl.setup_and_prove(
+            **trace_options,
             witness=self.witness_path,
             model=self.compiled_circuit_path,
             vk_path=self.vk_path,

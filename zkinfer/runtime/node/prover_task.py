@@ -141,6 +141,9 @@ class ResourceAwareEZKLProofStages(EZKLProofStages):
         explicit UTC wall-clock timestamp and monotonic elapsed time.
         """
         super()._update_status(stage)
+        self._record_transition(stage)
+
+    def _record_transition(self, stage, timestamp=None, elapsed_s=None):
         if self._transition_path is None:
             return
         self._transition_path.parent.mkdir(parents=True, exist_ok=True)
@@ -154,10 +157,11 @@ class ResourceAwareEZKLProofStages(EZKLProofStages):
                 writer.writeheader()
             writer.writerow(
                 {
-                    "timestamp": datetime.now(timezone.utc).isoformat(
+                    "timestamp": timestamp or datetime.now(timezone.utc).isoformat(
                         timespec="microseconds"
                     ),
-                    "elapsed_s": time.perf_counter() - self._transition_started,
+                    "elapsed_s": (time.perf_counter() - self._transition_started
+                                  if elapsed_s is None else elapsed_s),
                     "stage": stage,
                     "event": "enter",
                 }
@@ -222,7 +226,26 @@ class ResourceAwareEZKLProofStages(EZKLProofStages):
         # the combined region while the Rust status file still records the exact
         # KEY_GEN -> PROVING transition.
         with self._admit("FUSED_KEYGEN_PROVE"):
-            return super().setup_and_compute_proof()
+            # Acquiring admission ends waiting even with an older EZKL wheel.
+            self._update_status("FUSED_KEYGEN_PROVE")
+            try:
+                return super().setup_and_compute_proof()
+            finally:
+                trace = (Path(self.status_file).with_name("fused_stage_transitions.csv")
+                         if self.status_file else None)
+                available = trace is not None and trace.exists()
+                self.admission_metrics["ezkl_fused_stage_trace_available"] = available
+                if available:
+                    with trace.open(newline="", encoding="utf-8") as file:
+                        for row in csv.DictReader(file):
+                            timestamp = datetime.fromtimestamp(
+                                int(row["timestamp_unix_us"]) / 1_000_000, timezone.utc
+                            ).isoformat(timespec="microseconds")
+                            self._record_transition(row["stage"], timestamp,
+                                                    float(row["elapsed_s"]))
+                else:
+                    self.logger.warning("EZKL wheel lacks detailed fused stage events; "
+                                        "combined execution is recorded. Rebuild the wheel.")
 
 
 class ProverTaskRunner:
@@ -237,6 +260,13 @@ class ProverTaskRunner:
 
     def run(self, task: LocalProverTask) -> ProverTaskResult:
         os.makedirs(task.output_dir, exist_ok=True)
+        from zkinfer.profiling.run_metadata import code_revision
+        config_dir = Path(task.output_dir) / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "task.json").write_text(
+            json.dumps({"task": task.to_dict(), "code": code_revision()}, indent=2) + "\n",
+            encoding="utf-8",
+        )
         os.makedirs(task.tmp_dir, exist_ok=True)
 
         if task.transfer_only:

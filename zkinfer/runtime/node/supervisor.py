@@ -1,4 +1,5 @@
 from __future__ import annotations
+from zkinfer.profiling.run_metadata import save_process_metadata, copy_run_metadata
 
 import json
 import logging
@@ -81,8 +82,11 @@ class NodeSupervisor:
     burst of jobs before their process memory becomes visible to the OS.
     """
 
-    def __init__(self, runtime_config: RuntimeConfig, logger: Optional[logging.Logger] = None):
+    def __init__(self, runtime_config: RuntimeConfig, logger: Optional[logging.Logger] = None, resolved_config=None):
         self.cfg = runtime_config
+        self.metadata_snapshot = save_process_metadata(
+            Path(self.cfg.node.runs_dir).parent / "config",
+            "node", runtime_config, resolved_config)
         self.node_id = self.cfg.node.node_id or get_ip()
         self.logger = logger or logging.getLogger("node-supervisor")
         self.target = f"{self.cfg.coordinator.host}:{self.cfg.coordinator.port}"
@@ -498,6 +502,7 @@ class NodeSupervisor:
         output_dir = request_dir / "artifacts" / "jobs" / lease.job_id / "attempts" / lease_id
         tmp_dir.mkdir(parents=True, exist_ok=True)
         output_dir.mkdir(parents=True, exist_ok=True)
+        copy_run_metadata(self.metadata_snapshot, output_dir)
 
         model_metrics = {}
         model_materialize_time_s = 0.0
@@ -640,7 +645,7 @@ def main(cfg: DictConfig) -> None:
         log_file=f"{runtime_config.node.logs_dir}/node_{node_id}.log",
     )
     logger.info("Starting NodeSupervisor...")
-    NodeSupervisor(runtime_config=runtime_config, logger=logger).run()
+    NodeSupervisor(runtime_config=runtime_config, logger=logger, resolved_config=cfg).run()
 
 
 if __name__ == "__main__":

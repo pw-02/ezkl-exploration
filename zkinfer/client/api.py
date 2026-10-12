@@ -77,7 +77,8 @@ class ZKInferenceClient:
                 f"Coordinator returned empty request_id for request '{name}'"
             )
 
-        self.logger.info("Submitted request %s", response.request_id)
+        self.logger.info("Submitted request %s; coordinator scheduler: %s",
+                         response.request_id, response.scheduler or "unknown (older coordinator)")
         return response.request_id
 
     def get_request_status(self, request_id: str):
