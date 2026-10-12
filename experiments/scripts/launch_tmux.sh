@@ -6,9 +6,15 @@ WORKLOAD="${1:-mnist_gan}"
 COORDINATOR_HOST="${2:-127.0.0.1}"
 COORDINATOR_PORT="${3:-50051}"
 PHASE_ADMISSION="${4:-true}"
+MAX_ACTIVE_JOBS="${MAX_ACTIVE_JOBS:-1}"
 
 if [[ "$PHASE_ADMISSION" != "true" && "$PHASE_ADMISSION" != "false" ]]; then
     echo "Error: phase_admission must be true or false."
+    exit 1
+fi
+
+if [[ "$MAX_ACTIVE_JOBS" != "null" && ! "$MAX_ACTIVE_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: MAX_ACTIVE_JOBS must be a positive integer or 'null'."
     exit 1
 fi
 
@@ -19,12 +25,43 @@ ADMISSION_TAG="admission-${PHASE_ADMISSION}"
 
 RUN_ID="$(date +%Y-%m-%d_%H-%M-%S)_${WORKLOAD}_${ADMISSION_TAG}"
 RUN_DIR="${ROOT_DIR}/experiments/runs/${RUN_ID}"
+REQUESTS_DIR="${RUN_DIR}/requests"
 LOGS_DIR="${RUN_DIR}/logs"
-TRANSFER_DIR="${RUN_DIR}/transfer"
-SETUP_CACHE_DIR="${RUN_DIR}/setup-cache"
-NODE_CACHE_DIR="${RUN_DIR}/node/cache"
-NODE_RUNTIME_DIR="${RUN_DIR}/node/runtime"
-mkdir -p "$LOGS_DIR" "$TRANSFER_DIR" "$SETUP_CACHE_DIR" "$NODE_CACHE_DIR" "$NODE_RUNTIME_DIR"
+CONFIG_DIR="${RUN_DIR}/config"
+
+# Persistent/runtime state is deliberately separate from experiment results.
+ARTIFACT_DIR="${ROOT_DIR}/storage/artifacts"
+TRANSFER_DIR="${ROOT_DIR}/storage/transfer"
+SETUP_CACHE_DIR="${ROOT_DIR}/storage/setup_cache"
+NODE_CACHE_DIR="${ROOT_DIR}/storage/node/cache"
+NODE_RUNTIME_DIR="${ROOT_DIR}/storage/node/runtime"
+
+mkdir -p \
+    "$REQUESTS_DIR" \
+    "$LOGS_DIR" \
+    "$CONFIG_DIR" \
+    "$ARTIFACT_DIR" \
+    "$TRANSFER_DIR" \
+    "$SETUP_CACHE_DIR" \
+    "$NODE_CACHE_DIR" \
+    "$NODE_RUNTIME_DIR"
+
+cat > "${CONFIG_DIR}/launch.txt" <<EOF
+workload=${WORKLOAD}
+coordinator_host=${COORDINATOR_HOST}
+coordinator_port=${COORDINATOR_PORT}
+phase_admission=${PHASE_ADMISSION}
+max_active_jobs=${MAX_ACTIVE_JOBS}
+artifact_dir=${ARTIFACT_DIR}
+setup_cache_dir=${SETUP_CACHE_DIR}
+node_cache_dir=${NODE_CACHE_DIR}
+node_runtime_dir=${NODE_RUNTIME_DIR}
+EOF
+
+if [[ "$MAX_ACTIVE_JOBS" == "null" && "$PHASE_ADMISSION" == "false" ]]; then
+    echo "Warning: unlimited active jobs with phase admission disabled can start many provers at once."
+    echo "Use this only for an intentional concurrency characterization run."
+fi
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
     tmux kill-session -t "$SESSION"
@@ -39,14 +76,16 @@ export PYTHONPATH=${ROOT_DIR}:\${PYTHONPATH:-}"
 RUNTIME_CFG="\
 coordinator.host=${COORDINATOR_HOST} \
 coordinator.port=${COORDINATOR_PORT} \
-coordinator.runs_dir=${RUN_DIR} \
+coordinator.runs_dir=${REQUESTS_DIR} \
 coordinator.logs_dir=${LOGS_DIR} \
-node.runs_dir=${RUN_DIR} \
+node.runs_dir=${REQUESTS_DIR} \
 node.logs_dir=${LOGS_DIR} \
 node.local_cache_dir=${NODE_CACHE_DIR} \
 node.runtime_state_dir=${NODE_RUNTIME_DIR} \
+node.max_active_jobs=${MAX_ACTIVE_JOBS} \
 node.phase_admission.enabled=${PHASE_ADMISSION} \
 storage.backend=filesystem \
+storage.artifact_prefix=${ARTIFACT_DIR} \
 storage.transfer_prefix=${TRANSFER_DIR} \
 storage.setup_cache_prefix=${SETUP_CACHE_DIR}"
 
@@ -85,6 +124,7 @@ tmux send-keys -t "$SESSION:submit" \
     "${BASE_CMD} && \
     echo 'Run directory: ${RUN_DIR}' && \
     echo 'Phase admission: ${PHASE_ADMISSION}' && \
+    echo 'Max active jobs: ${MAX_ACTIVE_JOBS}' && \
     python experiments/submit_job.py \
     +workload=${WORKLOAD} \
     launch.coordinator_host=${COORDINATOR_HOST} \
@@ -93,5 +133,8 @@ tmux send-keys -t "$SESSION:submit" \
 
 echo "Started tmux session: ${SESSION}"
 echo "Run directory: ${RUN_DIR}"
+echo "Requests: ${REQUESTS_DIR}"
+echo "Persistent storage: ${ROOT_DIR}/storage"
 echo "Phase admission: ${PHASE_ADMISSION}"
+echo "Max active jobs: ${MAX_ACTIVE_JOBS}"
 tmux attach -t "$SESSION"
