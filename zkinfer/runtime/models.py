@@ -1,4 +1,3 @@
-import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -6,13 +5,6 @@ from enum import Enum
 from typing import Dict, List, Optional, Sequence
 
 from zkinfer.runtime.data_plane import ArtifactRef
-
-
-def slugify(value: object, max_len: int = 64) -> str:
-    text = str(value).strip().lower()
-    text = re.sub(r"[^a-z0-9]+", "-", text)
-    text = text.strip("-")
-    return text[:max_len].strip("-") or "na"
 
 
 class JobStatus(str, Enum):
@@ -143,7 +135,7 @@ class InferenceRequest:
     def __post_init__(self) -> None:
         # Experiment/campaign directories already record workload, partitioning,
         # scheduler and timestamps. Keep the request directory identifier short
-        # and stable so nested run paths remain readable.
+        # so nested run paths remain readable.
         self.request_id = f"req_{uuid.uuid4().hex[:12]}"
 
     def all_jobs_finished(self) -> bool:
