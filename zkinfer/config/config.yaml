@@ -83,7 +83,7 @@ storage:
 
   # Shared persistent setup cache. This is the warm/cold proving cache:
   # settings.json, network.compiled, pk.json, vk.json, and resource_profile.json.
-  setup_cache_enabled: true
+  setup_cache_enabled: false
   setup_cache_prefix: storage/setup_cache
   setup_cache_overwrite: false
 

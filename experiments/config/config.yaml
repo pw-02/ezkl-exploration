@@ -5,7 +5,7 @@ defaults:
 
 suite:
   workloads:
-    - mnist_gan
+    - nano_gpt_4_layers_64_embd #mnist_gan
 
 execution:
   partitioning:
@@ -47,7 +47,7 @@ node:
 
 storage:
   # Shared warm/cold setup state: settings, compiled circuit, PK/VK and profile.
-  setup_cache_enabled: true
+  setup_cache_enabled: false
   setup_cache_overwrite: false
 
   # The local experiment launcher deletes storage/artifacts after the complete
