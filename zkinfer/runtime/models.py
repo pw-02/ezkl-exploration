@@ -141,16 +141,10 @@ class InferenceRequest:
     reports_dir: Optional[str] = None
 
     def __post_init__(self) -> None:
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
-        name = slugify(self.name, max_len=48)
-        split_mode = slugify(self.split_mode, max_len=24)
-        scheduler = slugify(self.scheduler, max_len=24)
-        simplify_tag = "simplified" if self.simplify_model else "raw"
-        unique_suffix = uuid.uuid4().hex[:8]
-        self.request_id = (
-            f"{name}_split-{split_mode}_ops-{self.ops_per_chunk}_sched-{scheduler}_"
-            f"{simplify_tag}_{now}_{unique_suffix}"
-        )
+        # Experiment/campaign directories already record workload, partitioning,
+        # scheduler and timestamps. Keep the request directory identifier short
+        # and stable so nested run paths remain readable.
+        self.request_id = f"req_{uuid.uuid4().hex[:12]}"
 
     def all_jobs_finished(self) -> bool:
         return all(job.job_status in {JobStatus.COMPLETED, JobStatus.FAILED} for job in self.proof_jobs)
