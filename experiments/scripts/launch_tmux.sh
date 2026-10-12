@@ -28,6 +28,7 @@ RUN_DIR="${ROOT_DIR}/experiments/runs/${RUN_ID}"
 REQUESTS_DIR="${RUN_DIR}/requests"
 LOGS_DIR="${RUN_DIR}/logs"
 CONFIG_DIR="${RUN_DIR}/config"
+STATE_DB="${RUN_DIR}/coordinator_state.sqlite3"
 
 # Persistent/runtime state is deliberately separate from experiment results.
 ARTIFACT_DIR="${ROOT_DIR}/storage/artifacts"
@@ -52,6 +53,7 @@ coordinator_host=${COORDINATOR_HOST}
 coordinator_port=${COORDINATOR_PORT}
 phase_admission=${PHASE_ADMISSION}
 max_active_jobs=${MAX_ACTIVE_JOBS}
+state_db=${STATE_DB}
 artifact_dir=${ARTIFACT_DIR}
 setup_cache_dir=${SETUP_CACHE_DIR}
 node_cache_dir=${NODE_CACHE_DIR}
@@ -78,6 +80,7 @@ coordinator.host=${COORDINATOR_HOST} \
 coordinator.port=${COORDINATOR_PORT} \
 coordinator.runs_dir=${REQUESTS_DIR} \
 coordinator.logs_dir=${LOGS_DIR} \
+coordinator.state_db_path=${STATE_DB} \
 node.runs_dir=${REQUESTS_DIR} \
 node.logs_dir=${LOGS_DIR} \
 node.local_cache_dir=${NODE_CACHE_DIR} \
