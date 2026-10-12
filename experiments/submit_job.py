@@ -1,5 +1,6 @@
 import logging
 import sys
+import time
 
 import grpc
 import hydra
@@ -35,6 +36,48 @@ def runtime_partition_mode(cfg: DictConfig) -> str:
         ) from exc
 
 
+def wait_for_request(
+    client: ZKInferenceClient,
+    request_id: str,
+    poll_interval_sec: float,
+    logger: logging.Logger,
+) -> None:
+    """Print request-level progress until the request reaches a terminal state."""
+    previous = None
+
+    while True:
+        status = client.get_request_status(request_id)
+        snapshot = (
+            status.status,
+            status.total_jobs,
+            status.completed_jobs,
+            status.in_progress_jobs,
+            status.queued_jobs,
+            status.failed_jobs,
+        )
+        if snapshot != previous:
+            logger.info(
+                "Request %s | status=%s | completed=%d/%d | running=%d | queued=%d | failed=%d",
+                request_id,
+                status.status,
+                status.completed_jobs,
+                status.total_jobs,
+                status.in_progress_jobs,
+                status.queued_jobs,
+                status.failed_jobs,
+            )
+            previous = snapshot
+
+        if status.status == "completed":
+            return
+        if status.status in {"failed", "unknown"}:
+            raise RuntimeError(
+                f"Request {request_id} {status.status}: {status.message}"
+            )
+
+        time.sleep(max(0.1, poll_interval_sec))
+
+
 @hydra.main(config_path="./config", config_name="config", version_base=None)
 def main(cfg: DictConfig) -> None:
     logger = setup_logger()
@@ -57,7 +100,14 @@ def main(cfg: DictConfig) -> None:
             simplify_model=cfg.execution.get("simplify_model", False),
             input_shapes=cfg.workload.get("input_shapes", None),
         )
-        logger.info("Job submitted. Request ID: %s", request_id)
+        logger.info("Submitted request %s", request_id)
+        wait_for_request(
+            client=client,
+            request_id=request_id,
+            poll_interval_sec=float(cfg.launch.poll_completion_interval_sec),
+            logger=logger,
+        )
+        logger.info("Request %s completed", request_id)
     except grpc.RpcError as exc:
         logger.error("gRPC error: %s code=%s", exc.details(), exc.code())
         raise
