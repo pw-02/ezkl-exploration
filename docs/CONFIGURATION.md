@@ -27,15 +27,16 @@ experiments/runs/
       runtime/
     requests/
       req_a5b2fa8a2c31/
-        jobs/
-          <job-id>/
-            resource_usage.csv
-            stage_transitions.csv
-            halo2_stage_transitions.csv
-            halo2_prover_cpu.csv
-            admission_profile_before.json
-            prover_process.log
-            ... proof outputs
+        artifacts/
+          jobs/
+            <job-id>/
+              resource_usage.csv
+              stage_transitions.csv
+              halo2_stage_transitions.csv
+              halo2_prover_cpu.csv
+              admission_profile_before.json
+              prover_process.log
+              ... proof outputs
         reports/
           job_report.csv
           request_report.csv
@@ -44,6 +45,8 @@ experiments/runs/
 ```
 
 The campaign name describes the experiment. `req_<id>` is only a unique request identifier; workload, partitioning, scheduler, cache state and timestamps belong in the saved configuration/reports rather than being encoded repeatedly in the directory name.
+
+`artifacts/jobs/` is the durable raw-output area for individual proof jobs, while `reports/` contains request-level derived tables. Keeping these separate prevents generated summaries from being mixed with prover traces and proof files.
 
 Older runs may still contain verbose request directories such as `nano-gpt-..._split-fixed_ops-1_...`; those are valid historical results, but new requests use concise IDs.
 
@@ -194,7 +197,7 @@ This is runtime state, not cached model data. `reservations/` contains one small
 Raw execution data stays with each proof job. Under the Section 3 campaign launcher the intended layout is:
 
 ```text
-experiments/runs/<campaign>/requests/<request>/jobs/<job>/
+experiments/runs/<campaign>/requests/<request>/artifacts/jobs/<job>/
   resource_usage.csv
   stage_transitions.csv
   halo2_stage_transitions.csv
