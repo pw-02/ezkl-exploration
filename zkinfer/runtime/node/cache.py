@@ -12,7 +12,7 @@ from typing import Any, Dict, Iterable, Iterator, Optional, Tuple
 
 from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.storage import s3
-from zkinfer.storage.artifact_store import sha256_file
+from zkinfer.storage.shared_store import sha256_file
 
 
 class NodeCache:
@@ -53,7 +53,7 @@ class NodeCache:
             for setup_dir in self.setup_dir_root.iterdir() if self.setup_dir_root.exists() else []:
                 if not setup_dir.is_dir():
                     continue
-                if (setup_dir / "settings.json").exists() or (setup_dir / "network.compiled").exists():
+                if all((setup_dir / name).exists() for name in self.SETUP_FILES):
                     keys.append(setup_dir.name)
             return sorted(set(keys))
 
@@ -159,9 +159,23 @@ class NodeCache:
         if ref.is_empty:
             raise ValueError("Cannot materialize empty ArtifactRef")
 
-        started = time.perf_counter()
         digest = ref.sha256 or self._stable_ref_digest(ref)
         local_path = self._object_path(ref, filename_hint)
+        with self._object_lock(digest):
+            return self._materialize_at_path(ref, local_path)
+
+    def materialize_model_with_metrics(
+        self, ref: ArtifactRef, setup_key: str,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Store the ONNX beside its derived setup, never in generic objects/."""
+        with self._setup_lock(setup_key):
+            path = Path(self.setup_dir(setup_key)) / "model.onnx"
+            return self._materialize_at_path(ref, path)
+
+    def _materialize_at_path(self, ref: ArtifactRef, local_path: Path) -> Tuple[str, Dict[str, Any]]:
+        if ref.is_empty:
+            raise ValueError("Cannot materialize empty ArtifactRef")
+        started = time.perf_counter()
         metrics: Dict[str, Any] = {
             "uri": ref.uri,
             "backend": ref.backend,
@@ -172,57 +186,58 @@ class NodeCache:
             "local_path": str(local_path),
         }
 
-        with self._object_lock(digest):
-            if local_path.exists():
-                self._touch(local_path)
-                metrics["cache_hit"] = True
-                metrics["bytes_from_local_cache"] = local_path.stat().st_size
-                metrics["materialize_time(s)"] = time.perf_counter() - started
-                return str(local_path), metrics
-
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_path = Path(str(local_path) + f".{os.getpid()}.tmp")
-            tmp_path.unlink(missing_ok=True)
-
-            if ref.backend == "filesystem":
-                source = Path(ref.uri)
-                if not source.exists():
-                    raise FileNotFoundError(ref.uri)
-                if source.resolve() != tmp_path.resolve():
-                    shutil.copy2(source, tmp_path)
-            elif ref.backend == "s3":
-                bucket = ref.s3_bucket or self.default_s3_bucket
-                if not bucket:
-                    raise ValueError("S3 artifact ref requires a bucket")
-                s3.download_file(bucket, ref.uri, str(tmp_path))
-            else:
-                raise ValueError(f"Unsupported artifact backend: {ref.backend}")
-
-            if ref.sha256:
-                actual = sha256_file(str(tmp_path))
-                if actual != ref.sha256:
-                    tmp_path.unlink(missing_ok=True)
-                    raise ValueError(
-                        f"Hash mismatch for {ref.uri}: expected {ref.sha256}, got {actual}"
-                    )
-
-            os.replace(tmp_path, local_path)
+        if local_path.exists():
+            if local_path.name == "model.onnx" and ref.sha256 and sha256_file(local_path) != ref.sha256:
+                raise ValueError(f"Cached partition model hash mismatch: {local_path}")
             self._touch(local_path)
-            size_bytes = local_path.stat().st_size
-            eviction = self.evict_if_needed(protected_paths=[local_path])
-            metrics.update(
-                bytes_downloaded=size_bytes,
-                eviction_count=eviction["eviction_count"],
-                evicted_bytes=eviction["evicted_bytes"],
-                **{"materialize_time(s)": time.perf_counter() - started},
-            )
+            metrics["cache_hit"] = True
+            metrics["bytes_from_local_cache"] = local_path.stat().st_size
+            metrics["materialize_time(s)"] = time.perf_counter() - started
             return str(local_path), metrics
 
-    def restore_setup_cache(self, shared_setup_ref: ArtifactRef, setup_key: str) -> str:
-        path, _ = self.restore_setup_cache_with_metrics(shared_setup_ref, setup_key)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = Path(str(local_path) + f".{os.getpid()}.tmp")
+        tmp_path.unlink(missing_ok=True)
+
+        if ref.backend == "filesystem":
+            source = Path(ref.uri)
+            if not source.exists():
+                raise FileNotFoundError(ref.uri)
+            if source.resolve() != tmp_path.resolve():
+                shutil.copy2(source, tmp_path)
+        elif ref.backend == "s3":
+            bucket = ref.s3_bucket or self.default_s3_bucket
+            if not bucket:
+                raise ValueError("S3 artifact ref requires a bucket")
+            s3.download_file(bucket, ref.uri, str(tmp_path))
+        else:
+            raise ValueError(f"Unsupported artifact backend: {ref.backend}")
+
+        if ref.sha256:
+            actual = sha256_file(str(tmp_path))
+            if actual != ref.sha256:
+                tmp_path.unlink(missing_ok=True)
+                raise ValueError(
+                    f"Hash mismatch for {ref.uri}: expected {ref.sha256}, got {actual}"
+                )
+
+        os.replace(tmp_path, local_path)
+        self._touch(local_path)
+        size_bytes = local_path.stat().st_size
+        eviction = self.evict_if_needed(protected_paths=[local_path])
+        metrics.update(
+            bytes_downloaded=size_bytes,
+            eviction_count=eviction["eviction_count"],
+            evicted_bytes=eviction["evicted_bytes"],
+            **{"materialize_time(s)": time.perf_counter() - started},
+        )
+        return str(local_path), metrics
+
+    def restore_setup(self, shared_setup_ref: ArtifactRef, setup_key: str) -> str:
+        path, _ = self.restore_setup_with_metrics(shared_setup_ref, setup_key)
         return path
 
-    def restore_setup_cache_with_metrics(
+    def restore_setup_with_metrics(
         self, shared_setup_ref: ArtifactRef, setup_key: str
     ) -> Tuple[str, Dict[str, Any]]:
         """Restore reusable setup artifacts into the node cache."""
@@ -239,7 +254,7 @@ class NodeCache:
 
         with self._setup_lock(setup_key):
             local_setup_dir = Path(self.setup_dir(setup_key))
-            metrics["setup_cache_dir"] = str(local_setup_dir)
+            metrics["setup_dir"] = str(local_setup_dir)
 
             if shared_setup_ref.is_empty:
                 metrics["restore_time(s)"] = time.perf_counter() - started
@@ -289,7 +304,7 @@ class NodeCache:
             metrics["restore_time(s)"] = time.perf_counter() - started
             return str(local_setup_dir), metrics
 
-    def publish_setup_cache_with_metrics(
+    def publish_setup_with_metrics(
         self, local_setup_dir: str, shared_setup_ref: ArtifactRef
     ) -> Dict[str, Any]:
         """Publish reusable setup artifacts back to shared storage."""
@@ -424,12 +439,12 @@ class NodeCache:
         if prefix_ref.backend == "s3":
             bucket = prefix_ref.s3_bucket or self.default_s3_bucket
             if not bucket:
-                raise ValueError("S3 setup cache publish requires bucket")
+                raise ValueError("S3 setup publication requires bucket")
             key = f"{prefix_ref.uri.rstrip('/')}/{filename}"
             s3.upload_file(local_path, bucket, key)
             return
 
-        raise ValueError(f"Unsupported setup cache backend: {prefix_ref.backend}")
+        raise ValueError(f"Unsupported setup backend: {prefix_ref.backend}")
 
     @staticmethod
     def _path_size(path: Path) -> int:

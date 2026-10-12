@@ -24,7 +24,7 @@ from zkinfer.runtime.request_builder import RequestBuilder
 from zkinfer.runtime.resource_profiles import get_profile_estimates, max_stage_memory_gb
 from zkinfer.runtime.scheduler import JobScheduler
 from zkinfer.runtime.state_store import CoordinatorStateStore
-from zkinfer.storage.artifact_store import ArtifactStore
+from zkinfer.storage.shared_store import SharedStorage
 from zkinfer.storage.io import save_json
 from zkinfer.verification.request_manifest import write_request_artifact_manifest
 from zkinfer.verification.verifier import RuntimeVerifier
@@ -36,19 +36,19 @@ class Coordinator:
     def __init__(self, runtime_config: RuntimeConfig, logger: logging.Logger):
         self.logger = logger
         self.runs_dir = Path(runtime_config.coordinator.runs_dir)
-        self.file_transfer = runtime_config.file_transfer
-        self.artifact_store_config = runtime_config.artifact_store
-        self.proving_cache = runtime_config.proving_cache
+        self.request_store_config = runtime_config.request_store
+        self.setup_store = runtime_config.setup_store
         self.jobs_config = runtime_config.jobs
         self.heartbeat_config = runtime_config.heartbeat
         self.verification_config = runtime_config.verification
         self.scheduler_policy = self.jobs_config.scheduler or "fifo"
         self.max_retries = self.jobs_config.max_retries
 
-        self.artifact_store = ArtifactStore(
-            backend=self.artifact_store_config.backend,
-            root=self.artifact_store_config.root_dir,
-            s3_bucket=self.artifact_store_config.s3_bucket,
+        self.shared_storage = SharedStorage(
+            backend=self.request_store_config.backend,
+            setup_root=self.setup_store.root_dir,
+            requests_root=self.request_store_config.root_dir,
+            s3_bucket=self.request_store_config.s3_bucket,
         )
         self.state_store = (
             CoordinatorStateStore(runtime_config.state_store.db_path)
@@ -142,9 +142,8 @@ class Coordinator:
         self._create_request_dirs(request)
         request.proof_jobs = self.request_builder.build_jobs(
             request=request,
-            artifact_store=self.artifact_store,
-            artifact_store_config=self.artifact_store_config,
-            proving_cache=self.proving_cache,
+            shared_storage=self.shared_storage,
+            setup_store=self.setup_store,
             max_retries=self.max_retries,
             transfer_only=self.jobs_config.transfer_only,
         )
@@ -548,8 +547,8 @@ class Coordinator:
             save_json(
                 job_report,
                 job.profiling_file_path,
-                storage_type=self.proving_cache.backend,
-                s3_bucket=self.proving_cache.s3_bucket,
+                storage_type=self.setup_store.backend,
+                s3_bucket=self.setup_store.s3_bucket,
             )
             estimates = get_profile_estimates(job_report)
             with self.lock:
@@ -695,9 +694,6 @@ class Coordinator:
                 "Failed to write final reports for request %s",
                 parent_request.request_id,
             )
-
-        self._cleanup_request_transfer_files(parent_request)
-
     def _verify_request_if_enabled(
         self,
         request: InferenceRequest,
@@ -721,19 +717,4 @@ class Coordinator:
                 exc_info=True,
             )
             return {"enabled": True, "valid": False, "error": str(exc)}
-
-    def _cleanup_request_transfer_files(self, request: InferenceRequest) -> None:
-        try:
-            self.file_transfer.delete_tree(request.request_id)
-            self.logger.info(
-                "Cleaned up transfer files for request %s",
-                request.request_id,
-            )
-        except Exception as exc:
-            self.logger.warning(
-                "Failed to clean up transfer files for request %s: %s",
-                request.request_id,
-                exc,
-                exc_info=True,
-            )
 

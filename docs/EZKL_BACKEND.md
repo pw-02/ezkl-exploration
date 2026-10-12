@@ -4,7 +4,7 @@ zkInfer uses a custom EZKL/Halo2 fork rather than treating EZKL as an opaque CLI
 
 ## Cold versus warm proving
 
-A **warm** request already has `pk.json`/`vk.json` in the node setup cache, or restores them from the shared setup cache. zkInfer then uses the normal `ezkl.prove(...)` path. EZKL still deserializes the cached proving key once for that proof.
+A **warm** request already has `pk.json`/`vk.json` in the node setup bundle, or restores them from the shared setup store. zkInfer then uses the normal `ezkl.prove(...)` path. EZKL still deserializes the cached proving key once for that proof.
 
 A **cold** request has no cached proving key. The old path was:
 
@@ -135,3 +135,4 @@ peak memory by stage
 ```
 
 Then compare `node.phase_admission.enabled=false` and `true` under the same hardware, workload, partitioning, and global scheduler. Useful outcomes are throughput, request latency, makespan, peak memory, OOM rate, admission wait time, CPU utilization, and prediction error between the reserved and measured stage envelopes.
+

@@ -92,11 +92,9 @@ node.phase_admission.enabled=${PHASE_ADMISSION} \
 storage.backend=s3 \
 storage.s3_bucket=${S3_BUCKET} \
 storage.s3_prefix=${S3_PREFIX} \
-storage.artifact_prefix=artifacts \
-storage.transfer_prefix=transfer \
-storage.setup_cache_enabled=true \
-storage.setup_cache_prefix=setup_cache \
-storage.setup_cache_overwrite=false"
+storage.requests_prefix=requests \
+storage.reuse_setup=true \
+storage.setup_prefix=setup"
 
 echo "Checking access to S3 bucket: ${S3_BUCKET}"
 if command -v aws >/dev/null 2>&1; then
@@ -159,3 +157,4 @@ echo "S3 location: s3://${S3_BUCKET}/${S3_PREFIX}"
 echo "Phase admission: ${PHASE_ADMISSION}"
 echo "Max active jobs: ${MAX_ACTIVE_JOBS}"
 tmux attach -t "$SESSION"
+

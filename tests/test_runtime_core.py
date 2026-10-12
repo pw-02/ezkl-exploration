@@ -281,7 +281,7 @@ class NodeCacheTests(unittest.TestCase):
                 (shared / name).write_bytes(b"a" * 16)
             cache = NodeCache(str(root / "cache"), max_bytes=32)
             with cache.pinned_setup("key"):
-                cache.restore_setup_cache(ArtifactRef("filesystem", str(shared)), "key")
+                cache.restore_setup(ArtifactRef("filesystem", str(shared)), "key")
                 cache.evict_if_needed()
                 self.assertTrue(cache.setup_ready("key"))
             self.assertEqual(cache._pin_counts, {})

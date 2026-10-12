@@ -153,68 +153,95 @@ Use approximately `0.25` seconds for Section 3 characterization unless profiling
 
 ## Storage layout
 
-The default local layout is:
+Shared state has two lifetimes; local cache/runtime state is separate:
 
 ```text
 storage/
-  artifacts/                 shared data-plane objects and published outputs
-  transfer/                  transient request transfer objects
-  setup_cache/               persistent reusable proving setup
+  setup/<setup_key>/
+    model.onnx
+    settings.json
+    network.compiled
+    pk.json.gz
+    vk.json
+    resource_profile.json
+  requests/<request_id>/
+    inputs/<partition>.json
+    proofs/<partition>/attempts/<lease>/
+      proof.pf
+      witness.json
+      settings.json
+      vk.json
+      manifest.json
   node/
     cache/
-      objects/               local copies of model/input artifacts
-      setup/                 local copies of setup files
+      setup/<setup_key>/       local ONNX + settings/circuit/uncompressed PK/VK
+      objects/                local content-addressed input copies
     runtime/
-      reservations/          live per-process phase reservations
-      resource_profiles/     node-local stage history
+      reservations/
+      resource_profiles/
 ```
 
-`experiments/runs/` is separate. It is the durable experiment record and contains per-request raw job traces and reports.
+`experiments/runs/` remains the durable raw-trace and report record. Its paths do not change in this refactor. The `setup_cache` protobuf field and persisted `setup_cache_ref` carry the setup bundle reference; their legacy names remain for wire/state compatibility.
 
-### `storage/artifacts`
+### Reusable setup
 
-This is not the proving cache. It is the shared data plane. The coordinator stores materialized model/input objects there and nodes publish proof-output objects there so only small `ArtifactRef` metadata needs to travel over gRPC. A local node also writes the raw job output into the durable request run directory.
-
-For local experiment suites, the experiment-facing switch is positive and explicit:
+The coordinator writes the partition ONNX to `setup/<setup_key>/model.onnx`. Nodes restore or generate the derived settings/circuit/keys in the same local bundle. Newly generated derivatives are published beside the canonical ONNX; PKs are compressed for shared storage. The setup key is SHA-256 of serialized partition bytes, independent of the request ID. Configuration changes to the backend/calibration policy require a fresh setup prefix.
 
 ```yaml
 storage:
-  retain_artifacts_after_run: false
+  backend: filesystem
+  setup_prefix: storage/setup
+  requests_prefix: storage/requests
+  reuse_setup: true
 ```
 
-- `false`: remove `storage/artifacts` after the suite finishes.
-- `true`: keep the data-plane objects for debugging or a follow-up process.
+`reuse_setup=false` is the cold baseline: derived setup lives in a private temporary directory per attempt and resident/shared keys are not reused. Model bytes may still be served from the node cache. The switch does not delete reusable state or node resource history. For a full transfer-cold experiment, deliberately clear the node cache too.
 
-This switch never deletes `experiments/runs`, `storage/setup_cache`, or `storage/node/runtime`.
+### Request-owned inputs and proofs
 
-The cleanup switch exists because `storage/artifacts` represents the shared/distributed data plane, not the experiment record. On a local run it is usually a transport copy of information already represented by the durable run directory and reports, so retaining it indefinitely is unnecessary.
+Inputs live beneath the request ID. Proofs, witnesses and verification copies are published beneath a partition and lease ID so retry attempts cannot overwrite each other. Their `ArtifactRef` metadata retains content hashes for model/input transfer validation.
 
-### `storage/setup_cache`
-
-This is the persistent warm/cold proving cache. It contains reusable files such as `settings.json`, `network.compiled`, `pk.json`, `vk.json`, and `resource_profile.json`.
-
-Runtime settings:
+The local experiment suite uses:
 
 ```yaml
 storage:
-  setup_cache_enabled: true
-  setup_cache_prefix: storage/setup_cache
-  setup_cache_overwrite: false
+  setup_dir: storage/setup
+  requests_dir: storage/requests
+  reuse_setup: false
+  retain_requests_after_run: false
 ```
 
-`setup_cache_enabled: false` disables reusable proving setup for each proof job: the node creates a private temporary setup directory rather than restoring or reusing shared/node-local settings, compiled circuits, or proving keys. This is the setting to use for a no-setup-cache/cold baseline. Model/input data-plane objects are still materialized through the node's local object cache because that cache is a transport optimization rather than proving setup reuse.
+With retention disabled, cleanup deletes only request IDs submitted by that suite, after stopping its processes. It preserves setup bundles, other requests, node state and experiment run records. Enable retention if another process needs the published proof or input locations after the suite exits.
 
-### `storage/node/cache`
+### S3
 
-This is local to one NodeSupervisor machine. `objects/` contains locally materialized model/input artifacts. `setup/` contains local setup files used when the setup cache is enabled. Its purpose is to avoid repeated shared-storage transfers on a distributed deployment.
+For S3, prefixes are relative to `s3_prefix`:
 
-The model/input cache is intentionally separate from `setup_cache_enabled`: disabling proving setup reuse should not force every process to repeatedly transfer identical immutable ONNX/input bytes. If an experiment is specifically measuring data-plane transfer behavior, use the transfer-only experiment/launcher and clear the node cache deliberately before the measurement.
+```yaml
+storage:
+  backend: s3
+  s3_bucket: your-bucket
+  s3_prefix: zkinfer
+  setup_prefix: setup
+  requests_prefix: requests
+  reuse_setup: true
+```
 
-### `storage/node/runtime`
+This gives `s3://your-bucket/zkinfer/setup/<setup_key>/` and `s3://your-bucket/zkinfer/requests/<request_id>/`. Both launchers use this arrangement. Setup and request roots/prefixes cannot overlap.
 
-This is runtime state, not cached model data. `reservations/` contains one small JSON reservation per admitted prover process. `resource_profiles/` contains node-local historical stage measurements. Separating this from `node/cache` makes it clear that deleting cached bytes is different from deleting scheduling history.
+### Configuration migration
 
-For distributed deployments, each physical node has its own local `storage/node/...` equivalent. The shared data-plane and setup-cache locations may instead be S3 or another shared store.
+| Previous setting | New setting |
+| --- | --- |
+| `storage.artifact_prefix` | `storage.requests_prefix` |
+| `storage.setup_cache_prefix` | `storage.setup_prefix` |
+| `storage.setup_cache_enabled` | `storage.reuse_setup` |
+| `storage.transfer_prefix` | Removed; inputs are request-owned |
+| `storage.setup_cache_overwrite` | Removed; use cold mode or a fresh setup prefix |
+| Suite `storage.artifact_dir` | Suite `storage.requests_dir` |
+| Suite `storage.retain_artifacts_after_run` | Suite `storage.retain_requests_after_run` |
+
+The old runtime settings are rejected with migration guidance rather than silently changing cache behavior. Updated launchers use only the new settings. Existing stored files are not moved or deleted automatically. New SHA-256 setup keys do not reuse old MD5 node-cache entries, so the first run in the new layout is cold; warm up before measuring warm performance. Previously recorded artifact URIs remain explicit and can still be read by verification tools.
 
 ## Reporting
 
@@ -282,7 +309,7 @@ Strict cold/no-setup-reuse characterization additionally uses:
 
 ```yaml
 storage:
-  setup_cache_enabled: false
+  reuse_setup: false
 ```
 
 Naive concurrent baseline (explicit opt-in):

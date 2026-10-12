@@ -31,9 +31,8 @@ CONFIG_DIR="${RUN_DIR}/config"
 STATE_DB="${RUN_DIR}/coordinator_state.sqlite3"
 
 # Persistent/runtime state is deliberately separate from experiment results.
-ARTIFACT_DIR="${ROOT_DIR}/storage/artifacts"
-TRANSFER_DIR="${ROOT_DIR}/storage/transfer"
-SETUP_CACHE_DIR="${ROOT_DIR}/storage/setup_cache"
+REQUEST_STORE_DIR="${ROOT_DIR}/storage/requests"
+SETUP_STORE_DIR="${ROOT_DIR}/storage/setup"
 NODE_CACHE_DIR="${ROOT_DIR}/storage/node/cache"
 NODE_RUNTIME_DIR="${ROOT_DIR}/storage/node/runtime"
 
@@ -41,9 +40,8 @@ mkdir -p \
     "$REQUESTS_DIR" \
     "$LOGS_DIR" \
     "$CONFIG_DIR" \
-    "$ARTIFACT_DIR" \
-    "$TRANSFER_DIR" \
-    "$SETUP_CACHE_DIR" \
+    "$REQUEST_STORE_DIR" \
+    "$SETUP_STORE_DIR" \
     "$NODE_CACHE_DIR" \
     "$NODE_RUNTIME_DIR"
 
@@ -54,8 +52,8 @@ coordinator_port=${COORDINATOR_PORT}
 phase_admission=${PHASE_ADMISSION}
 max_active_jobs=${MAX_ACTIVE_JOBS}
 state_db=${STATE_DB}
-artifact_dir=${ARTIFACT_DIR}
-setup_cache_dir=${SETUP_CACHE_DIR}
+requests_dir=${REQUEST_STORE_DIR}
+setup_dir=${SETUP_STORE_DIR}
 node_cache_dir=${NODE_CACHE_DIR}
 node_runtime_dir=${NODE_RUNTIME_DIR}
 EOF
@@ -88,9 +86,8 @@ node.runtime_state_dir=${NODE_RUNTIME_DIR} \
 node.max_active_jobs=${MAX_ACTIVE_JOBS} \
 node.phase_admission.enabled=${PHASE_ADMISSION} \
 storage.backend=filesystem \
-storage.artifact_prefix=${ARTIFACT_DIR} \
-storage.transfer_prefix=${TRANSFER_DIR} \
-storage.setup_cache_prefix=${SETUP_CACHE_DIR}"
+storage.requests_prefix=${REQUEST_STORE_DIR} \
+storage.setup_prefix=${SETUP_STORE_DIR}"
 
 tmux new-session -d -s "$SESSION" -n "coordinator"
 tmux send-keys -t "$SESSION:coordinator" \
@@ -141,3 +138,4 @@ echo "Persistent storage: ${ROOT_DIR}/storage"
 echo "Phase admission: ${PHASE_ADMISSION}"
 echo "Max active jobs: ${MAX_ACTIVE_JOBS}"
 tmux attach -t "$SESSION"
+

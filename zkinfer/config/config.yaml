@@ -76,17 +76,13 @@ heartbeat:
 
 storage:
   backend: filesystem # filesystem | s3
-  transfer_prefix: storage/transfer
-
-  # Shared data-plane store. Models, materialized inputs, and published proof
-  # outputs are referenced by metadata over gRPC rather than sent inline.
-  artifact_prefix: storage/artifacts
-
-  # Shared persistent setup cache. This is the warm/cold proving cache:
-  # settings.json, network.compiled, pk.json, vk.json, and resource_profile.json.
-  setup_cache_enabled: false
-  setup_cache_prefix: storage/setup_cache
-  setup_cache_overwrite: false
+  # Reusable state: <setup_key>/model.onnx + settings/circuit/PK/VK.
+  setup_prefix: storage/setup
+  # Request-owned state: <request_id>/inputs/ + proofs/<partition>/attempts/.
+  requests_prefix: storage/requests
+  # Reuse derived settings/circuit/keys; false gives a cold private setup per job.
+  # Immutable ONNX transfer caching is available in both modes.
+  reuse_setup: false
 
   s3_bucket: null
   s3_prefix: zkinfer
@@ -101,3 +97,4 @@ hydra:
     level: DISABLE
   hydra_logging:
     level: DISABLE
+

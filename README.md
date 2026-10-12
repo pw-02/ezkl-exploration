@@ -41,8 +41,8 @@ Prover subprocess
   `- exits after one proof job
 
 Shared storage
-  |- content-addressed model/input artifacts
-  |- reusable setup cache
+  |- setup bundles and request-owned inputs
+  |- reusable setup store
   `- proof/result manifests
 ```
 
@@ -197,27 +197,54 @@ completed/total proof jobs
 
 Proof-job throughput is important because request sizes can differ substantially after partitioning.
 
-## Node cache
+## Storage lifetimes
 
-The node cache lives in `zkinfer/runtime/node/cache.py` and contains:
-
-```text
-objects/       content-addressed model/input artifacts
-setup/         reusable settings, compiled circuits, PKs and VKs
-phase_admission/
-  profiles/     measured per-setup-key stage resource history
-  reservations/ current cross-process phase reservations
-```
-
-The cache provides per-object locking, per-setup-key locking, job-lifetime model/input/setup pinning, bounded LRU-style eviction, PK compression when publishing setup state, and PK decompression when restoring it. Pins are acquired before materialization/restoration. The cache can temporarily exceed its target while all eviction candidates are in use; it trims released objects as pins are dropped.
-
-Terminology in the runtime is deliberately literal:
+The shared store groups files by their lifetime:
 
 ```text
-materialize artifact   make an immutable object available locally
-restore setup cache    copy reusable setup files into the node cache
-publish setup cache    copy newly generated setup files to shared storage
+storage/
+  setup/<setup_key>/
+    model.onnx
+    settings.json
+    network.compiled
+    pk.json.gz
+    vk.json
+    resource_profile.json
+  requests/<request_id>/
+    inputs/<partition>.json
+    proofs/<partition>/attempts/<lease>/
+      proof.pf
+      witness.json
+      settings.json
+      vk.json
+      manifest.json
+  node/
+    cache/
+      setup/<setup_key>/      local model.onnx + uncompressed derived setup
+      objects/               local immutable input copies
+    runtime/
+      reservations/          current phase reservations
+      resource_profiles/     node-local resource history
 ```
+
+The setup key is SHA-256 of the serialized partition ONNX, which includes its weights and tensor shapes. Identical partition bytes share one bundle across requests. Different requests always have separate input and proof locations. Backend/calibration configuration changes require a fresh setup prefix; the model hash alone does not version those settings.
+
+Runtime configuration is:
+
+```yaml
+storage:
+  setup_prefix: storage/setup
+  requests_prefix: storage/requests
+  reuse_setup: true
+```
+
+`reuse_setup=false` computes derived settings/circuits/keys in a private per-attempt temporary directory, even if warm keys already exist locally. Immutable ONNX transfer caching remains available. SRS handling is unchanged.
+
+The node pins the model/setup bundle and inputs until the job finishes. It serializes setup mutation per key, compresses PKs for shared publication, and restores them uncompressed locally. Model materialization is counted separately from derived setup restoration, so transfer bytes are not charged twice. Only complete derived bundles are advertised as warm.
+
+New jobs use this layout. Existing artifacts are not automatically moved or deleted, and new SHA-256 setup identities do not reuse the old MD5 cache entries. Warm up the new bundles before measuring warm serving. The protobuf field `setup_cache` and persisted `setup_cache_ref` remain transport compatibility names for the bundle reference.
+
+See `docs/CONFIGURATION.md` for cleanup, S3 configuration, and old-to-new configuration mappings.
 
 ## EZKL cold path
 
@@ -467,7 +494,7 @@ The runtime is set up to evaluate:
 - memory feasibility and OOM avoidance
 - multi-request fairness and throughput
 - online latency versus offline batch makespan
-- setup-cache locality
+- setup-bundle locality
 - scale-out efficiency
 - data-movement overhead
 - verification overhead
