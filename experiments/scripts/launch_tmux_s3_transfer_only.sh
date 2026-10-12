@@ -7,6 +7,7 @@ COORDINATOR_HOST="${2:-127.0.0.1}"
 COORDINATOR_PORT="${3:-50051}"
 OPERATORS_PER_PARTITION="${4:-1}"
 PARTITION_MODE="${5:-fixed_size}"
+MAX_ACTIVE_JOBS="${MAX_ACTIVE_JOBS:-1}"
 
 SESSION="${TMUX_SESSION:-zkexp-transfer}"
 CONDA_ENV="${CONDA_ENV:-zk}"
@@ -20,6 +21,10 @@ if [[ ! "$OPERATORS_PER_PARTITION" =~ ^[1-9][0-9]*$ ]]; then
 fi
 if [[ "$PARTITION_MODE" != "fixed_size" && "$PARTITION_MODE" != "whole_model" && "$PARTITION_MODE" != "single_operator" ]]; then
     echo "Error: partition_mode must be fixed_size, whole_model, or single_operator."
+    exit 1
+fi
+if [[ "$MAX_ACTIVE_JOBS" != "null" && ! "$MAX_ACTIVE_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: MAX_ACTIVE_JOBS must be a positive integer or 'null'."
     exit 1
 fi
 if [[ -z "$S3_BUCKET" ]]; then
@@ -39,9 +44,24 @@ RUN_ID="$(date -u +%Y-%m-%d_%H-%M-%S)_${WORKLOAD}_${GROUP_TAG}_transfer-only"
 CAMPAIGN_DIR="${ROOT_DIR}/experiments/runs/${RUN_ID}"
 REQUESTS_DIR="${CAMPAIGN_DIR}/requests"
 LOGS_DIR="${CAMPAIGN_DIR}/logs"
-NODE_CACHE_DIR="${CAMPAIGN_DIR}/node/cache"
-NODE_RUNTIME_DIR="${CAMPAIGN_DIR}/node/runtime"
-mkdir -p "$REQUESTS_DIR" "$LOGS_DIR" "$NODE_CACHE_DIR" "$NODE_RUNTIME_DIR"
+CONFIG_DIR="${CAMPAIGN_DIR}/config"
+NODE_CACHE_DIR="${ROOT_DIR}/storage/node/cache"
+NODE_RUNTIME_DIR="${ROOT_DIR}/storage/node/runtime"
+mkdir -p "$REQUESTS_DIR" "$LOGS_DIR" "$CONFIG_DIR" "$NODE_CACHE_DIR" "$NODE_RUNTIME_DIR"
+
+cat > "${CONFIG_DIR}/launch.txt" <<EOF
+workload=${WORKLOAD}
+coordinator_host=${COORDINATOR_HOST}
+coordinator_port=${COORDINATOR_PORT}
+partition_mode=${PARTITION_MODE}
+operators_per_partition=${OPERATORS_PER_PARTITION}
+max_active_jobs=${MAX_ACTIVE_JOBS}
+transfer_only=true
+s3_bucket=${S3_BUCKET}
+s3_prefix=${S3_PREFIX}
+node_cache_dir=${NODE_CACHE_DIR}
+node_runtime_dir=${NODE_RUNTIME_DIR}
+EOF
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
     tmux kill-session -t "$SESSION"
@@ -60,6 +80,7 @@ node.runs_dir=${REQUESTS_DIR} \
 node.logs_dir=${LOGS_DIR} \
 node.local_cache_dir=${NODE_CACHE_DIR} \
 node.runtime_state_dir=${NODE_RUNTIME_DIR} \
+node.max_active_jobs=${MAX_ACTIVE_JOBS} \
 node.job_poll_interval_sec=1 \
 node.phase_admission.enabled=false \
 jobs.scheduler=fifo \
@@ -67,9 +88,10 @@ jobs.transfer_only=true \
 storage.backend=s3 \
 storage.s3_bucket=${S3_BUCKET} \
 storage.s3_prefix=${S3_PREFIX} \
+storage.artifact_prefix=artifacts \
 storage.transfer_prefix=transfer \
 storage.setup_cache_enabled=false \
-storage.setup_cache_prefix=setup-cache \
+storage.setup_cache_prefix=setup_cache \
 storage.setup_cache_overwrite=false"
 
 if command -v aws >/dev/null 2>&1; then
@@ -109,6 +131,7 @@ tmux new-window -t "$SESSION" -n "submit"
 tmux send-keys -t "$SESSION:submit" \
     "${BASE_CMD} && \
     echo 'Transfer-only benchmark: true' && \
+    echo 'Max active jobs: ${MAX_ACTIVE_JOBS}' && \
     python experiments/submit_job.py \
     +workload=${WORKLOAD} \
     execution.partitioning.mode=${PARTITION_MODE} \
@@ -120,5 +143,8 @@ tmux send-keys -t "$SESSION:submit" \
 
 echo "Started tmux session: ${SESSION}"
 echo "Campaign directory: ${CAMPAIGN_DIR}"
+echo "Requests: ${REQUESTS_DIR}"
+echo "Node runtime storage: ${ROOT_DIR}/storage/node"
 echo "S3 location: s3://${S3_BUCKET}/${S3_PREFIX}"
+echo "Max active jobs: ${MAX_ACTIVE_JOBS}"
 tmux attach -t "$SESSION"
