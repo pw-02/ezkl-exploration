@@ -409,10 +409,36 @@ class Coordinator:
                 request_id=job.inference_request_id,
                 job_id=job.job_id,
             )
+
+        parent_request = self.active_requests.get(job.inference_request_id)
+        if not parent_request:
+            self.logger.info("Job %s completed", job.job_name)
+            return
+
+        total = len(parent_request.proof_jobs)
+        completed = sum(
+            1 for item in parent_request.proof_jobs if item.job_status == JobStatus.COMPLETED
+        )
+        running = sum(
+            1 for item in parent_request.proof_jobs if item.job_status == JobStatus.IN_PROGRESS
+        )
+        queued = sum(
+            1 for item in parent_request.proof_jobs if item.job_status == JobStatus.QUEUED
+        )
+        failed = sum(
+            1 for item in parent_request.proof_jobs if item.job_status == JobStatus.FAILED
+        )
+        percent = (100.0 * completed / total) if total else 0.0
         self.logger.info(
-            "Job %s completed. Jobs in queue: %d",
+            "Job %s completed | request=%s progress=%d/%d (%.1f%%) | running=%d | queued=%d | failed=%d",
             job.job_name,
-            len(self.scheduler),
+            parent_request.request_id,
+            completed,
+            total,
+            percent,
+            running,
+            queued,
+            failed,
         )
 
     def _handle_failed_job_locked(
