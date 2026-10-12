@@ -401,3 +401,27 @@ there are no new `attempts/` subfolders. Files belonging to other leases are nev
 deleted by a worker. If a completion acknowledgement is lost, published files and
 local traces are preserved because the coordinator may already have accepted the
 proof. Historical attempt subfolders remain readable and are not bulk-deleted.
+
+
+### Missing resource measurements
+
+Stage transition timestamps are exact execution events, while RSS/CPU readings
+are periodic samples. A short stage may execute entirely between samples. Such
+a stage is listed with `stage_<stage>_samples=0` and
+`stage_<stage>_memory_samples=0`; its memory/CPU metrics are unknown (`null` in
+JSON and blank in CSV), rather than zero. A sampled row with missing or invalid
+RSS does not become a zero-memory reading or erase valid CPU measurements.
+Measured zero values remain zero. This change does not increase sampling rate or
+estimate peaks for unsampled stages.
+
+Request maxima ignore missing values, NaN and infinities and use only finite
+measurements. If none exist, the maximum is blank. Each stage also reports
+`num_jobs_with_stage_<stage>_memory_samples`, the number of jobs contributing a
+valid memory maximum. A maximum based on a subset of jobs does not establish the
+peak of every job. Admission error metrics likewise leave unobserved actual
+usage unknown instead of inventing a zero or percentage error.
+
+Before checking/restoring setup keys, `run_all()` records
+`CHECKING_SETUP_CACHE`. The fused cold path's only `KEY_GEN` event comes from the
+native key-generation transition after admission. A warm cache hit does not
+report key generation; the setup-only path retains its actual keygen event.

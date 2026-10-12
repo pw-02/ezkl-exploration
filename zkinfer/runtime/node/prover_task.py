@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import math
 import os
 import shutil
 import subprocess
@@ -395,6 +396,20 @@ class ProverTaskRunner:
         resource_metrics: Dict[str, Any],
         admission_metrics: Dict[str, Any],
     ) -> Dict[str, Any]:
+        def observed(value):
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            return number if math.isfinite(number) and number >= 0 else None
+
+        def stage_actual(stage, metric):
+            stages = ("key_gen", "proving", "fused_keygen_prove") if stage == "fused_keygen_prove" else (stage,)
+            values = [observed(resource_metrics.get(f"stage_{name}_{metric}"))
+                      for name in stages]
+            values = [value for value in values if value is not None]
+            return max(values) if values else None
+
         result: Dict[str, Any] = {}
         prefix = "phase_admission_"
         suffix = "_predicted_memory(GB)"
@@ -402,60 +417,22 @@ class ProverTaskRunner:
             if not (key.startswith(prefix) and key.endswith(suffix)):
                 continue
             stage = key[len(prefix) : -len(suffix)]
-            try:
-                predicted = float(predicted_raw or 0.0)
-            except (TypeError, ValueError):
-                continue
-
-            if stage == "fused_keygen_prove":
-                actual_values = [
-                    resource_metrics.get("stage_key_gen_max_memory(GB)"),
-                    resource_metrics.get("stage_proving_max_memory(GB)"),
-                ]
-                actual_values = [
-                    float(value)
-                    for value in actual_values
-                    if value is not None and float(value) > 0
-                ]
-                actual = max(actual_values) if actual_values else 0.0
-            else:
-                actual = float(
-                    resource_metrics.get(f"stage_{stage}_max_memory(GB)") or 0.0
-                )
-
+            predicted = observed(predicted_raw)
+            actual = stage_actual(stage, "max_memory(GB)")
             result[f"phase_admission_{stage}_actual_memory(GB)"] = actual
-            if actual > 0:
+            if actual is not None and predicted is not None:
                 error = predicted - actual
                 result[f"phase_admission_{stage}_memory_error(GB)"] = error
-                result[f"phase_admission_{stage}_memory_abs_pct_error"] = (
-                    abs(error) / actual * 100.0
-                )
+                if actual > 0:
+                    result[f"phase_admission_{stage}_memory_abs_pct_error"] = abs(error) / actual * 100.0
 
-            cpu_key = f"phase_admission_{stage}_predicted_cpu_machine(%)"
-            try:
-                predicted_cpu = float(admission_metrics.get(cpu_key) or 0.0)
-            except (TypeError, ValueError):
-                predicted_cpu = 0.0
-            if stage == "fused_keygen_prove":
-                cpu_values = [
-                    resource_metrics.get("stage_key_gen_avg_cpu_machine(%)"),
-                    resource_metrics.get("stage_proving_avg_cpu_machine(%)"),
-                ]
-                cpu_values = [
-                    float(value)
-                    for value in cpu_values
-                    if value is not None and float(value) > 0
-                ]
-                actual_cpu = max(cpu_values) if cpu_values else 0.0
-            else:
-                actual_cpu = float(
-                    resource_metrics.get(f"stage_{stage}_avg_cpu_machine(%)") or 0.0
-                )
+            predicted_cpu = observed(admission_metrics.get(
+                f"phase_admission_{stage}_predicted_cpu_machine(%)"
+            ))
+            actual_cpu = stage_actual(stage, "avg_cpu_machine(%)")
             result[f"phase_admission_{stage}_actual_cpu_machine(%)"] = actual_cpu
-            if actual_cpu > 0:
-                result[f"phase_admission_{stage}_cpu_abs_pct_error"] = (
-                    abs(predicted_cpu - actual_cpu) / actual_cpu * 100.0
-                )
+            if actual_cpu is not None and actual_cpu > 0 and predicted_cpu is not None:
+                result[f"phase_admission_{stage}_cpu_abs_pct_error"] = abs(predicted_cpu - actual_cpu) / actual_cpu * 100.0
         return result
 
     def _collect_metrics(

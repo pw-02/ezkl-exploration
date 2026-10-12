@@ -555,7 +555,7 @@ class EZKLProofStages:
             # A warm hit keeps the existing prove path. A cold miss uses the
             # fused Rust path so the freshly generated PK never needs to be
             # serialized and immediately deserialized before the first proof.
-            self._update_status("KEY_GEN")
+            self._update_status("CHECKING_SETUP_CACHE")
             cache_start = time.perf_counter()
             used_cache, s3_read_time = self._try_load_keys_from_cache()
             cache_lookup_time = time.perf_counter() - cache_start
