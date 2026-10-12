@@ -260,13 +260,6 @@ class ProverTaskRunner:
 
     def run(self, task: LocalProverTask) -> ProverTaskResult:
         os.makedirs(task.output_dir, exist_ok=True)
-        from zkinfer.profiling.run_metadata import code_revision
-        config_dir = Path(task.output_dir) / "config"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        (config_dir / "task.json").write_text(
-            json.dumps({"task": task.to_dict(), "code": code_revision()}, indent=2) + "\n",
-            encoding="utf-8",
-        )
         os.makedirs(task.tmp_dir, exist_ok=True)
 
         if task.transfer_only:
@@ -521,8 +514,10 @@ class ProverTaskRunner:
     ) -> Tuple[str, Dict[str, Any]]:
         started = time.perf_counter()
         size_bytes = os.path.getsize(local_path)
+        # Keep one shared folder per job, while fencing delayed old workers.
+        published_name = f"{task.lease_id}--{artifact_name}" if task.lease_id else artifact_name
         if task.output_backend == "filesystem":
-            output_path = os.path.join(task.output_prefix, artifact_name)
+            output_path = os.path.join(task.output_prefix, published_name)
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             if not self._same_path(local_path, output_path):
                 shutil.copy2(local_path, output_path)
@@ -537,7 +532,7 @@ class ProverTaskRunner:
         if task.output_backend == "s3":
             if not task.output_s3_bucket:
                 raise ValueError("S3 output artifact requires a bucket")
-            key = f"{task.output_prefix.rstrip('/')}/{artifact_name}"
+            key = f"{task.output_prefix.rstrip('/')}/{published_name}"
             upload_file(local_path, task.output_s3_bucket, key)
             return key, {
                 "artifact": artifact_name,

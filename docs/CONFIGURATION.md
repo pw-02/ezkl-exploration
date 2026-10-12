@@ -29,15 +29,16 @@ experiments/runs/
         artifacts/
           jobs/
             <job-id>/
-              attempts/
-                <lease-id>/
-                  resource_usage.csv
-                  stage_transitions.csv
-                  halo2_stage_transitions.csv
-                  halo2_prover_cpu.csv
-                  admission_profile_before.json
-                  prover_process.log
-                  manifest.json
+              resource_usage.csv
+              stage_transitions.csv
+              halo2_stage_transitions.csv
+              halo2_prover_cpu.csv
+              admission_profile_before.json
+              prover_process.log
+              manifest.json
+        config/
+          coordinator_<startup>.json
+          node_<startup>.json
         reports/
           job_report.csv
           request_report.csv
@@ -183,12 +184,12 @@ storage/
     resource_profile.json
   requests/<request_id>/
     inputs/<partition>.json
-    proofs/<partition>/attempts/<lease>/
-      proof.pf
-      witness.json
-      settings.json
-      vk.json
-      manifest.json
+    proofs/<partition>/
+      <lease>--proof.pf
+      <lease>--witness.json
+      <lease>--settings.json
+      <lease>--vk.json
+      <lease>--manifest.json
   node/
     cache/
       setup/<setup_key>/       local ONNX + settings/circuit/uncompressed PK/VK
@@ -218,7 +219,7 @@ storage:
 
 ### Request-owned inputs and proofs
 
-Inputs live beneath the request ID. Proofs, witnesses and verification copies are published beneath a partition and lease ID so retry attempts cannot overwrite each other. Their `ArtifactRef` metadata retains content hashes for model/input transfer validation.
+Inputs live beneath the request ID. Proofs, witnesses and verification copies are published in one folder per partition; filenames carry the lease ID so a delayed old worker cannot overwrite an accepted proof. Their `ArtifactRef` metadata retains content hashes for model/input transfer validation.
 
 The local experiment suite uses:
 
@@ -267,7 +268,7 @@ The old runtime settings are rejected with migration guidance rather than silent
 Raw execution data stays with each proof job. Under the campaign launchers the default layout is:
 
 ```text
-experiments/runs/<campaign>/requests/<request>/artifacts/jobs/<job>/attempts/<lease>/
+experiments/runs/<campaign>/requests/<request>/artifacts/jobs/<job>/
   resource_usage.csv
   stage_transitions.csv
   halo2_stage_transitions.csv
@@ -364,10 +365,9 @@ Coordinator and node startup save timestamped JSON snapshots under the sibling
 complete resolved Hydra configuration, normalized runtime configuration, Git
 commit and tracked working-tree changes, package versions, and UTC startup time.
 The coordinator copies its snapshot into each request's `config/` directory;
-the node copies its snapshot into each job attempt's `config/` directory. Each
-prover also saves `config/task.json` with its effective task options and code
-revision, including the artifact-retention option resolved from the environment.
-These small records remain available when bulky run artifacts are not retained.
+each node also copies its snapshot into the request's `config/` directory.
+Configuration is not duplicated under individual jobs. These small request
+records remain available when bulky run artifacts are not retained.
 A missing Git checkout is recorded as an unknown commit rather than invented.
 
 Submit acknowledgements and request status responses report the coordinator's
@@ -384,3 +384,20 @@ times, including partial traces from failed calls. The metrics include
 Older wheels remain supported: admission acquisition immediately ends the waiting
 state and starts `FUSED_KEYGEN_PROVE`, but detailed native transitions require
 the rebuilt wheel. This logging does not change admission or SRS behavior.
+
+
+### Retry folder lifecycle
+
+Each node keeps one local `artifacts/jobs/<job>/` folder and one temporary
+`tmp/<job>/` folder. A new attempt clears both before writing new traces. Known
+failed or coordinator-rejected attempts remove their local folders and their own
+published files; their error is still recorded in the supervisor log and result
+message. The next attempt uses the same local paths. Request-level `config/` is
+preserved. Local job writers are serialized with a runtime lock, including
+supervisors sharing a run directory.
+
+Shared outputs use `<lease>--<artifact>` filenames inside a single job folder;
+there are no new `attempts/` subfolders. Files belonging to other leases are never
+deleted by a worker. If a completion acknowledgement is lost, published files and
+local traces are preserved because the coordinator may already have accepted the
+proof. Historical attempt subfolders remain readable and are not bulk-deleted.

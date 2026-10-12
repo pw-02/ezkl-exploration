@@ -98,7 +98,7 @@ class RunArtifactRetentionTests(unittest.TestCase):
             request_store = Path(task.output_prefix)
             for name in ("proof.pf", "witness.json", "vk.json", "settings.json"):
                 self.assertFalse((run_dir / name).exists())
-                self.assertTrue((request_store / name).exists())
+                self.assertTrue((request_store / f"{task.lease_id}--{name}").exists())
 
             self.assertTrue((run_dir / "manifest.json").exists())
             with open(manifest_ref.uri, "r", encoding="utf-8") as file:
