@@ -74,8 +74,10 @@ class NodeSupervisor:
     """One control agent per machine.
 
     The coordinator assigns whole proof jobs. Each proof executes in an isolated
-    subprocess. ``max_active_jobs`` can impose an explicit whole-job concurrency
-    baseline; otherwise local overlap is controlled by stage resource admission.
+    subprocess. ``max_active_jobs`` is an optional explicit whole-job cap.
+    When it is ``None``, the node uses live resource state and local admission;
+    provisional lease reservations prevent the polling loop from leasing a large
+    burst of jobs before their process memory becomes visible to the OS.
     """
 
     def __init__(self, runtime_config: RuntimeConfig, logger: Optional[logging.Logger] = None):
@@ -112,6 +114,10 @@ class NodeSupervisor:
 
         self.active_jobs: Dict[str, threading.Thread] = {}
         self.active_tasks: Dict[str, LocalProverTask] = {}
+        # Memory estimates attached to newly leased jobs. These reservations are
+        # used only until the prover reports a real stage, preventing the lease
+        # loop from outrunning psutil's view of newly started processes.
+        self.lease_memory_reservations_gb: Dict[str, float] = {}
         self.active_lock = threading.Lock()
         self.stop_event = threading.Event()
         self.channel = None
@@ -185,14 +191,44 @@ class NodeSupervisor:
             items = list(self.active_tasks.items())
         return {job_id: self._read_task_stage(task) for job_id, task in items}
 
+    def _has_unprofiled_active_job(self) -> bool:
+        with self.active_lock:
+            return any(
+                estimate <= 0.0
+                for job_id, estimate in self.lease_memory_reservations_gb.items()
+                if job_id in self.active_jobs
+            )
+
+    def _provisional_start_memory_gb(self) -> float:
+        with self.active_lock:
+            reservations = dict(self.lease_memory_reservations_gb)
+            tasks = dict(self.active_tasks)
+
+        total = 0.0
+        for job_id, estimate in reservations.items():
+            if estimate <= 0.0:
+                continue
+            task = tasks.get(job_id)
+            if task is None or self._read_task_stage(task) == "STARTING":
+                total += estimate
+        return total
+
     def can_accept_more_work(self) -> bool:
         max_active_jobs = self.cfg.node.max_active_jobs
-        if max_active_jobs is not None and self.active_job_count() >= max_active_jobs:
+        if max_active_jobs is not None:
+            if self.active_job_count() >= max_active_jobs:
+                return False
+        elif self._has_unprofiled_active_job():
+            # Without a historical memory estimate, do not compound uncertainty
+            # by leasing another unknown job. Explicit max_active_jobs=N remains
+            # available for experiments that intentionally run unknown jobs in
+            # parallel.
             return False
 
         memory = psutil.virtual_memory()
         available_gb = float(memory.available) / (1024**3)
-        return available_gb > self.phase_cfg.memory_reserve_gb
+        provisional_gb = self._provisional_start_memory_gb()
+        return (available_gb - provisional_gb) > self.phase_cfg.memory_reserve_gb
 
     def build_node_status(self):
         memory = psutil.virtual_memory()
@@ -206,15 +242,22 @@ class NodeSupervisor:
             if self.phase_cfg.enabled
             else {"memory_gb": 0.0, "cpu_percent": 0.0, "count": 0.0}
         )
+        provisional_start_gb = self._provisional_start_memory_gb()
         total_memory_gb = float(memory.total) / (1024**3)
         resource_available_gb = max(
             0.0,
             total_memory_gb
             - self.phase_cfg.memory_reserve_gb
-            - float(reservations.get("memory_gb") or 0.0),
+            - float(reservations.get("memory_gb") or 0.0)
+            - provisional_start_gb,
         )
         reported_available_gb = min(
-            max(0.0, actual_available_gb - self.phase_cfg.memory_reserve_gb),
+            max(
+                0.0,
+                actual_available_gb
+                - self.phase_cfg.memory_reserve_gb
+                - provisional_start_gb,
+            ),
             resource_available_gb,
         )
 
@@ -299,6 +342,10 @@ class NodeSupervisor:
             if lease.job_id in self.active_jobs:
                 self.logger.warning("Ignoring duplicate lease for active job %s", lease.job_id)
                 return
+            self.lease_memory_reservations_gb[lease.job_id] = max(
+                0.0,
+                float(lease.predicted_peak_memory_gb or 0.0),
+            )
             thread = threading.Thread(
                 target=self._run_lease_thread,
                 args=(lease,),
@@ -308,9 +355,10 @@ class NodeSupervisor:
             self.active_jobs[lease.job_id] = thread
             thread.start()
         self.logger.info(
-            "Started prover subprocess controller for job %s lease=%s",
+            "Started prover subprocess controller for job %s lease=%s predicted_peak=%.2fGB",
             lease.job_id,
             lease.lease_id,
+            float(lease.predicted_peak_memory_gb or 0.0),
         )
 
     def _run_lease_thread(self, lease) -> None:
@@ -320,6 +368,7 @@ class NodeSupervisor:
             with self.active_lock:
                 self.active_jobs.pop(lease.job_id, None)
                 self.active_tasks.pop(lease.job_id, None)
+                self.lease_memory_reservations_gb.pop(lease.job_id, None)
 
     def _run_prover_subprocess(self, task: LocalProverTask) -> ProverTaskResult:
         task_file = Path(task.tmp_dir) / "prover_task.json"
