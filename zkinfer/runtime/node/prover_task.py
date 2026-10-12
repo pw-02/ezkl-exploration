@@ -10,7 +10,7 @@ import sys
 import time
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, Optional, Tuple
 
@@ -137,8 +137,8 @@ class ResourceAwareEZKLProofStages(EZKLProofStages):
         """Update the live stage and append an exact transition event.
 
         Resource samples remain periodic, but stage duration no longer depends
-        on the resource sampling interval. Every transition carries both a
-        microsecond wall-clock timestamp and monotonic elapsed time.
+        on the resource sampling interval. Every transition carries both an
+        explicit UTC wall-clock timestamp and monotonic elapsed time.
         """
         super()._update_status(stage)
         if self._transition_path is None:
@@ -154,7 +154,9 @@ class ResourceAwareEZKLProofStages(EZKLProofStages):
                 writer.writeheader()
             writer.writerow(
                 {
-                    "timestamp": datetime.now().isoformat(timespec="microseconds"),
+                    "timestamp": datetime.now(timezone.utc).isoformat(
+                        timespec="microseconds"
+                    ),
                     "elapsed_s": time.perf_counter() - self._transition_started,
                     "stage": stage,
                     "event": "enter",
