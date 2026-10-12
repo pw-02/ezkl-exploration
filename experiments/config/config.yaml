@@ -46,15 +46,12 @@ node:
     fallback_cpu_percent: 100
 
 storage:
-  # Shared warm/cold setup state: settings, compiled circuit, PK/VK and profile.
-  setup_cache_enabled: false
-  setup_cache_overwrite: false
-
-  # Data-plane objects live under storage/artifacts and are separate from the
-  # experiment results in experiments/runs. Keep them only when debugging or
-  # when a later process needs to inspect the exact published objects.
-  retain_artifacts_after_run: false
-  artifact_dir: storage/artifacts
+  # ONNX partitions and reusable settings/circuit/PK/VK share one setup identity.
+  setup_dir: storage/setup
+  reuse_setup: false
+  requests_dir: storage/requests
+  # Cleanup affects only request IDs submitted by this suite, never setup state.
+  retain_requests_after_run: false
 
 launch:
   coordinator_host: localhost
@@ -76,3 +73,4 @@ hydra:
     level: DISABLE
   hydra_logging:
     level: DISABLE
+

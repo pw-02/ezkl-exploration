@@ -5,7 +5,7 @@ _ezkl_tmp/
 ezkl_smoke
 cache
 tmp
-storage
+/storage/
 logs
 _ezkl_tmp
 srs

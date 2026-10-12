@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-import shutil
 
 from omegaconf import DictConfig
 
@@ -40,37 +39,7 @@ class NodeConfig:
 
 
 @dataclass(frozen=True)
-class FileTransferConfig:
-    backend: str
-    root_dir: str
-    s3_bucket: Optional[str]
-    s3_prefix: str
-
-    def delete_tree(self, relative_path: str) -> None:
-        relative_path = relative_path.strip("/")
-        if not relative_path:
-            raise ValueError("Refusing to delete empty transfer path")
-        if self.backend == "filesystem":
-            shutil.rmtree(Path(self.root_dir) / relative_path, ignore_errors=True)
-            return
-        if self.backend == "s3":
-            import boto3
-
-            if not self.s3_bucket:
-                raise ValueError("s3_bucket must be set when backend=s3")
-            client = boto3.client("s3")
-            prefix = f"{self.s3_prefix.rstrip('/')}/{relative_path}/".lstrip("/")
-            paginator = client.get_paginator("list_objects_v2")
-            for page in paginator.paginate(Bucket=self.s3_bucket, Prefix=prefix):
-                objects = [{"Key": item["Key"]} for item in page.get("Contents", [])]
-                if objects:
-                    client.delete_objects(Bucket=self.s3_bucket, Delete={"Objects": objects})
-            return
-        raise ValueError(f"Unsupported file transfer backend: {self.backend}")
-
-
-@dataclass(frozen=True)
-class ArtifactStoreConfig:
+class RequestStoreConfig:
     backend: str
     root_dir: str
     s3_bucket: Optional[str]
@@ -78,17 +47,14 @@ class ArtifactStoreConfig:
 
 
 @dataclass(frozen=True)
-class ProvingCacheConfig:
-    """Shared reusable setup cache configuration.
+class SetupStoreConfig:
+    """Reusable partition model and derived proving state.
 
-    The historical class name is retained internally because the EZKL backend
-    still uses proving-cache terminology. User-facing configuration calls this
-    the setup cache because that is what it stores.
+    enabled controls reuse of derived state; immutable models are always stored.
     """
 
     enabled: bool
     backend: str
-    overwrite: bool
     root_dir: str
     s3_bucket: Optional[str]
     s3_prefix: str
@@ -125,9 +91,8 @@ class VerificationConfig:
 class RuntimeConfig:
     coordinator: CoordinatorConfig
     node: NodeConfig
-    file_transfer: FileTransferConfig
-    artifact_store: ArtifactStoreConfig
-    proving_cache: ProvingCacheConfig
+    request_store: RequestStoreConfig
+    setup_store: SetupStoreConfig
     jobs: JobConfig
     heartbeat: HeartbeatConfig
     state_store: StateStoreConfig
@@ -143,38 +108,21 @@ def _gb_to_bytes(value) -> int:
     return int(float(value or 0) * (1024**3))
 
 
-def _resolve_transfer_config(cfg: DictConfig) -> FileTransferConfig:
+def _resolve_request_store_config(cfg: DictConfig) -> RequestStoreConfig:
     backend = cfg.storage.backend
+    request_prefix = cfg.storage.get("requests_prefix", "storage/requests")
     if backend == "filesystem":
-        return FileTransferConfig(
+        return RequestStoreConfig(
             "filesystem",
-            str(_resolve_path(cfg.storage.transfer_prefix)),
+            str(_resolve_path(request_prefix)),
             None,
             "",
         )
     if backend == "s3":
-        base_prefix = cfg.storage.s3_prefix.rstrip("/")
-        transfer_prefix = cfg.storage.transfer_prefix.strip("/")
-        full_prefix = f"{base_prefix}/{transfer_prefix}"
-        return FileTransferConfig("s3", full_prefix, cfg.storage.s3_bucket, full_prefix)
-    raise ValueError(f"Unsupported storage.backend: {backend}")
-
-
-def _resolve_artifact_store_config(cfg: DictConfig) -> ArtifactStoreConfig:
-    backend = cfg.storage.backend
-    artifact_prefix = cfg.storage.get("artifact_prefix", "storage/artifacts")
-    if backend == "filesystem":
-        return ArtifactStoreConfig(
-            "filesystem",
-            str(_resolve_path(artifact_prefix)),
-            None,
-            "",
-        )
-    if backend == "s3":
-        base_prefix = cfg.storage.s3_prefix.rstrip("/")
-        object_prefix = artifact_prefix.strip("/")
-        full_prefix = f"{base_prefix}/{object_prefix}"
-        return ArtifactStoreConfig(
+        base_prefix = cfg.storage.s3_prefix.strip("/")
+        object_prefix = request_prefix.strip("/")
+        full_prefix = "/".join(part for part in (base_prefix, object_prefix) if part)
+        return RequestStoreConfig(
             "s3",
             full_prefix,
             cfg.storage.s3_bucket,
@@ -183,29 +131,26 @@ def _resolve_artifact_store_config(cfg: DictConfig) -> ArtifactStoreConfig:
     raise ValueError(f"Unsupported storage.backend: {backend}")
 
 
-def _resolve_proving_cache_config(cfg: DictConfig) -> ProvingCacheConfig:
+def _resolve_setup_store_config(cfg: DictConfig) -> SetupStoreConfig:
     backend = cfg.storage.backend
-    enabled = bool(cfg.storage.get("setup_cache_enabled", True))
-    overwrite = bool(cfg.storage.get("setup_cache_overwrite", False))
-    cache_prefix = cfg.storage.get("setup_cache_prefix", "storage/setup_cache")
+    enabled = bool(cfg.storage.get("reuse_setup", False))
+    cache_prefix = cfg.storage.get("setup_prefix", "storage/setup")
 
     if backend == "filesystem":
-        return ProvingCacheConfig(
+        return SetupStoreConfig(
             enabled,
             "filesystem",
-            overwrite,
             str(_resolve_path(cache_prefix)),
             None,
             "",
         )
     if backend == "s3":
-        base_prefix = cfg.storage.s3_prefix.rstrip("/")
+        base_prefix = cfg.storage.s3_prefix.strip("/")
         relative_prefix = str(cache_prefix).strip("/")
-        full_prefix = f"{base_prefix}/{relative_prefix}"
-        return ProvingCacheConfig(
+        full_prefix = "/".join(part for part in (base_prefix, relative_prefix) if part)
+        return SetupStoreConfig(
             enabled,
             "s3",
-            overwrite,
             full_prefix,
             cfg.storage.s3_bucket,
             full_prefix,
@@ -264,6 +209,16 @@ def _resolve_max_active_jobs(cfg: DictConfig) -> Optional[int]:
 
 
 def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) -> RuntimeConfig:
+    legacy_keys = {
+        "artifact_prefix": "requests_prefix",
+        "setup_cache_prefix": "setup_prefix",
+        "setup_cache_enabled": "reuse_setup",
+        "transfer_prefix": "requests_prefix (transfer staging was removed)",
+        "setup_cache_overwrite": "reuse_setup=false for cold runs, or a fresh setup_prefix",
+    }
+    for old_key, replacement in legacy_keys.items():
+        if old_key in cfg.storage:
+            raise ValueError(f"storage.{old_key} was replaced; use storage.{replacement}")
     if cfg.storage.backend not in {"filesystem", "s3"}:
         raise ValueError("storage.backend must be either 'filesystem' or 's3'")
     if cfg.storage.backend == "s3" and not cfg.storage.s3_bucket:
@@ -282,9 +237,20 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
         cfg.node.get("runtime_state_dir", "storage/node/runtime")
     )
 
-    file_transfer = _resolve_transfer_config(cfg)
-    artifact_store = _resolve_artifact_store_config(cfg)
-    proving_cache = _resolve_proving_cache_config(cfg)
+    request_store = _resolve_request_store_config(cfg)
+    setup_store = _resolve_setup_store_config(cfg)
+    if request_store.backend == "filesystem":
+        request_root = Path(request_store.root_dir).resolve()
+        setup_root = Path(setup_store.root_dir).resolve()
+        if (request_root == setup_root or request_root in setup_root.parents
+                or setup_root in request_root.parents):
+            raise ValueError("Setup and request storage roots must be separate")
+    else:
+        request_root = request_store.root_dir.rstrip("/")
+        setup_root = setup_store.root_dir.rstrip("/")
+        if (request_root == setup_root or request_root.startswith(setup_root + "/")
+                or setup_root.startswith(request_root + "/")):
+            raise ValueError("Setup and request S3 prefixes must be separate")
     state_store = _resolve_state_store_config(cfg)
     verification = _resolve_verification_config(cfg)
     phase_admission = _resolve_phase_admission_config(cfg)
@@ -293,19 +259,15 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
         coordinator_runs_dir.mkdir(parents=True, exist_ok=True)
         coordinator_logs_dir.mkdir(parents=True, exist_ok=True)
         Path(state_store.db_path).parent.mkdir(parents=True, exist_ok=True)
-        if file_transfer.backend == "filesystem":
-            Path(file_transfer.root_dir).mkdir(parents=True, exist_ok=True)
-        if artifact_store.backend == "filesystem":
-            Path(artifact_store.root_dir).mkdir(parents=True, exist_ok=True)
-        if proving_cache.backend == "filesystem":
-            Path(proving_cache.root_dir).mkdir(parents=True, exist_ok=True)
+        if request_store.backend == "filesystem":
+            Path(request_store.root_dir).mkdir(parents=True, exist_ok=True)
+        if setup_store.backend == "filesystem":
+            Path(setup_store.root_dir).mkdir(parents=True, exist_ok=True)
     elif process_role == "node":
         node_runs_dir.mkdir(parents=True, exist_ok=True)
         node_logs_dir.mkdir(parents=True, exist_ok=True)
         node_cache_dir.mkdir(parents=True, exist_ok=True)
         node_runtime_state_dir.mkdir(parents=True, exist_ok=True)
-        if proving_cache.backend == "filesystem":
-            Path(proving_cache.root_dir).mkdir(parents=True, exist_ok=True)
 
     return RuntimeConfig(
         coordinator=CoordinatorConfig(
@@ -333,9 +295,8 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
             ),
             runtime_state_dir=str(node_runtime_state_dir),
         ),
-        file_transfer=file_transfer,
-        artifact_store=artifact_store,
-        proving_cache=proving_cache,
+        request_store=request_store,
+        setup_store=setup_store,
         jobs=JobConfig(
             scheduler=cfg.jobs.scheduler,
             max_retries=int(cfg.jobs.max_retries),
@@ -348,3 +309,4 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
         state_store=state_store,
         verification=verification,
     )
+

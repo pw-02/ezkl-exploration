@@ -88,11 +88,9 @@ jobs.transfer_only=true \
 storage.backend=s3 \
 storage.s3_bucket=${S3_BUCKET} \
 storage.s3_prefix=${S3_PREFIX} \
-storage.artifact_prefix=artifacts \
-storage.transfer_prefix=transfer \
-storage.setup_cache_enabled=false \
-storage.setup_cache_prefix=setup_cache \
-storage.setup_cache_overwrite=false"
+storage.requests_prefix=requests \
+storage.reuse_setup=false \
+storage.setup_prefix=setup"
 
 if command -v aws >/dev/null 2>&1; then
     aws s3api head-bucket --bucket "$S3_BUCKET" >/dev/null
@@ -148,3 +146,4 @@ echo "Node runtime storage: ${ROOT_DIR}/storage/node"
 echo "S3 location: s3://${S3_BUCKET}/${S3_PREFIX}"
 echo "Max active jobs: ${MAX_ACTIVE_JOBS}"
 tmux attach -t "$SESSION"
+

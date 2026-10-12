@@ -178,9 +178,9 @@ def common_overrides(cfg: DictConfig) -> List[str]:
         f"node.runs_dir={requests_dir}",
         f"node.logs_dir={logs_dir}",
         f"jobs.scheduler={cfg.jobs.scheduler}",
-        f"storage.artifact_prefix={cfg.storage.artifact_dir}",
-        f"storage.setup_cache_enabled={str(bool(cfg.storage.setup_cache_enabled)).lower()}",
-        f"storage.setup_cache_overwrite={str(bool(cfg.storage.setup_cache_overwrite)).lower()}",
+        f"storage.requests_prefix={cfg.storage.requests_dir}",
+        f"storage.setup_prefix={cfg.storage.setup_dir}",
+        f"storage.reuse_setup={str(bool(cfg.storage.reuse_setup)).lower()}",
     ]
 
 
@@ -338,21 +338,21 @@ def save_request_metadata(
     return logs_dir
 
 
-def cleanup_artifact_store(cfg: DictConfig, logger: logging.Logger) -> None:
-    if bool(cfg.storage.retain_artifacts_after_run):
-        logger.info("Retaining data-plane artifacts after experiment run")
+def cleanup_request_store(cfg: DictConfig, logger: logging.Logger, request_ids: List[str]) -> None:
+    if bool(cfg.storage.retain_requests_after_run):
+        logger.info("Retaining request inputs and proof outputs after experiment run")
         return
 
-    artifact_dir = Path(str(cfg.storage.artifact_dir)).resolve()
-    if not artifact_dir.exists():
-        return
-
-    shutil.rmtree(artifact_dir)
-    logger.info(
-        "Deleted data-plane artifact store after experiment: %s. "
-        "experiments/runs and the setup cache were retained.",
-        artifact_dir,
-    )
+    request_root = Path(str(cfg.storage.requests_dir)).resolve()
+    protected = [Path(str(cfg.storage.setup_dir)).resolve(), Path(str(cfg.paths.runs_dir)).resolve()]
+    for request_id in set(request_ids):
+        if not request_id or Path(request_id).name != request_id or request_id in {".", ".."}:
+            raise ValueError("Invalid request ID for cleanup")
+        request_dir = request_root / request_id
+        if any(request_dir == path or request_dir in path.parents for path in protected):
+            raise ValueError("Request cleanup would remove setup state or experiment records")
+        shutil.rmtree(request_dir, ignore_errors=True)
+        logger.info("Deleted request-store objects for %s; reusable setup and run records retained", request_id)
 
 
 @hydra.main(config_path="./config", config_name="config", version_base=None)
@@ -361,6 +361,7 @@ def main(cfg: DictConfig) -> None:
     logger = setup_logger(active_log)
     group = ProcessGroup(logger)
     env = make_env()
+    submitted_request_ids: List[str] = []
 
     try:
         group.add(
@@ -400,6 +401,7 @@ def main(cfg: DictConfig) -> None:
                 workload_cfg = load_workload_cfg(workload_name)
                 logger.info("Running workload: %s", workload_cfg.name)
                 request_id = submit_workload(client, cfg, workload_cfg)
+                submitted_request_ids.append(request_id)
                 logs_dir = save_request_metadata(cfg, workload_cfg, request_id)
                 active_log.set_path(logs_dir / "run.log")
                 logger.info("Submitted request %s", request_id)
@@ -430,8 +432,9 @@ def main(cfg: DictConfig) -> None:
             int(cfg.launch.coordinator_port),
             10,
         )
-        cleanup_artifact_store(cfg, logger)
+        cleanup_request_store(cfg, logger, submitted_request_ids)
 
 
 if __name__ == "__main__":
     main()
+

@@ -39,10 +39,9 @@ def runtime_config(root: Path):
     cfg.node.node_id = "test-node"
     cfg.node.local_cache_dir = str(root / "node-cache")
     cfg.node.runtime_state_dir = str(root / "runtime-state")
-    cfg.storage.artifact_prefix = str(root / "artifacts")
-    cfg.storage.transfer_prefix = str(root / "transfer")
-    cfg.storage.setup_cache_prefix = str(root / "setup")
-    cfg.storage.setup_cache_enabled = True
+    cfg.storage.requests_prefix = str(root / "requests-store")
+    cfg.storage.setup_prefix = str(root / "setup")
+    cfg.storage.reuse_setup = True
     return build_runtime_config(cfg, process_role="coordinator")
 
 
@@ -52,9 +51,9 @@ def add_request(coordinator: Coordinator, setup_key="circuit"):
     empty = ArtifactRef.empty()
     job = ProofJob(
         "model", "partition", request.request_id, empty, empty,
-        ArtifactRef("filesystem", coordinator.proving_cache.root_dir), empty,
+        ArtifactRef("filesystem", coordinator.setup_store.root_dir), empty,
         predicted_peak_memory_gb=1, artifact_key=setup_key,
-        profiling_file_path=str(Path(coordinator.proving_cache.root_dir) / "resource_profile.json"),
+        profiling_file_path=str(Path(coordinator.setup_store.root_dir) / "resource_profile.json"),
     )
     request.proof_jobs = [job]
     coordinator._enqueue_request(request)

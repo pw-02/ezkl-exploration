@@ -34,7 +34,7 @@ class LocalProverTask:
     setup_key: str
     model_path: str
     input_path: str
-    setup_cache_dir: str
+    setup_dir: str
     tmp_dir: str
     output_dir: str
     output_prefix: str
@@ -59,6 +59,9 @@ class LocalProverTask:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "LocalProverTask":
+        data = dict(data)
+        if "setup_dir" not in data and "setup_cache_dir" in data:
+            data["setup_dir"] = data.pop("setup_cache_dir")
         return cls(**data)
 
 
@@ -343,7 +346,7 @@ class ProverTaskRunner:
             proving_cache_enabled=True,
             proving_cache_overwrite=False,
             proving_cache_type="filesystem",
-            proving_cache_root_dir=task.setup_cache_dir,
+            proving_cache_root_dir=task.setup_dir,
             proving_cache_s3_bucket=None,
             proving_cache_s3_prefix=None,
             status_file=status_file,
@@ -573,7 +576,7 @@ class ProverTaskRunner:
             "lease_id": task.lease_id,
             "node_id": task.node_id,
             "setup_key": task.setup_key,
-            "setup_cache_dir": task.setup_cache_dir,
+            "setup_dir": task.setup_dir,
             "storage_backend": task.output_backend,
             "s3_bucket": task.output_s3_bucket,
             "srs_path": proof_stages.srs_path,
