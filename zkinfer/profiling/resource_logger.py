@@ -4,7 +4,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -31,9 +31,9 @@ FIELDNAMES = [
 
 
 def timestamp() -> str:
-    # Microsecond wall-clock timestamps make short zkML phases distinguishable
-    # while elapsed_s below provides a monotonic time base for plotting.
-    return datetime.now().isoformat(timespec="microseconds")
+    # Emit an unambiguous UTC wall-clock timestamp for cross-job alignment.
+    # elapsed_s below remains the monotonic time base within one logger process.
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 def ensure_parent_dir(path: str) -> None:
@@ -321,4 +321,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
