@@ -45,6 +45,27 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _print_batch_progress(statuses: Dict[str, object]) -> None:
+    total_requests = len(statuses)
+    completed_requests = sum(
+        1 for status in statuses.values() if status.status == "completed"
+    )
+    failed_requests = sum(
+        1 for status in statuses.values() if status.status in {"failed", "unknown"}
+    )
+    total_jobs = sum(int(status.total_jobs) for status in statuses.values())
+    completed_jobs = sum(int(status.completed_jobs) for status in statuses.values())
+    running_jobs = sum(int(status.in_progress_jobs) for status in statuses.values())
+    queued_jobs = sum(int(status.queued_jobs) for status in statuses.values())
+
+    print(
+        "Batch progress | "
+        f"requests={completed_requests}/{total_requests} completed, {failed_requests} failed | "
+        f"jobs={completed_jobs}/{total_jobs} completed, {running_jobs} running, {queued_jobs} queued",
+        flush=True,
+    )
+
+
 def main() -> None:
     args = parse_args()
     if args.repeat < 1:
@@ -75,11 +96,35 @@ def main() -> None:
                 "status": "submitted",
             }
         )
+        print(f"Submitted request {index}/{len(inputs)}: {request_id}", flush=True)
 
     remaining = {str(item["request_id"]): item for item in submitted}
+    previous_progress = None
     while remaining:
+        statuses = {
+            str(item["request_id"]): client.get_request_status(str(item["request_id"]))
+            for item in submitted
+        }
+        progress = tuple(
+            sorted(
+                (
+                    request_id,
+                    status.status,
+                    int(status.total_jobs),
+                    int(status.completed_jobs),
+                    int(status.in_progress_jobs),
+                    int(status.queued_jobs),
+                    int(status.failed_jobs),
+                )
+                for request_id, status in statuses.items()
+            )
+        )
+        if progress != previous_progress:
+            _print_batch_progress(statuses)
+            previous_progress = progress
+
         for request_id in list(remaining):
-            status = client.get_request_status(request_id)
+            status = statuses[request_id]
             if status.status not in {"completed", "failed", "unknown"}:
                 continue
             item = remaining.pop(request_id)
