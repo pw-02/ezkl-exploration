@@ -11,7 +11,7 @@ coordinator:
   port: 50051
   grpc_thread_pool_size: 8
   grpc_max_message_mb: 128
-  runs_dir: experiments/runs
+  runs_dir: experiments/runs/requests
   logs_dir: logs/coordinator
   state_store_enabled: true
   state_db_path: experiments/runs/coordinator_state.sqlite3
@@ -19,7 +19,7 @@ coordinator:
 node:
   # One NodeSupervisor runs per physical machine/cloud instance.
   node_id: null
-  runs_dir: experiments/runs
+  runs_dir: experiments/runs/requests
   logs_dir: logs/nodes
   job_poll_interval_sec: 5
 
