@@ -12,6 +12,24 @@ from pathlib import Path
 from zkinfer.runtime.node.prover_task import LocalProverTask, ProverTaskRunner
 
 
+class _ExpectedCalibrationCandidateFilter(logging.Filter):
+    """Suppress expected EZKL calibration-search candidate rejections.
+
+    EZKL evaluates several candidate parameterizations during calibration. Some
+    candidates are expected to be rejected, for example when their lookup range
+    or extended domain does not fit. EZKL currently emits those candidate
+    rejections at ERROR level even when calibration later succeeds, which makes
+    successful characterization runs look faulty. Keep genuine calibration
+    failures and all other errors visible.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name != "ezkl.execute" or record.levelno < logging.ERROR:
+            return True
+        message = record.getMessage()
+        return not message.startswith("calibration failed ")
+
+
 def _write_json_atomic(path: str, payload: dict) -> None:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -27,6 +45,30 @@ def _write_json_atomic(path: str, payload: dict) -> None:
             os.remove(tmp_path)
 
 
+def _persist_task_metadata(task: LocalProverTask) -> None:
+    """Keep the effective per-job task after the temporary workdir is removed."""
+    _write_json_atomic(
+        str(Path(task.output_dir) / "config" / "task.json"),
+        task.to_dict(),
+    )
+
+
+def _normalize_disabled_admission_metrics(task: LocalProverTask, metrics: dict) -> None:
+    """Do not report synthetic phase predictions when admission is disabled."""
+    if task.phase_admission_enabled:
+        return
+
+    keep = {
+        "phase_admission_enabled",
+        "phase_admission_wait_time(s)",
+    }
+    for key in list(metrics):
+        if key.startswith("phase_admission_") and key not in keep:
+            metrics.pop(key, None)
+    metrics["phase_admission_enabled"] = False
+    metrics["phase_admission_wait_time(s)"] = 0.0
+
+
 def run_task(task_file: str, result_file: str) -> int:
     started = time.perf_counter()
     with open(task_file, "r", encoding="utf-8") as file:
@@ -38,9 +80,15 @@ def run_task(task_file: str, result_file: str) -> int:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         stream=sys.stdout,
     )
+    calibration_filter = _ExpectedCalibrationCandidateFilter()
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(calibration_filter)
+
+    _persist_task_metadata(task)
 
     try:
         result = ProverTaskRunner(logger=logger).run(task)
+        _normalize_disabled_admission_metrics(task, result.metrics)
         payload = {
             "ok": True,
             "pid": os.getpid(),
@@ -79,4 +127,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
