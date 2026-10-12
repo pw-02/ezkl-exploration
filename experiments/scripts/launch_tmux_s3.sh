@@ -7,6 +7,7 @@ COORDINATOR_HOST="${2:-127.0.0.1}"
 COORDINATOR_PORT="${3:-50051}"
 OPERATORS_PER_PARTITION="${4:-1}"
 PHASE_ADMISSION="${5:-true}"
+MAX_ACTIVE_JOBS="${MAX_ACTIVE_JOBS:-1}"
 
 SESSION="${TMUX_SESSION:-zkexp}"
 CONDA_ENV="${CONDA_ENV:-zk}"
@@ -22,6 +23,10 @@ if [[ "$PHASE_ADMISSION" != "true" && "$PHASE_ADMISSION" != "false" ]]; then
     echo "Error: phase_admission must be true or false."
     exit 1
 fi
+if [[ "$MAX_ACTIVE_JOBS" != "null" && ! "$MAX_ACTIVE_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: MAX_ACTIVE_JOBS must be a positive integer or 'null'."
+    exit 1
+fi
 if [[ -z "$S3_BUCKET" ]]; then
     echo "Error: ZKINFER_S3_BUCKET is not set."
     exit 1
@@ -35,9 +40,30 @@ RUN_ID="$(date -u +%Y-%m-%d_%H-%M-%S)_${WORKLOAD}_g${OPERATORS_PER_PARTITION}_ad
 CAMPAIGN_DIR="${ROOT_DIR}/experiments/runs/${RUN_ID}"
 REQUESTS_DIR="${CAMPAIGN_DIR}/requests"
 LOGS_DIR="${CAMPAIGN_DIR}/logs"
-NODE_CACHE_DIR="${CAMPAIGN_DIR}/node/cache"
-NODE_RUNTIME_DIR="${CAMPAIGN_DIR}/node/runtime"
-mkdir -p "$REQUESTS_DIR" "$LOGS_DIR" "$NODE_CACHE_DIR" "$NODE_RUNTIME_DIR"
+CONFIG_DIR="${CAMPAIGN_DIR}/config"
+
+# Node-local persistent runtime state is kept outside experiment results.
+NODE_CACHE_DIR="${ROOT_DIR}/storage/node/cache"
+NODE_RUNTIME_DIR="${ROOT_DIR}/storage/node/runtime"
+mkdir -p "$REQUESTS_DIR" "$LOGS_DIR" "$CONFIG_DIR" "$NODE_CACHE_DIR" "$NODE_RUNTIME_DIR"
+
+cat > "${CONFIG_DIR}/launch.txt" <<EOF
+workload=${WORKLOAD}
+coordinator_host=${COORDINATOR_HOST}
+coordinator_port=${COORDINATOR_PORT}
+operators_per_partition=${OPERATORS_PER_PARTITION}
+phase_admission=${PHASE_ADMISSION}
+max_active_jobs=${MAX_ACTIVE_JOBS}
+s3_bucket=${S3_BUCKET}
+s3_prefix=${S3_PREFIX}
+node_cache_dir=${NODE_CACHE_DIR}
+node_runtime_dir=${NODE_RUNTIME_DIR}
+EOF
+
+if [[ "$MAX_ACTIVE_JOBS" == "null" && "$PHASE_ADMISSION" == "false" ]]; then
+    echo "Warning: unlimited active jobs with phase admission disabled can start many provers at once."
+    echo "Use this only for an intentional concurrency characterization run."
+fi
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
     tmux kill-session -t "$SESSION"
@@ -58,13 +84,15 @@ node.runs_dir=${REQUESTS_DIR} \
 node.logs_dir=${LOGS_DIR} \
 node.local_cache_dir=${NODE_CACHE_DIR} \
 node.runtime_state_dir=${NODE_RUNTIME_DIR} \
+node.max_active_jobs=${MAX_ACTIVE_JOBS} \
 node.phase_admission.enabled=${PHASE_ADMISSION} \
 storage.backend=s3 \
 storage.s3_bucket=${S3_BUCKET} \
 storage.s3_prefix=${S3_PREFIX} \
+storage.artifact_prefix=artifacts \
 storage.transfer_prefix=transfer \
 storage.setup_cache_enabled=true \
-storage.setup_cache_prefix=setup-cache \
+storage.setup_cache_prefix=setup_cache \
 storage.setup_cache_overwrite=false"
 
 echo "Checking access to S3 bucket: ${S3_BUCKET}"
@@ -110,6 +138,7 @@ tmux send-keys -t "$SESSION:submit" \
     echo 'Campaign directory: ${CAMPAIGN_DIR}' && \
     echo 'Workload: ${WORKLOAD}' && \
     echo 'Phase admission: ${PHASE_ADMISSION}' && \
+    echo 'Max active jobs: ${MAX_ACTIVE_JOBS}' && \
     echo 'Operators per partition: ${OPERATORS_PER_PARTITION}' && \
     python experiments/submit_job.py \
     +workload=${WORKLOAD} \
@@ -121,6 +150,9 @@ tmux send-keys -t "$SESSION:submit" \
 
 echo "Started tmux session: ${SESSION}"
 echo "Campaign directory: ${CAMPAIGN_DIR}"
+echo "Requests: ${REQUESTS_DIR}"
+echo "Node runtime storage: ${ROOT_DIR}/storage/node"
 echo "S3 location: s3://${S3_BUCKET}/${S3_PREFIX}"
 echo "Phase admission: ${PHASE_ADMISSION}"
+echo "Max active jobs: ${MAX_ACTIVE_JOBS}"
 tmux attach -t "$SESSION"
