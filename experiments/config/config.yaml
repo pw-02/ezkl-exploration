@@ -28,10 +28,10 @@ jobs:
 node:
   node_id: local-node
 
-  # null = no fixed job-count cap; stage/resource admission controls overlap.
-  # 1    = sequential baseline: at most one active proof job on this node.
-  # N    = at most N active proof jobs.
-  max_active_jobs: null
+  # Section 3 isolated characterization should run one proof job at a time.
+  # Set null only for experiments that intentionally study concurrent jobs;
+  # resource/phase admission must then be configured for that experiment.
+  max_active_jobs: 1
 
   # Sampling interval for resource_usage.csv. Stage transitions have exact
   # timestamps independent of this interval.
@@ -50,10 +50,10 @@ storage:
   setup_cache_enabled: false
   setup_cache_overwrite: false
 
-  # The local experiment launcher deletes storage/artifacts after the complete
-  # suite when true. experiments/runs is never deleted by this setting.
-  # Set false when you intentionally want data-plane artifacts to persist.
-  delete_artifacts_after_run: true
+  # Data-plane objects live under storage/artifacts and are separate from the
+  # experiment results in experiments/runs. Keep them only when debugging or
+  # when a later process needs to inspect the exact published objects.
+  retain_artifacts_after_run: false
   artifact_dir: storage/artifacts
 
 launch:
