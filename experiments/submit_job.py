@@ -86,7 +86,6 @@ def main(cfg: DictConfig) -> None:
     logger.info("Connecting to coordinator at %s", target)
     logger.info("Submitting workload:\n%s", OmegaConf.to_yaml(cfg.workload))
     logger.info("Execution config:\n%s", OmegaConf.to_yaml(cfg.execution))
-    logger.info("Coordinator scheduler: %s", cfg.jobs.scheduler)
 
     client = ZKInferenceClient(target=target, logger=logger)
 

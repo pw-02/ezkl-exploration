@@ -355,3 +355,32 @@ node:
     enabled: true
 ```
 
+
+
+### Run configuration and stage traces
+
+Coordinator and node startup save timestamped JSON snapshots under the sibling
+`config/` directory of their configured `runs_dir`. Each snapshot contains the
+complete resolved Hydra configuration, normalized runtime configuration, Git
+commit and tracked working-tree changes, package versions, and UTC startup time.
+The coordinator copies its snapshot into each request's `config/` directory;
+the node copies its snapshot into each job attempt's `config/` directory. Each
+prover also saves `config/task.json` with its effective task options and code
+revision, including the artifact-retention option resolved from the environment.
+These small records remain available when bulky run artifacts are not retained.
+A missing Git checkout is recorded as an unknown commit rather than invented.
+
+Submit acknowledgements and request status responses report the coordinator's
+actual normalized scheduler policy. The submit script no longer reports its
+local `jobs.scheduler` as if that configured the remote coordinator.
+
+For exact transitions inside fused setup/proving, rebuild and install the EZKL
+wheel from `pw-02/ezkl` branch `dzkml-v10.29` after updating it. Rust emits
+`fused_stage_transitions.csv` next to `status.txt`, including key generation,
+proving, and key/proof persistence. Python merges those events into
+`stage_transitions.csv`, preserving their UTC timestamps and monotonic elapsed
+times, including partial traces from failed calls. The metrics include
+`ezkl_fused_stage_trace_available` to distinguish wheels with native events.
+Older wheels remain supported: admission acquisition immediately ends the waiting
+state and starts `FUSED_KEYGEN_PROVE`, but detailed native transitions require
+the rebuilt wheel. This logging does not change admission or SRS behavior.

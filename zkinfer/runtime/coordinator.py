@@ -1,4 +1,5 @@
 from __future__ import annotations
+from zkinfer.profiling.run_metadata import save_process_metadata, copy_run_metadata
 
 import logging
 import threading
@@ -33,8 +34,11 @@ from zkinfer.verification.verifier import RuntimeVerifier
 class Coordinator:
     """Global control plane for distributed proof jobs."""
 
-    def __init__(self, runtime_config: RuntimeConfig, logger: logging.Logger):
+    def __init__(self, runtime_config: RuntimeConfig, logger: logging.Logger, resolved_config=None):
         self.logger = logger
+        self.metadata_snapshot = save_process_metadata(
+            Path(runtime_config.coordinator.runs_dir).parent / "config",
+            "coordinator", runtime_config, resolved_config)
         self.runs_dir = Path(runtime_config.coordinator.runs_dir)
         self.request_store_config = runtime_config.request_store
         self.setup_store = runtime_config.setup_store
@@ -71,6 +75,7 @@ class Coordinator:
         self.node_heartbeats: Dict[str, datetime] = {}
         self.node_status: Dict[str, dict] = {}
         self.scheduler = JobScheduler(policy=self.scheduler_policy)
+        self.scheduler_policy = self.scheduler.policy
         self.request_builder = RequestBuilder(logger=logger)
         self.lock = threading.RLock()
         self.profile_locks: Dict[str, threading.Lock] = {}
@@ -164,6 +169,7 @@ class Coordinator:
         reports_dir = run_dir / "reports"
         run_dir.mkdir(parents=True, exist_ok=True)
         reports_dir.mkdir(parents=True, exist_ok=True)
+        copy_run_metadata(self.metadata_snapshot, run_dir)
         request.run_dir = str(run_dir)
         request.reports_dir = str(reports_dir)
 
@@ -173,6 +179,7 @@ class Coordinator:
             if request is None:
                 return {
                     "request_id": request_id,
+                    "scheduler": self.scheduler_policy,
                     "status": "unknown",
                     "message": f"Request {request_id} not found.",
                     "total_jobs": 0,
@@ -184,6 +191,7 @@ class Coordinator:
             jobs = request.proof_jobs
             return {
                 "request_id": request_id,
+                "scheduler": self.scheduler_policy,
                 "status": request.request_status.value.lower(),
                 "message": request.error_message or "",
                 "total_jobs": len(jobs),
