@@ -23,11 +23,16 @@ class _ExpectedCalibrationCandidateFilter(logging.Filter):
     failures and all other errors visible.
     """
 
+    _EXPECTED_PREFIXES = (
+        "calibration failed extended k is too large",
+        "calibration failed max lookup input",
+    )
+
     def filter(self, record: logging.LogRecord) -> bool:
         if record.name != "ezkl.execute" or record.levelno < logging.ERROR:
             return True
         message = record.getMessage()
-        return not message.startswith("calibration failed ")
+        return not message.startswith(self._EXPECTED_PREFIXES)
 
 
 def _write_json_atomic(path: str, payload: dict) -> None:
