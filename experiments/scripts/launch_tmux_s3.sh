@@ -8,6 +8,7 @@ COORDINATOR_PORT="${3:-50051}"
 OPERATORS_PER_PARTITION="${4:-1}"
 PHASE_ADMISSION="${5:-true}"
 MAX_ACTIVE_JOBS="${MAX_ACTIVE_JOBS:-1}"
+RETAIN_RUN_ARTIFACTS="${RETAIN_RUN_ARTIFACTS:-false}"
 
 SESSION="${TMUX_SESSION:-zkexp}"
 CONDA_ENV="${CONDA_ENV:-zk}"
@@ -21,6 +22,10 @@ if [[ ! "$OPERATORS_PER_PARTITION" =~ ^[1-9][0-9]*$ ]]; then
 fi
 if [[ "$PHASE_ADMISSION" != "true" && "$PHASE_ADMISSION" != "false" ]]; then
     echo "Error: phase_admission must be true or false."
+    exit 1
+fi
+if [[ "$RETAIN_RUN_ARTIFACTS" != "true" && "$RETAIN_RUN_ARTIFACTS" != "false" ]]; then
+    echo "Error: RETAIN_RUN_ARTIFACTS must be true or false."
     exit 1
 fi
 if [[ "$MAX_ACTIVE_JOBS" != "null" && ! "$MAX_ACTIVE_JOBS" =~ ^[1-9][0-9]*$ ]]; then
@@ -55,6 +60,7 @@ coordinator_port=${COORDINATOR_PORT}
 operators_per_partition=${OPERATORS_PER_PARTITION}
 phase_admission=${PHASE_ADMISSION}
 max_active_jobs=${MAX_ACTIVE_JOBS}
+retain_run_artifacts=${RETAIN_RUN_ARTIFACTS}
 state_db=${STATE_DB}
 s3_bucket=${S3_BUCKET}
 s3_prefix=${S3_PREFIX}
@@ -75,7 +81,8 @@ BASE_CMD="\
 cd ${ROOT_DIR} && \
 source \$(conda info --base)/etc/profile.d/conda.sh && \
 conda activate ${CONDA_ENV} && \
-export PYTHONPATH=${ROOT_DIR}:\${PYTHONPATH:-}"
+export PYTHONPATH=${ROOT_DIR}:\${PYTHONPATH:-} && \
+export ZKINFER_RETAIN_RUN_ARTIFACTS=${RETAIN_RUN_ARTIFACTS}"
 
 RUNTIME_CFG="\
 coordinator.host=${COORDINATOR_HOST} \
@@ -140,6 +147,7 @@ tmux send-keys -t "$SESSION:submit" \
     echo 'Workload: ${WORKLOAD}' && \
     echo 'Phase admission: ${PHASE_ADMISSION}' && \
     echo 'Max active jobs: ${MAX_ACTIVE_JOBS}' && \
+    echo 'Retain run artifacts: ${RETAIN_RUN_ARTIFACTS}' && \
     echo 'Operators per partition: ${OPERATORS_PER_PARTITION}' && \
     python experiments/submit_job.py \
     +workload=${WORKLOAD} \
@@ -156,5 +164,6 @@ echo "Node runtime storage: ${ROOT_DIR}/storage/node"
 echo "S3 location: s3://${S3_BUCKET}/${S3_PREFIX}"
 echo "Phase admission: ${PHASE_ADMISSION}"
 echo "Max active jobs: ${MAX_ACTIVE_JOBS}"
+echo "Retain run artifacts: ${RETAIN_RUN_ARTIFACTS}"
 tmux attach -t "$SESSION"
 

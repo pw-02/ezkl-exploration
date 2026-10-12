@@ -7,9 +7,14 @@ COORDINATOR_HOST="${2:-127.0.0.1}"
 COORDINATOR_PORT="${3:-50051}"
 PHASE_ADMISSION="${4:-true}"
 MAX_ACTIVE_JOBS="${MAX_ACTIVE_JOBS:-1}"
+RETAIN_RUN_ARTIFACTS="${RETAIN_RUN_ARTIFACTS:-false}"
 
 if [[ "$PHASE_ADMISSION" != "true" && "$PHASE_ADMISSION" != "false" ]]; then
     echo "Error: phase_admission must be true or false."
+    exit 1
+fi
+if [[ "$RETAIN_RUN_ARTIFACTS" != "true" && "$RETAIN_RUN_ARTIFACTS" != "false" ]]; then
+    echo "Error: RETAIN_RUN_ARTIFACTS must be true or false."
     exit 1
 fi
 
@@ -51,6 +56,7 @@ coordinator_host=${COORDINATOR_HOST}
 coordinator_port=${COORDINATOR_PORT}
 phase_admission=${PHASE_ADMISSION}
 max_active_jobs=${MAX_ACTIVE_JOBS}
+retain_run_artifacts=${RETAIN_RUN_ARTIFACTS}
 state_db=${STATE_DB}
 requests_dir=${REQUEST_STORE_DIR}
 setup_dir=${SETUP_STORE_DIR}
@@ -71,7 +77,8 @@ BASE_CMD="\
 cd ${ROOT_DIR} && \
 source \$(conda info --base)/etc/profile.d/conda.sh && \
 conda activate ${CONDA_ENV} && \
-export PYTHONPATH=${ROOT_DIR}:\${PYTHONPATH:-}"
+export PYTHONPATH=${ROOT_DIR}:\${PYTHONPATH:-} && \
+export ZKINFER_RETAIN_RUN_ARTIFACTS=${RETAIN_RUN_ARTIFACTS}"
 
 RUNTIME_CFG="\
 coordinator.host=${COORDINATOR_HOST} \
@@ -125,6 +132,7 @@ tmux send-keys -t "$SESSION:submit" \
     echo 'Run directory: ${RUN_DIR}' && \
     echo 'Phase admission: ${PHASE_ADMISSION}' && \
     echo 'Max active jobs: ${MAX_ACTIVE_JOBS}' && \
+    echo 'Retain run artifacts: ${RETAIN_RUN_ARTIFACTS}' && \
     python experiments/submit_job.py \
     +workload=${WORKLOAD} \
     launch.coordinator_host=${COORDINATOR_HOST} \
@@ -137,5 +145,6 @@ echo "Requests: ${REQUESTS_DIR}"
 echo "Persistent storage: ${ROOT_DIR}/storage"
 echo "Phase admission: ${PHASE_ADMISSION}"
 echo "Max active jobs: ${MAX_ACTIVE_JOBS}"
+echo "Retain run artifacts: ${RETAIN_RUN_ARTIFACTS}"
 tmux attach -t "$SESSION"
 

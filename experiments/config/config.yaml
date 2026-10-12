@@ -24,6 +24,10 @@ jobs:
   # cache_aware: prefer setup already present on the polling node
   # resource_aware: use stage resource profiles plus cache locality
   scheduler: lpt
+  # Keep proof.pf/witness.json/vk.json/settings.json under experiments/runs.
+  # false keeps only traces/logs/manifests there; canonical proof artifacts still
+  # live under storage/requests until request-store cleanup runs.
+  retain_run_artifacts: false
 
 node:
   node_id: local-node
@@ -73,4 +77,3 @@ hydra:
     level: DISABLE
   hydra_logging:
     level: DISABLE
-

@@ -37,7 +37,7 @@ experiments/runs/
                   halo2_prover_cpu.csv
                   admission_profile_before.json
                   prover_process.log
-                  ... proof outputs
+                  manifest.json
         reports/
           job_report.csv
           request_report.csv
@@ -47,7 +47,7 @@ experiments/runs/
 
 The campaign name describes the experiment. `req_<id>` is only a unique request identifier; workload, partitioning, scheduler, cache state and timestamps belong in the saved configuration/reports rather than being encoded repeatedly in the directory name.
 
-`artifacts/jobs/` is the durable raw-output area for individual proof jobs, while `reports/` contains request-level derived tables. Keeping these separate prevents generated summaries from being mixed with prover traces and proof files.
+`artifacts/jobs/` is the durable raw-trace area for individual proof jobs, while `reports/` contains request-level derived tables. By default, large proof artifacts are **not** duplicated into this run directory; the canonical request outputs live under `storage/requests` until request-store cleanup runs.
 
 Persistent runtime state is intentionally **not** nested under the campaign directory. It lives under `storage/` so cache/setup state can persist across runs when a warm-cache experiment requires it.
 
@@ -84,6 +84,23 @@ The current RPC/splitter implementation still uses older internal strings (`none
 - `resource_aware`: use historical per-stage memory estimates to decide whether a job can begin useful work on the node, while also considering setup locality.
 
 Request fairness is applied before the within-request policy.
+
+### Run-artifact retention
+
+The experiment config controls whether large generated proof files are also copied into `experiments/runs`:
+
+```yaml
+jobs:
+  retain_run_artifacts: false
+```
+
+With the default `false`, the run directory keeps traces, logs and `manifest.json`, but does not duplicate `proof.pf`, `witness.json`, `vk.json`, or `settings.json`. Those files are still published to `storage/requests/<request_id>/...` so verification and downstream consumers continue to work. With `true`, the old debugging behaviour is restored and those files are also retained beside the job traces.
+
+The tmux launchers expose the same switch through an environment variable:
+
+```bash
+RETAIN_RUN_ARTIFACTS=true experiments/scripts/launch_tmux.sh ...
+```
 
 ## Node concurrency
 
@@ -181,11 +198,13 @@ storage/
       resource_profiles/
 ```
 
-`experiments/runs/` remains the durable raw-trace and report record. Its paths do not change in this refactor. The `setup_cache` protobuf field and persisted `setup_cache_ref` carry the setup bundle reference; their legacy names remain for wire/state compatibility.
+`experiments/runs/` remains the durable raw-trace and report record. The `setup_cache` protobuf field and persisted `setup_cache_ref` carry the setup bundle reference; their legacy names remain for wire/state compatibility.
 
 ### Reusable setup
 
-The coordinator writes the partition ONNX to `setup/<setup_key>/model.onnx`. Nodes restore or generate the derived settings/circuit/keys in the same local bundle. Newly generated derivatives are published beside the canonical ONNX; PKs are compressed for shared storage. The setup key is SHA-256 of serialized partition bytes, independent of the request ID. Configuration changes to the backend/calibration policy require a fresh setup prefix.
+The coordinator writes the partition ONNX to `setup/<setup_key>/model.onnx`. Nodes restore or generate the derived settings/circuit/keys in the same local bundle. Newly generated derivatives are published beside the canonical ONNX; PKs are compressed for shared storage.
+
+The setup key is **not just the model hash**. zkInfer hashes the partition model together with a versioned EZKL setup-policy identity (currently including backend, settings/calibration policy, proof type and selector-compression policy). This prevents a changed setup policy from silently reusing settings, compiled circuits, PKs or VKs generated under incompatible semantics. `ArtifactRef.sha256` still records the raw model-content hash separately for transfer integrity. When setup-affecting EZKL behaviour changes, increment `setup_identity_version` in `zkinfer/runtime/request_builder.py`.
 
 ```yaml
 storage:
@@ -241,11 +260,11 @@ This gives `s3://your-bucket/zkinfer/setup/<setup_key>/` and `s3://your-bucket/z
 | Suite `storage.artifact_dir` | Suite `storage.requests_dir` |
 | Suite `storage.retain_artifacts_after_run` | Suite `storage.retain_requests_after_run` |
 
-The old runtime settings are rejected with migration guidance rather than silently changing cache behavior. Updated launchers use only the new settings. Existing stored files are not moved or deleted automatically. New SHA-256 setup keys do not reuse old MD5 node-cache entries, so the first run in the new layout is cold; warm up before measuring warm performance. Previously recorded artifact URIs remain explicit and can still be read by verification tools.
+The old runtime settings are rejected with migration guidance rather than silently changing cache behavior. Updated launchers use only the new settings. Existing stored files are not moved or deleted automatically. The fingerprinted setup-key scheme does not reuse bundles created under the earlier model-hash-only scheme, so the first run after this change is cold; warm up before measuring warm performance. Previously recorded artifact URIs remain explicit and can still be read by verification tools.
 
 ## Reporting
 
-Raw execution data stays with each proof job. Under the campaign launchers the intended layout is:
+Raw execution data stays with each proof job. Under the campaign launchers the default layout is:
 
 ```text
 experiments/runs/<campaign>/requests/<request>/artifacts/jobs/<job>/attempts/<lease>/
@@ -255,8 +274,10 @@ experiments/runs/<campaign>/requests/<request>/artifacts/jobs/<job>/attempts/<le
   halo2_prover_cpu.csv
   admission_profile_before.json
   prover_process.log
-  ... proof outputs produced by EZKL
+  manifest.json
 ```
+
+If `jobs.retain_run_artifacts: true` (or `RETAIN_RUN_ARTIFACTS=true` for a tmux launcher), the same directory additionally keeps `proof.pf`, `witness.json`, `vk.json`, and `settings.json`.
 
 Derived request reports live under:
 
@@ -298,6 +319,8 @@ execution:
   partitioning:
     mode: fixed_size
     operators_per_partition: 1
+jobs:
+  retain_run_artifacts: false
 node:
   max_active_jobs: 1
   resource_monitor_interval_sec: 0.25

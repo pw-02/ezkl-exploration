@@ -26,6 +26,13 @@ from zkinfer.runtime.node.phase_admission import ResourceAdmissionController
 from zkinfer.storage.s3 import upload_file
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class LocalProverTask:
     node_id: str
@@ -53,6 +60,9 @@ class LocalProverTask:
     phase_fallback_cpu_percent: float = 100.0
     predicted_peak_memory_gb: float = 0.0
     lease_id: str = ""
+    retain_run_artifacts: bool = field(
+        default_factory=lambda: _env_bool("ZKINFER_RETAIN_RUN_ARTIFACTS", False)
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -534,22 +544,29 @@ class ProverTaskRunner:
         tmp_dir = Path(task.tmp_dir).resolve()
 
         for artifact_name, source_path in artifact_sources.items():
-            output_path = os.path.join(task.output_dir, artifact_name)
             source = Path(source_path).resolve()
-            try:
-                source.relative_to(tmp_dir)
-                source_is_temporary = True
-            except ValueError:
-                source_is_temporary = False
+            publish_source = source
+            retained_path: Optional[str] = None
 
-            if not self._same_path(source, output_path):
-                if source_is_temporary:
-                    shutil.move(str(source), output_path)
-                else:
-                    shutil.copy2(str(source), output_path)
+            if task.retain_run_artifacts:
+                output_path = os.path.join(task.output_dir, artifact_name)
+                try:
+                    source.relative_to(tmp_dir)
+                    source_is_temporary = True
+                except ValueError:
+                    source_is_temporary = False
 
+                if not self._same_path(source, output_path):
+                    if source_is_temporary:
+                        shutil.move(str(source), output_path)
+                    else:
+                        shutil.copy2(str(source), output_path)
+                publish_source = Path(output_path)
+                retained_path = output_path
+
+            size_bytes = publish_source.stat().st_size
             published_uri, file_metrics = self._publish_file(
-                output_path,
+                str(publish_source),
                 task,
                 artifact_name,
             )
@@ -563,12 +580,15 @@ class ProverTaskRunner:
             publish_metrics["output_publish_time(s)"] += float(
                 file_metrics.get("publish_time(s)", 0.0) or 0.0
             )
-            artifact_metadata[artifact_name] = {
+            artifact_entry: Dict[str, Any] = {
                 "file": artifact_name,
-                "local_path": output_path,
                 "published_uri": published_uri,
-                "size_bytes": os.path.getsize(output_path),
+                "size_bytes": size_bytes,
+                "retained_in_run": bool(task.retain_run_artifacts),
             }
+            if retained_path:
+                artifact_entry["local_path"] = retained_path
+            artifact_metadata[artifact_name] = artifact_entry
 
         manifest = {
             "request_id": task.request_id,
@@ -580,6 +600,7 @@ class ProverTaskRunner:
             "storage_backend": task.output_backend,
             "s3_bucket": task.output_s3_bucket,
             "srs_path": proof_stages.srs_path,
+            "retain_run_artifacts": bool(task.retain_run_artifacts),
             "artifacts": artifact_metadata,
             "transfer_metrics": task.transfer_metrics,
             "output_publish_metrics": publish_metrics,
@@ -648,4 +669,3 @@ class ProverTaskRunner:
                 metrics.get("output_publish_time(s)", 0.0) or 0.0
             ),
         }
-

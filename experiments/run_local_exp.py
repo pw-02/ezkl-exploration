@@ -159,11 +159,14 @@ class ProcessGroup:
             raise RuntimeError(f"One or more runtime processes failed:\n{details}")
 
 
-def make_env() -> dict:
+def make_env(cfg: DictConfig) -> dict:
     env = os.environ.copy()
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = f".:{existing}" if existing else "."
     env["PYTHONUNBUFFERED"] = "1"
+    env["ZKINFER_RETAIN_RUN_ARTIFACTS"] = (
+        "true" if bool(cfg.jobs.get("retain_run_artifacts", False)) else "false"
+    )
     return env
 
 
@@ -360,7 +363,7 @@ def main(cfg: DictConfig) -> None:
     active_log = ActiveRunLog()
     logger = setup_logger(active_log)
     group = ProcessGroup(logger)
-    env = make_env()
+    env = make_env(cfg)
     submitted_request_ids: List[str] = []
 
     try:
@@ -437,4 +440,3 @@ def main(cfg: DictConfig) -> None:
 
 if __name__ == "__main__":
     main()
-

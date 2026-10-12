@@ -11,6 +11,20 @@ from zkinfer.storage.shared_store import SharedStorage
 from zkinfer.storage.io import exists, load_json
 
 
+# Captures setup-affecting choices currently hard-coded by EZKLProofStages.
+# Bump setup_identity_version whenever those semantics or the custom EZKL setup
+# implementation change in a way that can alter settings, compiled circuits,
+# PKs, or VKs.
+EZKL_SETUP_IDENTITY = {
+    "setup_identity_version": 1,
+    "backend": "ezkl",
+    "settings_generation": "gen_settings_then_calibrate_with_fallback",
+    "calibration_target": "resources",
+    "proof_type": "single",
+    "disable_selector_compression": False,
+}
+
+
 class RequestBuilder:
     """Materialize one inference request into independently executable proof jobs."""
 
@@ -38,9 +52,13 @@ class RequestBuilder:
                 setup_key = partition.sub_hash
                 setup_ref = ArtifactRef.empty()
             else:
+                model_bytes = partition.model.SerializeToString()
+                setup_key = shared_storage.setup_key_for_model(
+                    model_bytes,
+                    EZKL_SETUP_IDENTITY,
+                )
                 started = time.perf_counter()
-                model_ref = shared_storage.put_model(partition.model.SerializeToString())
-                setup_key = model_ref.sha256
+                model_ref = shared_storage.put_model(model_bytes, setup_key=setup_key)
                 setup_ref = shared_storage.setup_ref(setup_key)
                 model_write_time = time.perf_counter() - started
                 total_model_store_time += model_write_time
@@ -148,4 +166,3 @@ class RequestBuilder:
             storage_type=setup_store.backend,
             s3_bucket=setup_store.s3_bucket,
         )
-

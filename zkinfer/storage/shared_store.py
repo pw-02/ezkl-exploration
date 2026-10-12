@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.storage import s3
@@ -58,10 +58,36 @@ class SharedStorage:
             self.requests_root, _component(request_id), "proofs", _component(partition_id),
         ))
 
-    def put_model(self, model_bytes: bytes) -> ArtifactRef:
-        setup_key = hashlib.sha256(model_bytes).hexdigest()
-        uri = os.path.join(self.setup_ref(setup_key).uri, "model.onnx")
-        return self._put_bytes(model_bytes, uri)
+    @staticmethod
+    def setup_key_for_model(
+        model_bytes: bytes,
+        setup_identity: Mapping[str, Any],
+    ) -> str:
+        """Return a stable setup identity for model bytes plus setup policy.
+
+        The model hash alone is insufficient because settings, compiled circuits,
+        and proving keys also depend on backend/setup semantics. The caller
+        supplies a versioned, JSON-serialisable setup identity describing those
+        semantics. Changing that identity creates a fresh setup bundle without
+        requiring a manual setup-prefix change.
+        """
+        model_sha256 = hashlib.sha256(model_bytes).hexdigest()
+        payload = {
+            "model_sha256": model_sha256,
+            "setup_identity": dict(setup_identity),
+        }
+        canonical = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+
+    def put_model(self, model_bytes: bytes, setup_key: str | None = None) -> ArtifactRef:
+        # setup_key identifies reusable proving state; ArtifactRef.sha256 verifies bytes.
+        setup_key = setup_key or hashlib.sha256(model_bytes).hexdigest()
+        uri = os.path.join(self.setup_ref(_component(setup_key)).uri, "model.onnx")
+        return self._put_bytes(model_bytes, uri, validate_existing=True)
 
     def put_input(self, request_id: str, partition_id: str, obj: Any) -> ArtifactRef:
         uri = os.path.join(
