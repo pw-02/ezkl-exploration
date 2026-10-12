@@ -29,10 +29,11 @@ node:
   resource_monitor_interval_sec: 1.0
 
   # Optional whole-job concurrency cap on this node.
-  # null = no fixed job-count cap; resource admission determines overlap.
-  # 1    = strictly one proof job at a time (useful sequential baseline).
+  # 1    = safe default and the isolated Section 3 baseline.
   # N    = at most N active proof jobs on this node.
-  max_active_jobs: null
+  # null = no fixed job-count cap. Use only for intentional concurrency runs,
+  #        ideally with resource/phase admission enabled and established profiles.
+  max_active_jobs: 1
 
   # Persistent local copies used by this node. The directory contains:
   #   objects/ : materialized model/input artifacts
