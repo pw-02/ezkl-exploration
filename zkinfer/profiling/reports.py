@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import math
 from typing import Any, Dict, Optional
 
 from zkinfer.runtime.resource_profiles import update_resource_profile
@@ -19,7 +20,9 @@ def _numeric_values(data: Dict[str, Any], key: str) -> list[float]:
     values = []
     for item in value:
         try:
-            values.append(float(item))
+            parsed = float(item)
+            if math.isfinite(parsed):
+                values.append(parsed)
         except (TypeError, ValueError):
             continue
     return values
@@ -29,9 +32,9 @@ def _safe_sum(data: Dict[str, Any], key: str) -> float:
     return sum(_numeric_values(data, key))
 
 
-def _safe_max(data: Dict[str, Any], key: str) -> float:
+def _safe_max(data: Dict[str, Any], key: str) -> Optional[float]:
     values = _numeric_values(data, key)
-    return max(values) if values else 0.0
+    return max(values) if values else None
 
 
 def _duration_seconds(start, end) -> Optional[float]:
@@ -61,7 +64,7 @@ def write_job_report(
     """Append one canonical derived row for a completed/failed proof job.
 
     Raw time-series and transition files stay with the job under
-    ``experiments/runs/<request>/artifacts/jobs/<job>/attempts/<lease>``. ``job_report.csv`` is
+    ``experiments/runs/<request>/artifacts/jobs/<job>``. ``job_report.csv`` is
     the single request-level table of derived per-job scalar metrics; the old
     duplicate ``perf_metrics.csv`` is intentionally no longer written.
     """
@@ -99,11 +102,11 @@ def write_job_report(
         "ezkl_proof_time(s)": perf_metrics.get("ezkl_proof_time(s)", 0.0),
         "pk_file_size(GB)": perf_metrics.get("pk_file_size(GB)", 0.0),
         "vk_file_size(GB)": perf_metrics.get("vk_file_size(GB)", 0.0),
-        "max_system_memory(GB)": perf_metrics.get("max_system_memory(GB)", 0.0),
-        "max_process_memory(GB)": perf_metrics.get("max_process_memory(GB)", 0.0),
-        "avg_system_cpu(%)": perf_metrics.get("avg_system_cpu(%)", 0.0),
-        "avg_process_cpu_raw(%)": perf_metrics.get("avg_process_cpu_raw(%)", 0.0),
-        "avg_process_cpu_machine(%)": perf_metrics.get("avg_process_cpu_machine(%)", 0.0),
+        "max_system_memory(GB)": perf_metrics.get("max_system_memory(GB)"),
+        "max_process_memory(GB)": perf_metrics.get("max_process_memory(GB)"),
+        "avg_system_cpu(%)": perf_metrics.get("avg_system_cpu(%)"),
+        "avg_process_cpu_raw(%)": perf_metrics.get("avg_process_cpu_raw(%)"),
+        "avg_process_cpu_machine(%)": perf_metrics.get("avg_process_cpu_machine(%)"),
         "fft_count": perf_metrics.get("fft_count", 0),
         "fft_total_time(s)": perf_metrics.get("fft_total_time(s)", 0.0),
         "msm_count": perf_metrics.get("msm_count", 0),
@@ -186,6 +189,10 @@ def write_request_report(request, out_dir: str = "reports") -> Dict[str, Any]:
     for key in job_data:
         if key.startswith("stage_") and key.endswith("_max_memory(GB)"):
             report[f"max_{key}"] = _safe_max(job_data, key)
+            stage = key[len("stage_") : -len("_max_memory(GB)")]
+            report[f"num_jobs_with_stage_{stage}_memory_samples"] = len(
+                _numeric_values(job_data, key)
+            )
 
     write_dict_to_csv(report, os.path.join(out_dir, "request_report.csv"))
     return report
