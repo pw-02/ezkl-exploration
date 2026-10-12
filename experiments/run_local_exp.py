@@ -168,9 +168,15 @@ def make_env() -> dict:
 
 
 def common_overrides(cfg: DictConfig) -> List[str]:
+    requests_dir = Path(str(cfg.paths.runs_dir)) / "requests"
+    logs_dir = Path(str(cfg.paths.runs_dir)) / "logs"
     return [
         f"coordinator.host={cfg.launch.coordinator_host}",
         f"coordinator.port={cfg.launch.coordinator_port}",
+        f"coordinator.runs_dir={requests_dir}",
+        f"coordinator.logs_dir={logs_dir}",
+        f"node.runs_dir={requests_dir}",
+        f"node.logs_dir={logs_dir}",
         f"jobs.scheduler={cfg.jobs.scheduler}",
         f"storage.artifact_prefix={cfg.storage.artifact_dir}",
         f"storage.setup_cache_enabled={str(bool(cfg.storage.setup_cache_enabled)).lower()}",
@@ -247,17 +253,30 @@ def wait_for_request(
     process_group: ProcessGroup,
     logger: logging.Logger,
 ) -> None:
+    previous = None
     while True:
         process_group.raise_if_any_failed()
         status = client.get_request_status(request_id)
-        logger.info(
-            "Request %s status=%s completed=%s/%s failed=%s",
-            request_id,
+        snapshot = (
             status.status,
-            status.completed_jobs,
             status.total_jobs,
+            status.completed_jobs,
+            status.in_progress_jobs,
+            status.queued_jobs,
             status.failed_jobs,
         )
+        if snapshot != previous:
+            logger.info(
+                "Request %s | status=%s | completed=%s/%s | running=%s | queued=%s | failed=%s",
+                request_id,
+                status.status,
+                status.completed_jobs,
+                status.total_jobs,
+                status.in_progress_jobs,
+                status.queued_jobs,
+                status.failed_jobs,
+            )
+            previous = snapshot
         if status.status == "completed":
             return
         if status.status in {"failed", "unknown"}:
@@ -304,11 +323,14 @@ def save_request_metadata(
     workload_cfg: DictConfig,
     request_id: str,
 ) -> Path:
-    logs_dir = Path(cfg.paths.runs_dir) / request_id / "logs"
+    request_dir = Path(str(cfg.paths.runs_dir)) / "requests" / request_id
+    config_dir = request_dir / "config"
+    logs_dir = request_dir / "logs"
+    config_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
-    OmegaConf.save(config=cfg, f=logs_dir / "experiment_config.yaml")
-    OmegaConf.save(config=workload_cfg, f=logs_dir / "workload_config.yaml")
-    (logs_dir / "runtime_partitioning.txt").write_text(
+    OmegaConf.save(config=cfg, f=config_dir / "experiment_config.yaml")
+    OmegaConf.save(config=workload_cfg, f=config_dir / "workload_config.yaml")
+    (config_dir / "runtime_partitioning.txt").write_text(
         f"mode={_runtime_partition_mode(cfg)}\n"
         f"operators_per_partition={int(cfg.execution.partitioning.operators_per_partition)}\n",
         encoding="utf-8",
@@ -317,7 +339,7 @@ def save_request_metadata(
 
 
 def cleanup_artifact_store(cfg: DictConfig, logger: logging.Logger) -> None:
-    if not bool(cfg.storage.delete_artifacts_after_run):
+    if bool(cfg.storage.retain_artifacts_after_run):
         logger.info("Retaining data-plane artifacts after experiment run")
         return
 
