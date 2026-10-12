@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import deque
 from typing import Iterable, List, Optional
 
 from zkinfer.runtime.models import NodeResources, ProofJob
@@ -23,9 +23,7 @@ class JobScheduler:
         if self.policy not in {"fifo", "lpt", "resource_aware", "cache_aware"}:
             raise ValueError(f"Unsupported scheduling policy: {self.policy}")
         self._queue: List[ProofJob] = []
-        self._request_dispatch_count = defaultdict(int)
-        self._dispatch_sequence = 0
-        self._request_last_dispatch = defaultdict(lambda: -1)
+        self._request_order: deque[str] = deque()
 
     def add_jobs(self, jobs: Iterable[ProofJob]) -> None:
         for job in jobs:
@@ -40,12 +38,14 @@ class JobScheduler:
             return None
         job = self._queue.pop(candidate_index)
         request_id = job.inference_request_id
-        self._request_dispatch_count[request_id] += 1
-        self._dispatch_sequence += 1
-        self._request_last_dispatch[request_id] = self._dispatch_sequence
+        self._request_order.remove(request_id)
+        if any(item.inference_request_id == request_id for item in self._queue):
+            self._request_order.append(request_id)
         return job
 
     def requeue(self, job: ProofJob) -> None:
+        if job.inference_request_id not in self._request_order:
+            self._request_order.append(job.inference_request_id)
         self._queue.append(job)
 
     def _select_index(self, node: NodeResources) -> Optional[int]:
@@ -58,12 +58,8 @@ class JobScheduler:
             return None
 
         request_ids = {job.inference_request_id for _, job in feasible}
-        chosen_request = min(
-            request_ids,
-            key=lambda request_id: (
-                self._request_dispatch_count[request_id],
-                self._request_last_dispatch[request_id],
-            ),
+        chosen_request = next(
+            request_id for request_id in self._request_order if request_id in request_ids
         )
         candidates = [
             item for item in feasible if item[1].inference_request_id == chosen_request
@@ -118,7 +114,7 @@ class JobScheduler:
     def _fits_node(self, job: ProofJob, node: NodeResources) -> bool:
         if self.policy != "resource_aware":
             required_memory = max(0.0, float(job.predicted_peak_memory_gb or 0.0))
-            if required_memory > 0.0 and node.memory_available_gb > 0.0:
+            if required_memory > 0.0:
                 return required_memory <= node.memory_available_gb
             return True
 
@@ -138,7 +134,7 @@ class JobScheduler:
             # completed run provides stage-specific measurements.
             start_memory = predicted_peak
 
-        if start_memory > 0.0 and node.memory_available_gb > 0.0:
+        if start_memory > 0.0:
             if start_memory > node.memory_available_gb:
                 return False
 
@@ -146,12 +142,11 @@ class JobScheduler:
 
     def clear(self) -> None:
         self._queue.clear()
-        self._request_dispatch_count.clear()
-        self._request_last_dispatch.clear()
-        self._dispatch_sequence = 0
+        self._request_order.clear()
 
     def empty(self) -> bool:
         return not self._queue
 
     def __len__(self) -> int:
         return len(self._queue)
+

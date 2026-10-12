@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import os
 import sqlite3
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import zkinfer.proto.zkservice_pb2 as pb
 from zkinfer.runtime.data_plane import ArtifactRef
@@ -49,8 +52,23 @@ def _wait_on_resource_admission(root: str, output: mp.Queue) -> None:
         poll_interval_s=0.02,
     )
     started = time.perf_counter()
-    with controller.hold("PROVING") as info:
-        output.put((info["wait_time_s"], time.perf_counter() - started))
+    with patch("zkinfer.runtime.node.phase_admission.psutil.virtual_memory", return_value=_memory()), \
+            patch("zkinfer.runtime.node.phase_admission.psutil.pid_exists", side_effect=_pid_exists), \
+            patch("zkinfer.runtime.node.phase_admission.process_tree_memory_gb", return_value=0.0):
+        with controller.hold("PROVING") as info:
+            output.put((info["wait_time_s"], time.perf_counter() - started))
+
+
+def _memory(total_gb=64.0, available_gb=60.0):
+    return SimpleNamespace(total=total_gb * 1024**3, available=available_gb * 1024**3)
+
+
+def _pid_exists(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
 
 
 class ProtocolTests(unittest.TestCase):
@@ -64,6 +82,35 @@ class ProtocolTests(unittest.TestCase):
 
 
 class SchedulerTests(unittest.TestCase):
+    def test_zero_available_memory_rejects_known_demand(self):
+        for policy in ("fifo", "lpt", "cache_aware", "resource_aware"):
+            with self.subTest(policy=policy):
+                scheduler = JobScheduler(policy)
+                scheduler.add_jobs([_job("a", "a1")])
+                self.assertIsNone(scheduler.next_job(NodeResources(
+                    node_id="node", memory_total_gb=64, memory_available_gb=0,
+                )))
+
+    def test_new_requests_do_not_receive_a_dispatch_count_catchup_burst(self):
+        scheduler = JobScheduler("fifo")
+        scheduler.add_jobs([_job("old", f"o{i}") for i in range(12)])
+        node = NodeResources(node_id="node", memory_available_gb=64)
+        for _ in range(5):
+            scheduler.next_job(node)
+        scheduler.add_jobs([_job("new", f"n{i}") for i in range(5)])
+        self.assertEqual(
+            [scheduler.next_job(node).inference_request_id for _ in range(4)],
+            ["old", "new", "old", "new"],
+        )
+
+    def test_infeasible_request_does_not_block_round_robin(self):
+        scheduler = JobScheduler("fifo")
+        big = _job("big", "b1")
+        big.predicted_peak_memory_gb = 100
+        scheduler.add_jobs([big, _job("small", "s1")])
+        self.assertEqual(scheduler.next_job(NodeResources(
+            node_id="node", memory_available_gb=10,
+        )).inference_request_id, "small")
     def test_requests_rotate_before_one_request_monopolizes_queue(self):
         scheduler = JobScheduler("fifo")
         scheduler.add_jobs(
@@ -201,6 +248,43 @@ class StateStoreMigrationTests(unittest.TestCase):
 
 
 class NodeCacheTests(unittest.TestCase):
+    def test_model_and_input_stay_pinned_until_job_releases_them(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model, input_file = root / "model.onnx", root / "input.json"
+            model.write_bytes(b"m" * 24)
+            input_file.write_bytes(b"i" * 24)
+            cache = NodeCache(str(root / "cache"), max_bytes=32)
+            with cache.materialized_artifact(ArtifactRef("filesystem", str(model))) as (model_path, _):
+                with cache.materialized_artifact(ArtifactRef("filesystem", str(input_file))) as (input_path, _):
+                    cache.evict_if_needed()
+                    self.assertTrue(Path(model_path).exists())
+                    self.assertTrue(Path(input_path).exists())
+                    self.assertGreater(cache.total_bytes(), cache.max_bytes)
+            self.assertLessEqual(cache.total_bytes(), cache.max_bytes)
+            self.assertEqual(cache._pin_counts, {})
+
+    def test_failed_materialization_releases_its_pin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = NodeCache(str(Path(tmp) / "cache"), max_bytes=32)
+            with self.assertRaises(FileNotFoundError):
+                with cache.materialized_artifact(ArtifactRef("filesystem", str(Path(tmp) / "missing"))):
+                    pass
+            self.assertEqual(cache._pin_counts, {})
+
+    def test_setup_is_protected_during_restore(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shared = root / "shared"
+            shared.mkdir()
+            for name in NodeCache.SETUP_FILES:
+                (shared / name).write_bytes(b"a" * 16)
+            cache = NodeCache(str(root / "cache"), max_bytes=32)
+            with cache.pinned_setup("key"):
+                cache.restore_setup_cache(ArtifactRef("filesystem", str(shared)), "key")
+                cache.evict_if_needed()
+                self.assertTrue(cache.setup_ready("key"))
+            self.assertEqual(cache._pin_counts, {})
     def test_pinned_setup_directory_is_not_evicted(self):
         with tempfile.TemporaryDirectory() as tmp:
             cache = NodeCache(tmp, max_bytes=32)
@@ -220,6 +304,75 @@ class NodeCacheTests(unittest.TestCase):
 
 
 class PhaseAdmissionTests(unittest.TestCase):
+    def setUp(self):
+        for target, kwargs in (
+            ("psutil.virtual_memory", {"return_value": _memory()}),
+            ("psutil.pid_exists", {"side_effect": _pid_exists}),
+            ("process_tree_memory_gb", {"return_value": 0.0}),
+        ):
+            mocker = patch("zkinfer.runtime.node.phase_admission." + target, **kwargs)
+            mocker.start()
+            self.addCleanup(mocker.stop)
+
+    def test_cpu_demand_above_budget_fails_without_waiting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = ResourceAdmissionController(tmp, "a", True, 8, 80, 1, 100)
+            with self.assertRaisesRegex(RuntimeError, "CPU.*exceeds"):
+                controller.acquire("PROVING")
+
+    def test_live_memory_blocks_admission_despite_empty_reservation_ledger(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = ResourceAdmissionController(tmp, "a", True, 8, 100, 32, 20)
+            with patch("zkinfer.runtime.node.phase_admission.psutil.virtual_memory", side_effect=[
+                _memory(64, 60), _memory(64, 60), _memory(64, 9), _memory(64, 60),
+            ]), patch("zkinfer.runtime.node.phase_admission.time.sleep") as sleep:
+                with controller.hold("PROVING"):
+                    self.assertEqual(sleep.call_count, 1)
+
+    def test_existing_rss_is_not_charged_twice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = ResourceAdmissionController(tmp, "a", True, 8, 100, 20, 20)
+            with patch("zkinfer.runtime.node.phase_admission.psutil.virtual_memory", return_value=_memory(64, 15)), \
+                    patch("zkinfer.runtime.node.phase_admission.process_tree_memory_gb", return_value=14), \
+                    patch("zkinfer.runtime.node.phase_admission.time.sleep", side_effect=AssertionError("unexpected wait")):
+                with controller.hold("PROVING"):
+                    pass
+
+    def test_other_reservations_account_for_unallocated_growth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = ResourceAdmissionController(tmp, "a", True, 8, 100, 10, 20)
+            # Only 4 GB is resident, but another phase has reserved 20 GB.
+            with patch.object(controller, "_read_reservations", return_value=[
+                {"pid": os.getpid() + 1, "memory_gb": 20, "cpu_percent": 20},
+            ]), patch("zkinfer.runtime.node.phase_admission.psutil.virtual_memory", side_effect=[
+                _memory(64, 60), _memory(64, 60), _memory(64, 29), _memory(64, 60),
+            ]), patch("zkinfer.runtime.node.phase_admission.process_tree_memory_gb", return_value=4), \
+                    patch("zkinfer.runtime.node.phase_admission.time.sleep") as sleep:
+                with controller.hold("PROVING"):
+                    self.assertEqual(sleep.call_count, 1)
+
+    def test_unknown_job_can_start_with_os_memory_already_in_use(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = ResourceAdmissionController(tmp, "a", True, 8, 100, 0, 100)
+            with patch("zkinfer.runtime.node.phase_admission.process_tree_memory_gb", return_value=1), \
+                    patch("zkinfer.runtime.node.phase_admission.time.sleep", side_effect=AssertionError("unexpected wait")):
+                with controller.hold("CALIBRATING") as info:
+                    self.assertAlmostEqual(info["memory_gb"], 53)
+
+    def test_missing_cpu_history_uses_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profiles = HistoricalResourceProfiles(Path(tmp) / "profiles")
+            profiles.update_from_metrics("a", {"stage_proving_max_memory(GB)": 12})
+            estimate = profiles.estimate("a", "PROVING", 40, 100, .9)
+            self.assertEqual(estimate["cpu_percent"], 100)
+
+    def test_partial_fused_history_does_not_drop_unobserved_phase(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profiles = HistoricalResourceProfiles(Path(tmp) / "profiles")
+            profiles.update_from_metrics("a", {"stage_key_gen_max_memory(GB)": 12})
+            estimate = profiles.estimate("a", "FUSED_KEYGEN_PROVE", 40, 100, .9)
+            self.assertEqual(estimate["memory_gb"], 40)
+
     def test_resource_reservations_are_shared_across_processes(self):
         with tempfile.TemporaryDirectory() as tmp:
             controller = ResourceAdmissionController(
@@ -288,3 +441,4 @@ class PhaseAdmissionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

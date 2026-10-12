@@ -62,6 +62,16 @@ def parse_resource_usage_file(csv_path: str) -> Dict[str, float]:
             data["cpu_machine_sum"] += cpu_machine_percent
             data["count"] += 1
 
+            # Halo2 writes PROVING::<subphase> labels into the live status file.
+            # Keep those details, but also learn the envelope requested by the
+            # EZKL-level admission controller.
+            if str(row.get("stage") or "").upper().startswith("PROVING::"):
+                parent = stage_data["proving"]
+                parent["max_memory"] = max(parent["max_memory"], memory_gb)
+                parent["cpu_raw_sum"] += cpu_percent
+                parent["cpu_machine_sum"] += cpu_machine_percent
+                parent["count"] += 1
+
     metrics = {
         "max_process_memory(GB)": max_process_mem,
         "max_system_memory(GB)": max_system_mem,
@@ -88,3 +98,4 @@ def parse_resource_usage_file(csv_path: str) -> Dict[str, float]:
         metrics[f"stage_{stage}_samples"] = float(count)
 
     return metrics
+

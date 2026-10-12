@@ -107,6 +107,8 @@ sum(reserved phase CPU) + predicted phase CPU
 
 This means a node may run one, two, or several phases concurrently depending on their measured resource demand. There is no fixed statement such as "only one keygen" or "at most four jobs".
 
+Admission also checks live available RAM. Waiting processes and retained allocations remain charged through that reading; only predicted growth beyond each process tree's existing RSS is added to it. A phase whose predicted CPU or memory demand exceeds its budget fails immediately. These are prediction-based checks, not OS-enforced memory limits.
+
 The fused cold EZKL operation is the one exception to phase boundaries visible to Python: Rust moves directly from key generation into proving. zkInfer therefore reserves the larger historical resource estimate of `KEY_GEN` and `PROVING` for that combined region while the stage trace still records the internal transition.
 
 ### Admission metrics
@@ -163,7 +165,7 @@ The custom Halo2 profiler additionally emits labels such as `PROVING::<subphase>
 
 ## Multi-request execution
 
-The coordinator supports multiple inference/proof requests being active at once. Jobs from all active requests share the global ready queue, but scheduling is request-aware: zkInfer first chooses among least-served requests and then applies the configured job-ranking policy within the chosen request. This prevents one large partitioned request from consuming the cluster simply because it contains many more partitions.
+The coordinator supports multiple inference/proof requests being active at once. Jobs from all active requests share the global ready queue. Requests rotate in arrival order after each dispatch, skipping requests with no feasible job on the polling node; the configured job-ranking policy is applied within the chosen request. Newly arriving requests join the rotation rather than receiving a burst to catch up with older requests' cumulative dispatch counts.
 
 Scheduling policy is configured once at the coordinator through `jobs.scheduler`. Requests do not select independent policies through the client API.
 
@@ -207,7 +209,7 @@ phase_admission/
   reservations/ current cross-process phase reservations
 ```
 
-The cache provides per-object locking, per-setup-key locking, active-setup pinning, bounded LRU-style eviction, PK compression when publishing setup state, and PK decompression when restoring it.
+The cache provides per-object locking, per-setup-key locking, job-lifetime model/input/setup pinning, bounded LRU-style eviction, PK compression when publishing setup state, and PK decompression when restoring it. Pins are acquired before materialization/restoration. The cache can temporarily exceed its target while all eviction candidates are in use; it trims released objects as pins are dropped.
 
 Terminology in the runtime is deliberately literal:
 
@@ -278,6 +280,10 @@ coordinator:
 The current state store still contains migration code for older worker-centric databases. This is not part of the new runtime abstraction and can be removed once old experiment databases are no longer needed.
 
 A dead node causes every `IN_PROGRESS` job assigned to that node to be requeued. Recovery does not depend only on the node's last heartbeat list. Heartbeat updates that omit an active-job list preserve the previously known list.
+
+Each attempt writes raw outputs beneath `artifacts/jobs/<job>/attempts/<lease>/` and publishes to an attempt-specific shared prefix. A stale attempt therefore cannot overwrite the accepted attempt's artifacts. Completion requires the current lease ID; matching terminal-result retries are acknowledged without repeating reports or verification, including after coordinator restart when persistent state is enabled. `job_report.csv` records the accepted `lease_id`, and Section 3 tools use it to select the canonical trace while retaining support for legacy paths.
+
+Shared resource profiles are merged under a per-profile lock and written atomically on the filesystem. New observations refresh queued jobs for the same profile. Request finalization waits until all accepted job reports have finished writing.
 
 ## Verification
 
@@ -441,7 +447,7 @@ cd <zkinfer-checkout>
 python -m compileall zkinfer experiments analysis tests
 
 # 3. Core scheduler/cache/state/admission regressions.
-python -m unittest tests.test_runtime_core -v
+python -m unittest discover -s tests -v
 ```
 
 Then run one tiny cold proof and one cached-setup repeat, inspect `stage_transitions.csv`, `halo2_stage_transitions.csv`, and `resource_usage.csv`, and confirm the resource trace contains Halo2 labels such as `PROVING::<subphase>` before starting the larger characterization campaign.
@@ -467,3 +473,4 @@ The runtime is set up to evaluate:
 - verification overhead
 
 The main admission experiment should hold hardware, workload, partitioning, and global scheduler fixed while toggling `node.phase_admission.enabled`. Section 3 should first establish whether measured stage-level resource variation is large and repeatable enough to justify that mechanism.
+

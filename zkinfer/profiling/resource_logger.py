@@ -68,11 +68,11 @@ def infer_runs_dir(status_file: Optional[str]) -> Optional[str]:
     if not status_file:
         return None
     path = Path(status_file).resolve()
-    # runs/<request>/artifacts/jobs/<job>/status.txt
-    try:
-        return str(path.parents[4])
-    except IndexError:
-        return None
+    # Accept both legacy jobs/<job>/status.txt and attempt-scoped paths.
+    for parent in path.parents:
+        if parent.name == "artifacts":
+            return str(parent.parent.parent)
+    return None
 
 
 def _active_job_phases(runs_dir: Optional[str]) -> list[str]:
@@ -82,7 +82,9 @@ def _active_job_phases(runs_dir: Optional[str]) -> list[str]:
     if not root.exists():
         return []
     phases: list[str] = []
-    for status_path in root.glob("*/artifacts/jobs/*/status.txt"):
+    status_paths = list(root.glob("*/artifacts/jobs/*/status.txt"))
+    status_paths.extend(root.glob("*/artifacts/jobs/*/attempts/*/status.txt"))
+    for status_path in status_paths:
         try:
             stage = status_path.read_text(encoding="utf-8").strip()
         except OSError:
@@ -319,3 +321,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -51,6 +51,7 @@ def run_task(task_file: str, result_file: str) -> int:
         return 0
     except Exception as exc:
         logger.exception("Prover process failed")
+        (Path(task.output_dir) / "status.txt").write_text("FAILED", encoding="utf-8")
         _write_json_atomic(
             result_file,
             {
@@ -78,3 +79,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

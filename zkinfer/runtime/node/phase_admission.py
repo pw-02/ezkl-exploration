@@ -45,6 +45,22 @@ def _metric_stage(stage: str) -> str:
     return stage or "unknown"
 
 
+def process_tree_memory_gb(pid: int) -> float:
+    """Resident memory already charged to the host's available-memory reading."""
+    try:
+        process = psutil.Process(pid)
+        processes = [process, *process.children(recursive=True)]
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return 0.0
+    total = 0
+    for process in processes:
+        try:
+            total += process.memory_info().rss
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return float(total) / (1024**3)
+
+
 class HistoricalResourceProfiles:
     """Persistent per-setup-key stage resource observations.
 
@@ -167,12 +183,12 @@ class HistoricalResourceProfiles:
                 max(memory_values)
                 if len(memory_values) < 5
                 else _percentile(memory_values, percentile)
-            )
+            ) if memory_values else max(0.0, float(fallback_memory_gb))
             cpu_percent = (
                 max(cpu_values)
                 if len(cpu_values) < 5
                 else _percentile(cpu_values, percentile)
-            )
+            ) if cpu_values else max(0.0, float(fallback_cpu_percent))
             return {
                 "memory_gb": memory_gb,
                 "cpu_percent": cpu_percent,
@@ -182,8 +198,7 @@ class HistoricalResourceProfiles:
 
         if stage == "FUSED_KEYGEN_PROVE":
             parts = [estimate_one("KEY_GEN"), estimate_one("PROVING")]
-            parts = [item for item in parts if item is not None]
-            if parts:
+            if all(item is not None for item in parts):
                 return {
                     "memory_gb": max(item["memory_gb"] for item in parts),
                     "cpu_percent": max(item["cpu_percent"] for item in parts),
@@ -274,7 +289,14 @@ class ResourceAdmissionController:
             0.0,
             float(memory.total) / (1024**3) - self.memory_reserve_gb,
         )
-        fallback_memory = self.fallback_memory_gb or usable_memory_gb
+        # An unknown job reserves the currently allocatable footprint, including
+        # its existing RSS. Reserving total RAM would make a cold job wait forever
+        # merely because the OS/supervisor also occupies memory.
+        fallback_memory = self.fallback_memory_gb or min(
+            usable_memory_gb,
+            max(0.0, float(memory.available) / (1024**3)
+                - self.memory_reserve_gb + process_tree_memory_gb(os.getpid())),
+        )
         estimate = self.profiles.estimate(
             setup_key=self.setup_key,
             stage=stage,
@@ -306,6 +328,12 @@ class ResourceAdmissionController:
         requested_memory_gb = float(estimate["memory_gb"])
         requested_cpu_percent = float(estimate["cpu_percent"])
 
+        if requested_cpu_percent > self.cpu_budget_percent:
+            raise RuntimeError(
+                f"Predicted {stage} CPU {requested_cpu_percent:.2f}% exceeds "
+                f"node admission budget {self.cpu_budget_percent:.2f}%"
+            )
+
         if requested_memory_gb > memory_budget_gb:
             raise RuntimeError(
                 f"Predicted {stage} memory {requested_memory_gb:.2f} GB exceeds "
@@ -329,6 +357,24 @@ class ResourceAdmissionController:
                         float(item.get("cpu_percent") or 0.0) for item in reservations
                     )
 
+                    # Live available memory includes waiting jobs and retained
+                    # allocations. Only reserve *future* growth on top of it;
+                    # adding full reservations again would double-count RSS.
+                    live_memory = psutil.virtual_memory()
+                    unallocated_gb = sum(
+                        max(0.0, float(item.get("memory_gb") or 0.0)
+                            - process_tree_memory_gb(int(item.get("pid") or -1)))
+                        for item in reservations
+                    )
+                    requested_growth_gb = max(
+                        0.0, requested_memory_gb - process_tree_memory_gb(os.getpid())
+                    )
+                    live_memory_fits = (
+                        requested_growth_gb + unallocated_gb
+                        <= float(live_memory.available) / (1024**3)
+                        - self.memory_reserve_gb
+                    )
+
                     memory_fits = (
                         reserved_memory_gb + requested_memory_gb <= memory_budget_gb
                     )
@@ -337,7 +383,7 @@ class ResourceAdmissionController:
                         <= self.cpu_budget_percent
                     )
 
-                    if memory_fits and cpu_fits:
+                    if memory_fits and live_memory_fits and cpu_fits:
                         reservation = {
                             "pid": os.getpid(),
                             "setup_key": self.setup_key,
@@ -395,3 +441,4 @@ class ResourceAdmissionController:
             yield admission
         finally:
             self.release()
+

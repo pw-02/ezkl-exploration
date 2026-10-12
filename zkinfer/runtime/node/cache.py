@@ -81,21 +81,58 @@ class NodeCache:
             return self._setup_locks.setdefault(safe_key, threading.RLock())
 
     def pin_setup(self, setup_key: str) -> str:
-        path = Path(self.setup_dir(setup_key)).resolve()
         with self._state_lock:
+            path = Path(self.setup_dir(setup_key)).resolve()
             key = str(path)
             self._pin_counts[key] = self._pin_counts.get(key, 0) + 1
         return str(path)
 
     def unpin_setup(self, setup_key: str) -> None:
-        path = Path(self.setup_dir(setup_key)).resolve()
-        key = str(path)
+        path = self.setup_dir_root / self._safe_setup_key(setup_key)
+        self._unpin_path(path)
+
+    def _unpin_path(self, path: Path) -> None:
+        key = str(path.resolve())
         with self._state_lock:
             count = self._pin_counts.get(key, 0)
             if count <= 1:
                 self._pin_counts.pop(key, None)
             else:
                 self._pin_counts[key] = count - 1
+
+    @contextmanager
+    def pinned_setup(self, setup_key: str) -> Iterator[str]:
+        """Pin before checking/restoring setup state, atomically with eviction."""
+        path = self.pin_setup(setup_key)
+        try:
+            yield path
+        finally:
+            self.unpin_setup(setup_key)
+            self.evict_if_needed()
+
+    def _object_path(self, ref: ArtifactRef, filename_hint: str) -> Path:
+        digest = ref.sha256 or self._stable_ref_digest(ref)
+        filename = os.path.basename(ref.uri) or filename_hint
+        return self.objects_dir / digest[:2] / digest / filename
+
+    @contextmanager
+    def materialized_artifact(
+        self, ref: ArtifactRef, filename_hint: str = "artifact"
+    ) -> Iterator[Tuple[str, Dict[str, Any]]]:
+        """Keep an immutable object available until its consumer releases it.
+
+        Pin the intended path before materialization so there is no interval
+        between returning a path and acquiring protection from eviction.
+        """
+        path = self._object_path(ref, filename_hint)
+        with self._state_lock:
+            key = str(path.resolve())
+            self._pin_counts[key] = self._pin_counts.get(key, 0) + 1
+        try:
+            yield self.materialize_with_metrics(ref, filename_hint)
+        finally:
+            self._unpin_path(path)
+            self.evict_if_needed()
 
     @contextmanager
     def setup_guard(self, setup_key: str, pin: bool = True) -> Iterator[str]:
@@ -124,8 +161,7 @@ class NodeCache:
 
         started = time.perf_counter()
         digest = ref.sha256 or self._stable_ref_digest(ref)
-        filename = os.path.basename(ref.uri) or filename_hint
-        local_path = self.objects_dir / digest[:2] / digest / filename
+        local_path = self._object_path(ref, filename_hint)
         metrics: Dict[str, Any] = {
             "uri": ref.uri,
             "backend": ref.backend,
@@ -423,3 +459,4 @@ class NodeCache:
             os.utime(path, (now, now))
         except FileNotFoundError:
             pass
+

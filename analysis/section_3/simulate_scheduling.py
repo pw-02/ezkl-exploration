@@ -50,6 +50,11 @@ from itertools import combinations
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, Optional, Sequence
 
+try:
+    from .trace_layout import find_job_dirs, job_identity
+except ImportError:  # direct script execution
+    from trace_layout import find_job_dirs, job_identity
+
 
 PROCESS_TYPES = {"process", "process_tree"}
 IGNORE_STAGES = {"", "UNKNOWN", "STARTING", "DONE", "FAILED"}
@@ -265,11 +270,7 @@ def _parent_stage(stage: str) -> str:
 
 
 def _find_job_dirs(runs_dir: Path) -> list[Path]:
-    return sorted(
-        path.parent
-        for path in runs_dir.glob("*/artifacts/jobs/*/resource_usage.csv")
-        if path.is_file()
-    )
+    return find_job_dirs(runs_dir)
 
 
 def _row_durations(elapsed: Sequence[float]) -> list[float]:
@@ -347,10 +348,10 @@ def _load_trace_job(job_dir: Path) -> Optional[TraceJob]:
 
     if not segments:
         return None
-    request_id = job_dir.parents[2].name
+    request_id, job_id = job_identity(job_dir)
     return TraceJob(
         request_id=request_id,
-        job_id=job_dir.name,
+        job_id=job_id,
         workload=_workload_from_request_id(request_id),
         segments=tuple(segments),
     )
@@ -970,3 +971,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
