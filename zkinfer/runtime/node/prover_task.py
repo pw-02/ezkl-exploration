@@ -52,6 +52,7 @@ class LocalProverTask:
     phase_profile_percentile: float = 0.90
     phase_fallback_cpu_percent: float = 100.0
     predicted_peak_memory_gb: float = 0.0
+    lease_id: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -569,6 +570,7 @@ class ProverTaskRunner:
         manifest = {
             "request_id": task.request_id,
             "job_id": task.job_id,
+            "lease_id": task.lease_id,
             "node_id": task.node_id,
             "setup_key": task.setup_key,
             "setup_cache_dir": task.setup_cache_dir,
@@ -643,3 +645,4 @@ class ProverTaskRunner:
                 metrics.get("output_publish_time(s)", 0.0) or 0.0
             ),
         }
+

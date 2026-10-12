@@ -21,6 +21,7 @@ from zkinfer.runtime.models import (
     RequestStatus,
 )
 from zkinfer.runtime.request_builder import RequestBuilder
+from zkinfer.runtime.resource_profiles import get_profile_estimates, max_stage_memory_gb
 from zkinfer.runtime.scheduler import JobScheduler
 from zkinfer.runtime.state_store import CoordinatorStateStore
 from zkinfer.storage.artifact_store import ArtifactStore
@@ -72,6 +73,8 @@ class Coordinator:
         self.scheduler = JobScheduler(policy=self.scheduler_policy)
         self.request_builder = RequestBuilder(logger=logger)
         self.lock = threading.RLock()
+        self.profile_locks: Dict[str, threading.Lock] = {}
+        self.pending_job_reports: set[str] = set()
 
         self.finalization_pool = ThreadPoolExecutor(
             max_workers=2,
@@ -296,8 +299,24 @@ class Coordinator:
         with self.lock:
             job = self.active_jobs.get(job_id)
             if not job:
-                self.logger.error("Job %s not found in active_jobs", job_id)
-                return False
+                known_job = next(
+                    (item for request in self.active_requests.values()
+                     for item in request.proof_jobs if item.job_id == job_id),
+                    None,
+                )
+                if known_job is None and self.state_store:
+                    known_job = self.state_store.load_job(job_id)
+                # Retrying an accepted terminal result after a lost RPC reply
+                # must not append reports/events or trigger verification twice.
+                return bool(
+                    known_job
+                    and known_job.job_status in {JobStatus.COMPLETED, JobStatus.FAILED}
+                    and known_job.job_status.value == status
+                    and known_job.assigned_node_id == node_id
+                    and lease_id
+                    and known_job.lease_id == lease_id
+                    and known_job.artifact_manifest_ref == artifact_manifest_ref
+                )
             if job.assigned_node_id != node_id:
                 self.logger.error(
                     "Job %s result came from node %s but was leased to %s",
@@ -306,7 +325,7 @@ class Coordinator:
                     job.assigned_node_id,
                 )
                 return False
-            if lease_id and job.lease_id and lease_id != job.lease_id:
+            if not lease_id or lease_id != job.lease_id:
                 self.logger.error(
                     "Stale lease result for job %s: got %s expected %s",
                     job_id,
@@ -318,6 +337,10 @@ class Coordinator:
                 job_status = JobStatus(status)
             except ValueError:
                 self.logger.error("Invalid job status '%s' for job %s", status, job_id)
+                return False
+
+            if job_status not in {JobStatus.COMPLETED, JobStatus.FAILED}:
+                self.logger.error("Non-terminal result status '%s' for job %s", status, job_id)
                 return False
 
             job.completed_time = datetime.now(timezone.utc)
@@ -338,9 +361,14 @@ class Coordinator:
                 node_id=node_id,
                 status=f"JOB_{job_status.value}",
             )
+            self.pending_job_reports.add(job.job_id)
 
-        self._finalize_job(job, perf_metrics=perf_metrics)
-        self._schedule_request_finalization(job.inference_request_id)
+        try:
+            self._finalize_job(job, perf_metrics=perf_metrics)
+        finally:
+            with self.lock:
+                self.pending_job_reports.discard(job.job_id)
+            self._schedule_request_finalization(job.inference_request_id)
         return True
 
     def _enqueue_request(self, request: InferenceRequest) -> None:
@@ -494,6 +522,19 @@ class Coordinator:
         if not parent_request:
             return
 
+        # Serialise the entire shared-profile read/merge/write, not just CSV
+        # appends. Different requests can finish the same circuit concurrently.
+        profile_key = job.profiling_file_path or job.job_id
+        with self.lock:
+            profile_lock = self.profile_locks.setdefault(profile_key, threading.Lock())
+        with profile_lock:
+            self._write_job_report_and_profile(job, parent_request, perf_metrics)
+
+    def _write_job_report_and_profile(
+        self, job: ProofJob, parent_request: InferenceRequest,
+        perf_metrics: Optional[Dict],
+    ) -> None:
+
         job_report = write_job_report(
             job,
             perf_metrics=perf_metrics,
@@ -510,6 +551,19 @@ class Coordinator:
                 storage_type=self.proving_cache.backend,
                 s3_bucket=self.proving_cache.s3_bucket,
             )
+            estimates = get_profile_estimates(job_report)
+            with self.lock:
+                for request in self.active_requests.values():
+                    for queued_job in request.proof_jobs:
+                        if (queued_job.job_status == JobStatus.QUEUED
+                                and queued_job.profiling_file_path == job.profiling_file_path):
+                            queued_job.profiling_data = job_report
+                            queued_job.predicted_duration_s = float(
+                                estimates.get("job_runtime_s") or 0.0
+                            )
+                            queued_job.predicted_peak_memory_gb = max_stage_memory_gb(job_report)
+                            if self.state_store:
+                                self.state_store.save_job(queued_job)
 
     def _schedule_request_finalization(self, request_id: str) -> None:
         with self.lock:
@@ -517,6 +571,8 @@ class Coordinator:
             if not request:
                 return
             if not request.all_jobs_finished() or request.completed_time is not None:
+                return
+            if any(job.job_id in self.pending_job_reports for job in request.proof_jobs):
                 return
             if request_id in self.finalizing_requests:
                 return
@@ -680,3 +736,4 @@ class Coordinator:
                 exc,
                 exc_info=True,
             )
+

@@ -4,7 +4,6 @@ import time
 from typing import Any, Dict, List
 
 from zkinfer.config.runtime import ArtifactStoreConfig, ProvingCacheConfig
-from zkinfer.graph.onnx_splitter import split_onnx_model_with_inputs
 from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.runtime.models import ProofJob
 from zkinfer.runtime.resource_profiles import get_profile_estimates, max_stage_memory_gb
@@ -171,6 +170,10 @@ class RequestBuilder:
         )
 
     def _load_or_split_model(self, request):
+        # Model execution is needed only for request preparation, not for
+        # coordinator recovery, result handling, or control-plane tests.
+        from zkinfer.graph.onnx_splitter import split_onnx_model_with_inputs
+
         split_mode = (request.split_mode or "none").lower()
         self.logger.info(
             "Preparing request %s using split_mode=%s operators_per_partition=%s simplify_model=%s",
@@ -236,3 +239,4 @@ class RequestBuilder:
             storage_type=proving_cache.backend,
             s3_bucket=proving_cache.s3_bucket,
         )
+

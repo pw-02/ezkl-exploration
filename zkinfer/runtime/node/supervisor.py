@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -312,7 +313,13 @@ class NodeSupervisor:
                 )
             )
 
-        self.safe_grpc_call(_call, action=f"SubmitJobResult({status})")
+        ack = self.safe_grpc_call(_call, action=f"SubmitJobResult({status})")
+        if not ack.ok:
+            self.logger.warning(
+                "Coordinator rejected %s for job %s lease=%s",
+                status, lease.job_id, lease.lease_id,
+            )
+            return
         self.logger.info("Submitted %s for job %s", status, lease.job_id)
 
     def send_heartbeat(self) -> None:
@@ -414,10 +421,13 @@ class NodeSupervisor:
         return result
 
     def run_lease(self, lease) -> None:
+        with ExitStack() as cache_leases:
+            self._run_lease(lease, cache_leases)
+
+    def _run_lease(self, lease, cache_leases: ExitStack) -> None:
         local_task = None
-        setup_pinned = False
         try:
-            local_task = self.prepare_local_task(lease)
+            local_task = self.prepare_local_task(lease, cache_leases)
             with self.active_lock:
                 self.active_tasks[lease.job_id] = local_task
 
@@ -428,12 +438,10 @@ class NodeSupervisor:
                 result = self._run_prover_subprocess(local_task)
                 setup_publish_metrics = {}
             elif self.cache.setup_ready(local_task.setup_key):
-                self.cache.pin_setup(local_task.setup_key)
-                setup_pinned = True
                 result = self._run_prover_subprocess(local_task)
                 setup_publish_metrics = {}
             else:
-                with self.cache.setup_guard(local_task.setup_key, pin=True):
+                with self.cache.setup_guard(local_task.setup_key, pin=False):
                     if self.cache.setup_ready(local_task.setup_key):
                         result = self._run_prover_subprocess(local_task)
                         setup_publish_metrics = {}
@@ -477,16 +485,17 @@ class NodeSupervisor:
                 metrics={"node_id": self.node_id},
             )
         finally:
-            if setup_pinned and local_task:
-                self.cache.unpin_setup(local_task.setup_key)
             if local_task and os.path.exists(local_task.tmp_dir):
                 shutil.rmtree(local_task.tmp_dir, ignore_errors=True)
 
-    def prepare_local_task(self, lease) -> LocalProverTask:
+    def prepare_local_task(self, lease, cache_leases: ExitStack) -> LocalProverTask:
         prepare_started = time.perf_counter()
+        lease_id = lease.lease_id
+        if not lease_id or Path(lease_id).name != lease_id or lease_id in {".", ".."}:
+            raise ValueError("A job attempt requires a valid lease ID")
         request_dir = Path(self.cfg.node.runs_dir) / lease.request_id
-        tmp_dir = request_dir / "tmp" / lease.job_id
-        output_dir = request_dir / "artifacts" / "jobs" / lease.job_id
+        tmp_dir = request_dir / "tmp" / lease.job_id / lease_id
+        output_dir = request_dir / "artifacts" / "jobs" / lease.job_id / "attempts" / lease_id
         tmp_dir.mkdir(parents=True, exist_ok=True)
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -495,22 +504,23 @@ class NodeSupervisor:
         if self.cfg.jobs.transfer_only:
             model_path = ""
         else:
-            model_path, model_metrics = self.cache.materialize_with_metrics(
+            model_path, model_metrics = cache_leases.enter_context(self.cache.materialized_artifact(
                 from_pb_artifact(lease.model), filename_hint="model.onnx"
-            )
+            ))
             model_materialize_time_s = float(
                 model_metrics.get("materialize_time(s)", 0.0) or 0.0
             )
 
-        input_path, input_metrics = self.cache.materialize_with_metrics(
+        input_path, input_metrics = cache_leases.enter_context(self.cache.materialized_artifact(
             from_pb_artifact(lease.input), filename_hint="input.json"
-        )
+        ))
         input_materialize_time_s = float(
             input_metrics.get("materialize_time(s)", 0.0) or 0.0
         )
 
         setup_key = lease.setup_key or lease.job_id
         if self.cfg.proving_cache.enabled:
+            cache_leases.enter_context(self.cache.pinned_setup(setup_key))
             setup_cache_dir, setup_metrics = self.cache.restore_setup_cache_with_metrics(
                 from_pb_artifact(lease.setup_cache),
                 setup_key,
@@ -539,13 +549,17 @@ class NodeSupervisor:
             node_id=self.node_id,
             request_id=lease.request_id,
             job_id=lease.job_id,
+            lease_id=lease_id,
             setup_key=setup_key,
             model_path=model_path,
             input_path=input_path,
             setup_cache_dir=setup_cache_dir,
             tmp_dir=str(tmp_dir),
             output_dir=str(output_dir),
-            output_prefix=output_ref.uri or str(output_dir),
+            output_prefix=(
+                os.path.join(output_ref.uri, "attempts", lease_id)
+                if output_ref.uri else str(output_dir)
+            ),
             output_backend=output_ref.backend or self.cfg.artifact_store.backend,
             output_s3_bucket=output_ref.s3_bucket
             or self.cfg.artifact_store.s3_bucket
@@ -631,3 +645,4 @@ def main(cfg: DictConfig) -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -9,7 +9,6 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Dict, Optional, Tuple
 
-import ezkl
 from zkinfer.storage.s3 import (
     download_file,
     upload_file,
@@ -35,6 +34,8 @@ class EZKLProofStages:
         srs_dir: Optional[str] = None,
         logger: Optional[logging.Logger] = None,
     ):
+        import ezkl
+
         self.ezkl = ezkl
         self._fused_ezkl: Optional[ModuleType] = None
 
@@ -613,3 +614,4 @@ class EZKLProofStages:
 
         self._update_status("DONE")
         return metrics, self.ezkl_settings_dict
+

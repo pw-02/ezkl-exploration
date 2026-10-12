@@ -29,13 +29,15 @@ experiments/runs/
         artifacts/
           jobs/
             <job-id>/
-              resource_usage.csv
-              stage_transitions.csv
-              halo2_stage_transitions.csv
-              halo2_prover_cpu.csv
-              admission_profile_before.json
-              prover_process.log
-              ... proof outputs
+              attempts/
+                <lease-id>/
+                  resource_usage.csv
+                  stage_transitions.csv
+                  halo2_stage_transitions.csv
+                  halo2_prover_cpu.csv
+                  admission_profile_before.json
+                  prover_process.log
+                  ... proof outputs
         reports/
           job_report.csv
           request_report.csv
@@ -219,7 +221,7 @@ For distributed deployments, each physical node has its own local `storage/node/
 Raw execution data stays with each proof job. Under the campaign launchers the intended layout is:
 
 ```text
-experiments/runs/<campaign>/requests/<request>/artifacts/jobs/<job>/
+experiments/runs/<campaign>/requests/<request>/artifacts/jobs/<job>/attempts/<lease>/
   resource_usage.csv
   stage_transitions.csv
   halo2_stage_transitions.csv
@@ -302,3 +304,4 @@ node:
   phase_admission:
     enabled: true
 ```
+

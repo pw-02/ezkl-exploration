@@ -2,7 +2,9 @@ import csv
 import hashlib
 import json
 import os
+import stat
 import threading
+import uuid
 from pathlib import Path
 from typing import Any, Dict
 
@@ -87,8 +89,22 @@ def save_json(data: Any, path_or_key: str, storage_type: str = "filesystem", s3_
     parent = os.path.dirname(path_or_key)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    with open(path_or_key, "w", encoding="utf-8") as file:
-        json.dump(data, file, indent=4)
+    # Readers see either the previous complete document or the new one.
+    tmp_path = os.path.join(
+        parent or ".", f".{Path(path_or_key).name}.{uuid.uuid4().hex}.tmp"
+    )
+    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            try:
+                os.fchmod(file.fileno(), stat.S_IMODE(os.stat(path_or_key).st_mode))
+            except FileNotFoundError:
+                pass
+            json.dump(data, file, indent=4)
+        os.replace(tmp_path, path_or_key)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 def remove(path_or_key: str, storage_type: str = "filesystem", s3_bucket: str | None = None) -> None:
@@ -156,3 +172,4 @@ def read_csv_as_dict(csv_file: str) -> Dict:
         return {}
     df = pd.read_csv(csv_file)
     return df.to_dict(orient="list")
+

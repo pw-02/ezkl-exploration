@@ -32,6 +32,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+try:
+    from .trace_layout import find_job_dirs, job_identity
+except ImportError:  # direct script execution
+    from trace_layout import find_job_dirs, job_identity
+
 
 PROCESS_TYPES = {"process", "process_tree"}
 IGNORE_STAGES = {"", "UNKNOWN", "STARTING", "DONE", "FAILED"}
@@ -127,11 +132,7 @@ def _weighted_duration(samples: pd.DataFrame) -> pd.Series:
 
 
 def _find_job_dirs(runs_dir: Path) -> list[Path]:
-    return sorted(
-        path.parent
-        for path in runs_dir.glob("*/artifacts/jobs/*/resource_usage.csv")
-        if path.is_file()
-    )
+    return find_job_dirs(runs_dir)
 
 
 def _load_perf_metrics(runs_dir: Path) -> pd.DataFrame:
@@ -209,9 +210,7 @@ def _resource_frame(job_dir: Path) -> pd.DataFrame:
 
 
 def _job_identity(job_dir: Path) -> tuple[str, str, str]:
-    # <runs>/<request>/artifacts/jobs/<job>
-    request_id = job_dir.parents[2].name
-    job_id = job_dir.name
+    request_id, job_id = job_identity(job_dir)
     workload = _workload_from_request_id(request_id)
     return request_id, job_id, workload
 
@@ -881,3 +880,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -61,7 +61,7 @@ def write_job_report(
     """Append one canonical derived row for a completed/failed proof job.
 
     Raw time-series and transition files stay with the job under
-    ``experiments/runs/<request>/artifacts/jobs/<job>``. ``job_report.csv`` is
+    ``experiments/runs/<request>/artifacts/jobs/<job>/attempts/<lease>``. ``job_report.csv`` is
     the single request-level table of derived per-job scalar metrics; the old
     duplicate ``perf_metrics.csv`` is intentionally no longer written.
     """
@@ -71,6 +71,7 @@ def write_job_report(
     report = {
         "request_id": job.inference_request_id,
         "job_id": job.job_id,
+        "lease_id": job.lease_id,
         "job_name": job.job_name,
         "setup_key": perf_metrics.get("setup_key") or getattr(job, "artifact_key", ""),
         "node_id": perf_metrics.get("node_id", job.assigned_node_id or "unknown"),
@@ -188,3 +189,4 @@ def write_request_report(request, out_dir: str = "reports") -> Dict[str, Any]:
 
     write_dict_to_csv(report, os.path.join(out_dir, "request_report.csv"))
     return report
+

@@ -221,6 +221,14 @@ class CoordinatorStateStore:
                 recovered.append((request, jobs))
             return recovered
 
+    def load_job(self, job_id: str) -> ProofJob | None:
+        """Read a terminal job too, for completion retries after a restart."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload_json FROM jobs WHERE job_id = ?", (job_id,)
+            ).fetchone()
+        return self._job_from_dict(json.loads(row["payload_json"])) if row else None
+
     @staticmethod
     def _request_to_dict(request: InferenceRequest) -> Dict:
         return {
@@ -337,3 +345,4 @@ class CoordinatorStateStore:
         job.error_message = data.get("error_message")
         job.retry_count = int(data.get("retry_count") or 0)
         return job
+
