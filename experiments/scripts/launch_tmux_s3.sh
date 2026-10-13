@@ -5,10 +5,10 @@ set -euo pipefail
 WORKLOAD="${1:-mnist_gan}"
 COORDINATOR_HOST="${2:-127.0.0.1}"
 COORDINATOR_PORT="${3:-50051}"
-OPERATORS_PER_PARTITION="${4:-1}"
-PHASE_ADMISSION="${5:-true}"
-MAX_ACTIVE_JOBS="${MAX_ACTIVE_JOBS:-1}"
-RETAIN_RUN_ARTIFACTS="${RETAIN_RUN_ARTIFACTS:-false}"
+PARTITION_SIZE="${4:-1}"
+STAGE_ADMISSION="${5:-true}"
+MAX_CONCURRENT_JOBS="${MAX_CONCURRENT_JOBS:-1}"
+KEEP_PROOF_ARTIFACTS="${KEEP_PROOF_ARTIFACTS:-false}"
 
 SESSION="${TMUX_SESSION:-zkexp}"
 CONDA_ENV="${CONDA_ENV:-zk}"
@@ -16,20 +16,20 @@ S3_BUCKET="${ZKINFER_S3_BUCKET:-zkinfer}"
 S3_PREFIX="${ZKINFER_S3_PREFIX:-zkinfer-reviewer}"
 ROOT_DIR="$(pwd)"
 
-if [[ ! "$OPERATORS_PER_PARTITION" =~ ^[1-9][0-9]*$ ]]; then
-    echo "Error: operators_per_partition must be a positive integer."
+if [[ ! "$PARTITION_SIZE" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: partition_size must be a positive integer."
     exit 1
 fi
-if [[ "$PHASE_ADMISSION" != "true" && "$PHASE_ADMISSION" != "false" ]]; then
-    echo "Error: phase_admission must be true or false."
+if [[ "$STAGE_ADMISSION" != "true" && "$STAGE_ADMISSION" != "false" ]]; then
+    echo "Error: stage admission must be true or false."
     exit 1
 fi
-if [[ "$RETAIN_RUN_ARTIFACTS" != "true" && "$RETAIN_RUN_ARTIFACTS" != "false" ]]; then
-    echo "Error: RETAIN_RUN_ARTIFACTS must be true or false."
+if [[ "$KEEP_PROOF_ARTIFACTS" != "true" && "$KEEP_PROOF_ARTIFACTS" != "false" ]]; then
+    echo "Error: KEEP_PROOF_ARTIFACTS must be true or false."
     exit 1
 fi
-if [[ "$MAX_ACTIVE_JOBS" != "null" && ! "$MAX_ACTIVE_JOBS" =~ ^[1-9][0-9]*$ ]]; then
-    echo "Error: MAX_ACTIVE_JOBS must be a positive integer or 'null'."
+if [[ "$MAX_CONCURRENT_JOBS" != "null" && ! "$MAX_CONCURRENT_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: MAX_CONCURRENT_JOBS must be a positive integer or 'null'."
     exit 1
 fi
 if [[ -z "$S3_BUCKET" ]]; then
@@ -41,35 +41,35 @@ if [[ ! -f "${ROOT_DIR}/experiments/submit_job.py" ]]; then
     exit 1
 fi
 
-RUN_ID="$(date -u +%Y-%m-%d_%H-%M-%S)_${WORKLOAD}_g${OPERATORS_PER_PARTITION}_admission-${PHASE_ADMISSION}"
+RUN_ID="$(date -u +%Y-%m-%d_%H-%M-%S)_${WORKLOAD}_g${PARTITION_SIZE}_admission-${STAGE_ADMISSION}"
 CAMPAIGN_DIR="${ROOT_DIR}/experiments/runs/${RUN_ID}"
 REQUESTS_DIR="${CAMPAIGN_DIR}/requests"
 LOGS_DIR="${CAMPAIGN_DIR}/logs"
 CONFIG_DIR="${CAMPAIGN_DIR}/config"
 STATE_DB="${CAMPAIGN_DIR}/coordinator_state.sqlite3"
 
-# Node-local persistent runtime state is kept outside experiment results.
-NODE_CACHE_DIR="${ROOT_DIR}/storage/node/cache"
+LOCAL_CACHE_DIR="${ROOT_DIR}/storage/node/cache"
 NODE_RUNTIME_DIR="${ROOT_DIR}/storage/node/runtime"
-mkdir -p "$REQUESTS_DIR" "$LOGS_DIR" "$CONFIG_DIR" "$NODE_CACHE_DIR" "$NODE_RUNTIME_DIR"
+mkdir -p "$REQUESTS_DIR" "$LOGS_DIR" "$CONFIG_DIR" "$LOCAL_CACHE_DIR" "$NODE_RUNTIME_DIR"
 
 cat > "${CONFIG_DIR}/launch.txt" <<EOF
 workload=${WORKLOAD}
 coordinator_host=${COORDINATOR_HOST}
 coordinator_port=${COORDINATOR_PORT}
-operators_per_partition=${OPERATORS_PER_PARTITION}
-phase_admission=${PHASE_ADMISSION}
-max_active_jobs=${MAX_ACTIVE_JOBS}
-retain_run_artifacts=${RETAIN_RUN_ARTIFACTS}
+partitioning_enabled=true
+partition_size=${PARTITION_SIZE}
+stage_admission=${STAGE_ADMISSION}
+max_concurrent_jobs=${MAX_CONCURRENT_JOBS}
+keep_proof_artifacts=${KEEP_PROOF_ARTIFACTS}
 state_db=${STATE_DB}
 s3_bucket=${S3_BUCKET}
 s3_prefix=${S3_PREFIX}
-node_cache_dir=${NODE_CACHE_DIR}
+local_cache=${LOCAL_CACHE_DIR}
 node_runtime_dir=${NODE_RUNTIME_DIR}
 EOF
 
-if [[ "$MAX_ACTIVE_JOBS" == "null" && "$PHASE_ADMISSION" == "false" ]]; then
-    echo "Warning: unlimited active jobs with phase admission disabled can start many provers at once."
+if [[ "$MAX_CONCURRENT_JOBS" == "null" && "$STAGE_ADMISSION" == "false" ]]; then
+    echo "Warning: unlimited concurrent jobs with stage admission disabled can start many provers at once."
     echo "Use this only for an intentional concurrency characterization run."
 fi
 
@@ -82,7 +82,7 @@ cd ${ROOT_DIR} && \
 source \$(conda info --base)/etc/profile.d/conda.sh && \
 conda activate ${CONDA_ENV} && \
 export PYTHONPATH=${ROOT_DIR}:\${PYTHONPATH:-} && \
-export ZKINFER_RETAIN_RUN_ARTIFACTS=${RETAIN_RUN_ARTIFACTS}"
+export ZKINFER_RETAIN_RUN_ARTIFACTS=${KEEP_PROOF_ARTIFACTS}"
 
 RUNTIME_CFG="\
 coordinator.host=${COORDINATOR_HOST} \
@@ -92,16 +92,16 @@ coordinator.logs_dir=${LOGS_DIR} \
 coordinator.state_db_path=${STATE_DB} \
 node.runs_dir=${REQUESTS_DIR} \
 node.logs_dir=${LOGS_DIR} \
-node.local_cache_dir=${NODE_CACHE_DIR} \
+node.local_cache.path=${LOCAL_CACHE_DIR} \
 node.runtime_state_dir=${NODE_RUNTIME_DIR} \
-node.max_active_jobs=${MAX_ACTIVE_JOBS} \
-node.phase_admission.enabled=${PHASE_ADMISSION} \
+node.max_concurrent_jobs=${MAX_CONCURRENT_JOBS} \
+node.stage_admission.enabled=${STAGE_ADMISSION} \
 storage.backend=s3 \
 storage.s3_bucket=${S3_BUCKET} \
 storage.s3_prefix=${S3_PREFIX} \
-storage.requests_prefix=requests \
-storage.reuse_setup=true \
-storage.setup_prefix=setup"
+storage.request_data.path=requests \
+storage.reusable_setup.enabled=true \
+storage.reusable_setup.path=setup"
 
 echo "Checking access to S3 bucket: ${S3_BUCKET}"
 if command -v aws >/dev/null 2>&1; then
@@ -145,14 +145,14 @@ tmux send-keys -t "$SESSION:submit" \
     "${BASE_CMD} && \
     echo 'Campaign directory: ${CAMPAIGN_DIR}' && \
     echo 'Workload: ${WORKLOAD}' && \
-    echo 'Phase admission: ${PHASE_ADMISSION}' && \
-    echo 'Max active jobs: ${MAX_ACTIVE_JOBS}' && \
-    echo 'Retain run artifacts: ${RETAIN_RUN_ARTIFACTS}' && \
-    echo 'Operators per partition: ${OPERATORS_PER_PARTITION}' && \
+    echo 'Stage admission: ${STAGE_ADMISSION}' && \
+    echo 'Max concurrent jobs: ${MAX_CONCURRENT_JOBS}' && \
+    echo 'Keep proof artifacts: ${KEEP_PROOF_ARTIFACTS}' && \
+    echo 'Partition size: ${PARTITION_SIZE}' && \
     python experiments/submit_job.py \
     +workload=${WORKLOAD} \
-    execution.partitioning.mode=fixed_size \
-    execution.partitioning.operators_per_partition=${OPERATORS_PER_PARTITION} \
+    execution.partitioning_enabled=true \
+    execution.partition_size=${PARTITION_SIZE} \
     launch.coordinator_host=${COORDINATOR_HOST} \
     launch.coordinator_port=${COORDINATOR_PORT} \
     2>&1 | tee -a ${LOGS_DIR}/submit.tmux.log" C-m
@@ -162,8 +162,7 @@ echo "Campaign directory: ${CAMPAIGN_DIR}"
 echo "Requests: ${REQUESTS_DIR}"
 echo "Node runtime storage: ${ROOT_DIR}/storage/node"
 echo "S3 location: s3://${S3_BUCKET}/${S3_PREFIX}"
-echo "Phase admission: ${PHASE_ADMISSION}"
-echo "Max active jobs: ${MAX_ACTIVE_JOBS}"
-echo "Retain run artifacts: ${RETAIN_RUN_ARTIFACTS}"
+echo "Stage admission: ${STAGE_ADMISSION}"
+echo "Max concurrent jobs: ${MAX_CONCURRENT_JOBS}"
+echo "Keep proof artifacts: ${KEEP_PROOF_ARTIFACTS}"
 tmux attach -t "$SESSION"
-
