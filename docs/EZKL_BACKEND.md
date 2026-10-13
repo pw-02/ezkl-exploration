@@ -1,30 +1,12 @@
 # EZKL backend notes
 
-zkInfer uses a custom EZKL/Halo2 fork rather than treating EZKL as an opaque CLI. The serving path remains file-backed so reusable setup artifacts can live in the node cache and shared storage, but the first proof for a circuit avoids one unnecessary proving-key round trip.
+zkInfer uses a custom EZKL/Halo2 fork rather than treating EZKL as an opaque CLI. The serving path remains file-backed so reusable setup artifacts can live in the node cache and shared storage, while the cold fused path avoids immediately serializing and reloading a proving key before proof construction.
 
 ## Cold versus warm proving
 
-A **warm** request already has `pk.json`/`vk.json` in the node setup bundle, or restores them from the shared setup store. zkInfer then uses the normal `ezkl.prove(...)` path. EZKL still deserializes the cached proving key once for that proof.
+A **warm** execution restores compatible settings, compiled circuit, PK, and VK from reusable setup and then generates the request-specific witness and proof.
 
-A **cold** request has no cached proving key. The old path was:
-
-```text
-EZKL setup
-  load compiled circuit
-  load SRS
-  generate VK/PK
-  serialize VK/PK to disk
-  return to Python
-
-EZKL prove
-  load witness
-  reload compiled circuit
-  deserialize the PK just generated
-  reload SRS
-  prove
-```
-
-The custom `pw-02/ezkl:dzkml-v10.29` branch now contains a fused cold-path primitive. It loads the witness/circuit once, loads the prover parameters once, generates the PK, and passes that in-memory PK directly into proof creation. After proving, the PK/VK are persisted so later requests can use the normal warm cache.
+A **cold** execution has no reusable derived setup. The custom fused path keeps the circuit, prover parameters, and newly generated proving key alive from key generation into proof construction, then persists reusable setup afterward.
 
 ```text
 load witness + compiled circuit
@@ -37,39 +19,29 @@ PERSISTING_KEYS
   write PK/VK for future warm requests
 PERSISTING_PROOF
   write proof
-PUBLISHING_KEYS
-  publish setup artifacts to shared cache when configured
 ```
 
-This optimization deliberately does **not** add an in-memory proving-key cache across requests. It only removes the immediate generate -> serialize -> deserialize cycle on a cold request.
+This does not create an in-memory proving-key cache across requests. It only removes the immediate generate -> serialize -> deserialize cycle within one cold execution.
 
-## Python bridge
+The custom EZKL wheel must be rebuilt whenever the Rust/PyO3 implementation changes.
 
-The custom EZKL shared library exports a small auxiliary PyO3 module named `_ezkl_fused` in addition to the existing `ezkl` module. `zkinfer/backends/ezkl/ezkl_prover.py` loads `_ezkl_fused` lazily from the installed EZKL extension only when a normal request has a setup-cache miss.
+## Key-generation instrumentation
 
-The custom EZKL wheel must therefore be rebuilt after updating the fork. If zkInfer reports that `_ezkl_fused` or `setup_and_prove` is unavailable, the installed wheel is older than the source checkout.
-
-The warm path and `setup_only` path continue to use the existing EZKL bindings.
-
-## Fused-path metrics
-
-The fused binding reports separate timings for:
+The current EZKL instrumentation also records trace-only boundaries around:
 
 ```text
-keygen_time_s
-prove_time_s
-key_persist_time_s
-proof_persist_time_s
-total_time_s
+LOAD_PARAMS
+KEYGEN_VK
+KEYGEN_PK
 ```
 
-zkInfer records these alongside the existing request/job metrics. `ezkl_fused_unattributed_time(s)` is the remainder of the fused call, primarily loading/preparing the witness and compiled circuit plus binding overhead.
+These events are for characterization. They are not scheduler-visible admission boundaries. They should become controllable runtime stages only if measurement shows a resource-distinct boundary that the backend can safely expose.
 
 ## Stage-labelled resource traces
 
-`zkinfer.profiling.resource_logger` adds a `stage` column to every system and prover-process sample in `resource_usage.csv`. It reads the job's `status.txt`, which the EZKL stage wrapper updates whenever the proof changes phase.
+Each prover writes its current stage to `status.txt`. `resource_usage.csv` samples the prover process tree and records the current stage alongside CPU and RSS. Exact transition timestamps are stored separately, so stage duration does not depend on the resource sampling interval.
 
-Typical labels are:
+Typical runtime labels include:
 
 ```text
 CALIBRATING
@@ -80,59 +52,45 @@ KEY_GEN
 PROVING
 PERSISTING_KEYS
 PERSISTING_PROOF
-PUBLISHING_KEYS
 DONE
 ```
 
-When a prover is blocked by local resource admission, the trace records `WAITING_FOR_<STAGE>` instead of attributing the wait to the previous phase.
+When a prover is waiting for local admission, the trace records `WAITING_FOR_<STAGE>` rather than attributing the wait to the preceding stage.
 
-Each proof job runs in its own OS process. The resource logger monitors that prover process and its children, so concurrent local jobs get separate resource files and separate process-tree CPU/RSS measurements.
+## Node-local stage admission
 
-## Resource-aware node admission
+`StageAdmissionController` gates major EZKL stages using predicted peak memory for the same setup key. `StageResourceHistory` stores recent node-local observations from successful runs.
 
-The local controller does not use a configured job count or heavy-phase count. Before each major EZKL phase, the prover subprocess requests a resource reservation based on historical measurements for the same `setup_key`.
+With fewer than five prior memory observations, the estimate is the observed maximum. Once enough history exists, the controller uses the configured historical percentile. If no stage history exists, it falls back to the job's whole-job peak estimate.
 
-A successful run feeds values such as:
-
-```text
-stage_key_gen_max_memory(GB)
-stage_key_gen_avg_cpu_machine(%)
-stage_proving_max_memory(GB)
-stage_proving_avg_cpu_machine(%)
-```
-
-back into a node-local profile. Subsequent runs use those observations to estimate the requested phase. With only a few samples zkInfer uses the observed maximum; with more samples it uses the configured percentile.
-
-If no phase history is available, admission falls back to the existing whole-job peak-memory prediction and a conservative CPU estimate. The phase runs only when its predicted demand fits alongside currently reserved phases within the node's memory and CPU budgets.
-
-The switch is:
+The configuration is:
 
 ```yaml
 node:
-  phase_admission:
+  stage_admission:
     enabled: true
+    memory_safety_reserve_gb: 8
+    history_percentile: 0.90
 ```
 
-Set it to `false` for the same runtime without phase-level gating. This is the intended experiment baseline.
+`memory_safety_reserve_gb` is a fixed node reserve that remains unavailable to proof workloads independently of prediction history.
 
-The fused cold path reserves the larger historical resource envelope of `KEY_GEN` and `PROVING` for the combined Rust call because Python cannot intervene between the two phases. The stage file still changes internally, so resource traces retain the distinction.
+CPU is measured for characterization but is not an admission constraint.
 
-Admission metrics include total/stage wait time, predicted memory/CPU, estimate source, and number of historical samples.
+The fused cold call is admitted as `FUSED_KEYGEN_PROVE` because Python cannot intervene between key generation and proof construction inside the Rust call. Its memory estimate conservatively uses the larger available historical envelope from `KEY_GEN` and `PROVING` when both have been observed.
 
-## What to compare after rebuilding
+Stage-admission metrics include wait time, predicted memory, actual memory, prediction error, estimate source, and historical sample count.
 
-For the same cold workload, compare the old and fused paths using:
+## Recommended comparisons
 
-```text
-cold end-to-end latency
-PK generation time
-PK serialization time
-PK deserialization/read time
-SRS loading time
-proof time
-bytes written/read for PK artifacts
-peak memory by stage
+For cold versus warm setup, compare end-to-end latency, setup/key-generation time, proof time, setup restoration/persistence, proving-key size, and peak memory by stage.
+
+For the node admission mechanism, compare:
+
+```yaml
+node:
+  stage_admission:
+    enabled: false
 ```
 
-Then compare `node.phase_admission.enabled=false` and `true` under the same hardware, workload, partitioning, and global scheduler. Useful outcomes are throughput, request latency, makespan, peak memory, OOM rate, admission wait time, CPU utilization, and prediction error between the reserved and measured stage envelopes.
-
+against the same workload with admission enabled, holding hardware, partitioning, setup condition, and coordinator scheduling policy fixed. Useful outcomes include throughput, request latency, makespan, peak memory, OOM/failure rate, admission wait time, and memory-prediction error.
