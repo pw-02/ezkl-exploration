@@ -10,6 +10,7 @@ from unittest.mock import patch
 from experiments.microbench.repeatability import (
     select_jobs, settings_fingerprint, setup_key, fresh_output, percentile, write_json,
     prepare, worker,
+    pin_proving_settings,
 )
 from experiments.microbench.analysis import estimate, analyze_rows, measurements
 
@@ -61,6 +62,41 @@ class SelectionTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             path=Path(tmp)/"bench";fresh_output(path)
             with self.assertRaises(FileExistsError):fresh_output(path)
+
+    def test_cold_calibration_variation_pins_configuration_and_preserves_candidate(self):
+        with TemporaryDirectory() as tmp:
+            root=Path(tmp);settings=root/'setup/settings.json';reference=root/'reference_settings.json'
+            fingerprint=root/'fingerprint'
+            write_json(settings,{'run_args':{'input_scale':13}})
+            pin_proving_settings(settings,reference,fingerprint,root/'first',False)
+            write_json(settings,{'run_args':{'input_scale':12}})
+            actual=pin_proving_settings(settings,reference,fingerprint,root/'second',False)
+            self.assertEqual(actual['run_args']['input_scale'],13)
+            self.assertEqual(json.loads(settings.read_text()),actual)
+            self.assertEqual(json.loads((root/'second/calibration_candidate.json').read_text())['run_args']['input_scale'],12)
+            self.assertTrue(json.loads((root/'second/calibration_record.json').read_text())['candidate_differs'])
+
+    def test_warm_settings_mismatch_is_not_silently_pinned(self):
+        with TemporaryDirectory() as tmp:
+            root=Path(tmp);settings=root/'settings.json';reference=root/'reference_settings.json'
+            fingerprint=root/'fingerprint'
+            write_json(settings,{'scale':13})
+            pin_proving_settings(settings,reference,fingerprint,root/'first',False)
+            write_json(settings,{'scale':12})
+            with self.assertRaisesRegex(ValueError,'Warm cached settings'):
+                pin_proving_settings(settings,reference,fingerprint,root/'warm',True)
+            self.assertEqual(json.loads(settings.read_text())['scale'],12)
+            self.assertTrue((root/'warm/calibration_candidate.json').is_file())
+
+    def test_changed_reference_configuration_fails(self):
+        with TemporaryDirectory() as tmp:
+            root=Path(tmp);settings=root/'settings.json';reference=root/'reference_settings.json'
+            fingerprint=root/'fingerprint'
+            write_json(settings,{'scale':13})
+            pin_proving_settings(settings,reference,fingerprint,root/'first',False)
+            write_json(reference,{'scale':12})
+            with self.assertRaisesRegex(ValueError,'Reference proving settings'):
+                pin_proving_settings(settings,reference,fingerprint,root/'second',False)
 
 
 class PredictionTests(unittest.TestCase):

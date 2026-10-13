@@ -53,6 +53,43 @@ def settings_fingerprint(path):
     return digest(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
 
 
+def pin_proving_settings(settings_path, reference_path, fingerprint_path, output, used_cache):
+    """Keep the actual proving configuration fixed, preserving calibration candidates.
+
+    Cold runs still perform calibration. Its candidate may differ, but compilation
+    and key generation use the first calibrated configuration. Warm cached settings
+    must already match that configuration; changing them would invalidate cached keys.
+    """
+    settings_path, reference_path = Path(settings_path), Path(reference_path)
+    fingerprint_path, output = Path(fingerprint_path), Path(output)
+    candidate = json.loads(settings_path.read_text())
+    candidate_hash = settings_fingerprint(settings_path)
+    write_json(output / "calibration_candidate.json", candidate)
+    if not reference_path.exists():
+        if used_cache:
+            raise ValueError("Warm setup has no reference proving settings")
+        if fingerprint_path.exists() and fingerprint_path.read_text().strip() != candidate_hash:
+            raise ValueError("Legacy fingerprint has no matching reference settings; start a new measurement directory")
+        write_json(reference_path, candidate)
+    reference = json.loads(reference_path.read_text())
+    reference_hash = settings_fingerprint(reference_path)
+    if fingerprint_path.exists() and fingerprint_path.read_text().strip() != reference_hash:
+        raise ValueError("Reference proving settings were modified")
+    changed = candidate_hash != reference_hash
+    record = {"candidate_fingerprint": candidate_hash, "reference_fingerprint": reference_hash,
+              "candidate_differs": changed, "used_cache": used_cache,
+              "policy": "compile and prove using first calibrated settings"}
+    write_json(output / "calibration_record.json", record)
+    write_json(output / "settings_snapshot.json", reference)
+    if used_cache and changed:
+        raise ValueError("Warm cached settings differ from the reference; cached circuit/keys cannot be reused")
+    if not used_cache:
+        write_json(settings_path, reference)
+    fingerprint_path.parent.mkdir(parents=True, exist_ok=True)
+    fingerprint_path.write_text(reference_hash + "\n")
+    return reference
+
+
 def setup_key(model_bytes):
     value = {"model_sha256": digest(model_bytes), "setup_identity": POLICY}
     return digest(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
@@ -263,12 +300,9 @@ def worker(task_path):
                 result = super().calibrate_settings_with_fallback()
             finally:
                 self.input_data_path = request_input
-            fingerprint = settings_fingerprint(self.settings_path)
-            if fingerprint_path.exists() and fingerprint_path.read_text().strip() != fingerprint:
-                raise ValueError("Calibration settings changed; refusing to mix different circuits")
-            fingerprint_path.parent.mkdir(parents=True, exist_ok=True)
-            fingerprint_path.write_text(fingerprint + "\n")
-            write_json(output / "settings_snapshot.json", json.loads(Path(self.settings_path).read_text()))
+            self.ezkl_settings_dict = pin_proving_settings(
+                self.settings_path, fingerprint_path.with_name("reference_settings.json"),
+                fingerprint_path, output, used_cache=bool(result[0]))
             return result
 
     class Runner(ProverTaskRunner):
@@ -356,7 +390,8 @@ def metadata(args, manifest):
             "prepared_manifest_sha256": digest((args.prepared / "manifest.json").read_bytes()),
             "sampling_interval_s": args.interval, "repetitions": manifest["repetitions"],
             "verification_enabled": args.verify,
-            "setup_conditions": args.conditions, "calibration_policy": "same reference input for every repetition",
+            "setup_conditions": args.conditions,
+            "calibration_policy": "same reference input; actual proving settings pinned to first calibration",
             "srs_dir": str(args.srs_dir.resolve()), "setup_scope": "filesystem artifacts; OS page cache not flushed"}
 
 
