@@ -26,13 +26,6 @@ from omegaconf import DictConfig, OmegaConf
 from zkinfer.client.api import ZKInferenceClient
 
 
-PARTITION_MODE_TO_RUNTIME = {
-    "whole_model": "none",
-    "single_operator": "single_ops",
-    "fixed_size": "fixed",
-}
-
-
 class ActiveRunLog:
     def __init__(self) -> None:
         self.file = None
@@ -165,7 +158,7 @@ def make_env(cfg: DictConfig) -> dict:
     env["PYTHONPATH"] = f".:{existing}" if existing else "."
     env["PYTHONUNBUFFERED"] = "1"
     env["ZKINFER_RETAIN_RUN_ARTIFACTS"] = (
-        "true" if bool(cfg.jobs.get("retain_run_artifacts", False)) else "false"
+        "true" if bool(cfg.output.keep_proof_artifacts) else "false"
     )
     return env
 
@@ -180,10 +173,12 @@ def common_overrides(cfg: DictConfig) -> List[str]:
         f"coordinator.logs_dir={logs_dir}",
         f"node.runs_dir={requests_dir}",
         f"node.logs_dir={logs_dir}",
-        f"jobs.scheduler={cfg.jobs.scheduler}",
-        f"storage.requests_prefix={cfg.storage.requests_dir}",
-        f"storage.setup_prefix={cfg.storage.setup_dir}",
-        f"storage.reuse_setup={str(bool(cfg.storage.reuse_setup)).lower()}",
+        f"node.local_cache_dir={cfg.storage.local_cache.path}",
+        f"node.local_cache_max_gb={cfg.storage.local_cache.max_gb}",
+        f"jobs.scheduler={cfg.coordinator.scheduling_policy}",
+        f"storage.requests_prefix={cfg.storage.request_data.path}",
+        f"storage.setup_prefix={cfg.storage.reusable_setup.path}",
+        f"storage.reuse_setup={str(bool(cfg.storage.reusable_setup.enabled)).lower()}",
     ]
 
 
@@ -198,18 +193,20 @@ def coordinator_command(cfg: DictConfig) -> List[str]:
 
 
 def node_command(cfg: DictConfig) -> List[str]:
-    phase = cfg.node.phase_admission
+    admission = cfg.node.stage_admission
     overrides = [
         f"node.node_id={cfg.node.node_id}",
-        f"node.resource_monitor_interval_sec={cfg.node.resource_monitor_interval_sec}",
-        f"node.phase_admission.enabled={str(bool(phase.enabled)).lower()}",
-        f"node.phase_admission.memory_reserve_gb={phase.memory_reserve_gb}",
-        f"node.phase_admission.cpu_budget_percent={phase.cpu_budget_percent}",
-        f"node.phase_admission.profile_percentile={phase.profile_percentile}",
-        f"node.phase_admission.fallback_cpu_percent={phase.fallback_cpu_percent}",
+        f"node.resource_monitor_interval_sec={cfg.node.resource_sampling_interval_sec}",
+        f"node.phase_admission.enabled={str(bool(admission.enabled)).lower()}",
+        f"node.phase_admission.memory_reserve_gb={admission.memory_safety_reserve_gb}",
+        f"node.phase_admission.profile_percentile={admission.history_percentile}",
+        # CPU is still measured for characterization, but is not an admission
+        # constraint in the experiment-facing policy.
+        "node.phase_admission.cpu_budget_percent=100",
+        "node.phase_admission.fallback_cpu_percent=0",
     ]
-    if cfg.node.get("max_active_jobs", None) is not None:
-        overrides.append(f"node.max_active_jobs={int(cfg.node.max_active_jobs)}")
+    if cfg.node.get("max_concurrent_jobs", None) is not None:
+        overrides.append(f"node.max_active_jobs={int(cfg.node.max_concurrent_jobs)}")
 
     return [
         sys.executable,
@@ -295,14 +292,7 @@ def load_workload_cfg(workload_name: str) -> DictConfig:
 
 
 def _runtime_partition_mode(cfg: DictConfig) -> str:
-    mode = str(cfg.execution.partitioning.mode)
-    try:
-        return PARTITION_MODE_TO_RUNTIME[mode]
-    except KeyError as exc:
-        choices = ", ".join(PARTITION_MODE_TO_RUNTIME)
-        raise ValueError(
-            f"Unsupported partitioning.mode={mode!r}; choose one of: {choices}"
-        ) from exc
+    return "fixed" if bool(cfg.execution.partitioning_enabled) else "none"
 
 
 def submit_workload(
@@ -310,12 +300,15 @@ def submit_workload(
     cfg: DictConfig,
     workload_cfg: DictConfig,
 ) -> str:
+    partition_size = int(cfg.execution.partition_size)
+    if partition_size < 1:
+        raise ValueError("execution.partition_size must be at least one")
     return client.submit_inference_request(
         name=workload_cfg.name,
         onnx_model_path=workload_cfg.onnx_file,
         input_data_path=workload_cfg.input_file,
         split_mode=_runtime_partition_mode(cfg),
-        ops_per_chunk=int(cfg.execution.partitioning.operators_per_partition),
+        ops_per_chunk=partition_size,
         simplify_model=cfg.execution.get("simplify_model", False),
         input_shapes=workload_cfg.get("input_shapes", None),
     )
@@ -334,28 +327,35 @@ def save_request_metadata(
     OmegaConf.save(config=cfg, f=config_dir / "experiment_config.yaml")
     OmegaConf.save(config=workload_cfg, f=config_dir / "workload_config.yaml")
     (config_dir / "runtime_partitioning.txt").write_text(
-        f"mode={_runtime_partition_mode(cfg)}\n"
-        f"operators_per_partition={int(cfg.execution.partitioning.operators_per_partition)}\n",
+        f"enabled={str(bool(cfg.execution.partitioning_enabled)).lower()}\n"
+        f"partition_size={int(cfg.execution.partition_size)}\n"
+        f"runtime_mode={_runtime_partition_mode(cfg)}\n",
         encoding="utf-8",
     )
     return logs_dir
 
 
 def cleanup_request_store(cfg: DictConfig, logger: logging.Logger, request_ids: List[str]) -> None:
-    if bool(cfg.storage.retain_requests_after_run):
-        logger.info("Retaining request inputs and proof outputs after experiment run")
+    if bool(cfg.output.keep_request_data):
+        logger.info("Keeping canonical request inputs and proof outputs after experiment run")
         return
 
-    request_root = Path(str(cfg.storage.requests_dir)).resolve()
-    protected = [Path(str(cfg.storage.setup_dir)).resolve(), Path(str(cfg.paths.runs_dir)).resolve()]
+    request_root = Path(str(cfg.storage.request_data.path)).resolve()
+    protected = [
+        Path(str(cfg.storage.reusable_setup.path)).resolve(),
+        Path(str(cfg.paths.runs_dir)).resolve(),
+    ]
     for request_id in set(request_ids):
         if not request_id or Path(request_id).name != request_id or request_id in {".", ".."}:
             raise ValueError("Invalid request ID for cleanup")
         request_dir = request_root / request_id
         if any(request_dir == path or request_dir in path.parents for path in protected):
-            raise ValueError("Request cleanup would remove setup state or experiment records")
+            raise ValueError("Request cleanup would remove reusable setup or experiment records")
         shutil.rmtree(request_dir, ignore_errors=True)
-        logger.info("Deleted request-store objects for %s; reusable setup and run records retained", request_id)
+        logger.info(
+            "Deleted canonical request data for %s; reusable setup and experiment records retained",
+            request_id,
+        )
 
 
 @hydra.main(config_path="./config", config_name="config", version_base=None)
