@@ -13,15 +13,7 @@ from zkinfer.runtime.node.prover_task import LocalProverTask, ProverTaskRunner
 
 
 class _ExpectedCalibrationCandidateFilter(logging.Filter):
-    """Suppress expected EZKL calibration-search candidate rejections.
-
-    EZKL evaluates several candidate parameterizations during calibration. Some
-    candidates are expected to be rejected, for example when their lookup range
-    or extended domain does not fit. EZKL currently emits those candidate
-    rejections at ERROR level even when calibration later succeeds, which makes
-    successful characterization runs look faulty. Keep genuine calibration
-    failures and all other errors visible.
-    """
+    """Suppress expected EZKL calibration-search candidate rejections."""
 
     _EXPECTED_PREFIXES = (
         "calibration failed extended k is too large",
@@ -38,7 +30,10 @@ class _ExpectedCalibrationCandidateFilter(logging.Filter):
 def _write_json_atomic(path: str, payload: dict) -> None:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(prefix=destination.name + ".", dir=str(destination.parent))
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=destination.name + ".",
+        dir=str(destination.parent),
+    )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as file:
             json.dump(payload, file, indent=2)
@@ -58,20 +53,23 @@ def _persist_task_metadata(task: LocalProverTask) -> None:
     )
 
 
-def _normalize_disabled_admission_metrics(task: LocalProverTask, metrics: dict) -> None:
-    """Do not report synthetic phase predictions when admission is disabled."""
-    if task.phase_admission_enabled:
+def _normalize_disabled_admission_metrics(
+    task: LocalProverTask,
+    metrics: dict,
+) -> None:
+    """Do not report synthetic stage predictions when admission is disabled."""
+    if task.stage_admission_enabled:
         return
 
     keep = {
-        "phase_admission_enabled",
-        "phase_admission_wait_time(s)",
+        "stage_admission_enabled",
+        "stage_admission_wait_time(s)",
     }
     for key in list(metrics):
-        if key.startswith("phase_admission_") and key not in keep:
+        if key.startswith("stage_admission_") and key not in keep:
             metrics.pop(key, None)
-    metrics["phase_admission_enabled"] = False
-    metrics["phase_admission_wait_time(s)"] = 0.0
+    metrics["stage_admission_enabled"] = False
+    metrics["stage_admission_wait_time(s)"] = 0.0
 
 
 def run_task(task_file: str, result_file: str) -> int:
@@ -119,7 +117,9 @@ def run_task(task_file: str, result_file: str) -> int:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Execute one isolated zkInfer prover task")
+    parser = argparse.ArgumentParser(
+        description="Execute one isolated zkInfer prover task"
+    )
     parser.add_argument("--task_file", required=True)
     parser.add_argument("--result_file", required=True)
     return parser.parse_args()
