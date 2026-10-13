@@ -25,7 +25,7 @@ from zkinfer.runtime.request_builder import RequestBuilder
 from zkinfer.storage.shared_store import SharedStorage
 
 
-def build_jobs(cfg, shared, name="model", transfer_only=False):
+def build_jobs(cfg, shared, name="model"):
     request = InferenceRequest(name, "model.onnx", "input.json", "none", 1, "fifo")
     partition = SimpleNamespace(
         name="partition", parent_hash="parent", sub_hash="legacy-md5",
@@ -34,7 +34,7 @@ def build_jobs(cfg, shared, name="model", transfer_only=False):
     )
     builder = RequestBuilder(logging.getLogger("test-storage"))
     with patch.object(builder, "_load_or_split_model", return_value=[partition]):
-        jobs = builder.build_jobs(request, shared, cfg.setup_store, 1, transfer_only)
+        jobs = builder.build_jobs(request, shared, cfg.setup_store, 1)
     return request, jobs[0]
 
 
@@ -139,7 +139,7 @@ class NodeSetupLayoutTests(unittest.TestCase):
                 self.assertEqual(cold.transfer_metrics["setup"]["bytes_downloaded"], 0)
                 self.assertTrue(cold.transfer_metrics["model"]["cache_hit"])
 
-    def test_cold_request_still_has_reusable_model_and_transfer_only_has_none(self):
+    def test_cold_request_still_has_reusable_model_reference(self):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = runtime_config(Path(tmp))
             shared = SharedStorage("filesystem", cfg.setup_store.root_dir, cfg.request_store.root_dir)
@@ -148,23 +148,9 @@ class NodeSetupLayoutTests(unittest.TestCase):
             self.assertFalse(cold.setup_cache_ref.is_empty)
             self.assertTrue(Path(cold.model_ref.uri).exists())
             self.assertIsNone(cold.profiling_file_path)
-            _, transfer = build_jobs(cfg, shared, transfer_only=True)
-            self.assertTrue(transfer.model_ref.is_empty)
-            self.assertTrue(transfer.setup_cache_ref.is_empty)
-            transfer_cfg = replace(cfg, jobs=replace(cfg.jobs, transfer_only=True))
-            with ExitStack() as pins:
-                task = NodeSupervisor(transfer_cfg).prepare_local_task(lease_for(transfer), pins)
-                self.assertEqual(task.model_path, "")
-                self.assertEqual(task.transfer_metrics["setup"]["bytes_downloaded"], 0)
 
 
 class StorageConfigurationTests(unittest.TestCase):
-    def test_legacy_cache_flags_fail_clearly_instead_of_silently_changing_experiments(self):
-        cfg = OmegaConf.load(Path(__file__).parents[1] / "zkinfer/config/config.yaml")
-        cfg.storage.setup_cache_enabled = True
-        with self.assertRaisesRegex(ValueError, "setup_cache_enabled.*reuse_setup"):
-            build_runtime_config(cfg)
-
     def test_default_layout_and_s3_roots(self):
         cfg = OmegaConf.load(Path(__file__).parents[1] / "zkinfer/config/config.yaml")
         runtime = build_runtime_config(cfg)
@@ -173,8 +159,8 @@ class StorageConfigurationTests(unittest.TestCase):
         cfg.storage.backend = "s3"
         cfg.storage.s3_bucket = "bucket"
         cfg.storage.s3_prefix = "prefix"
-        cfg.storage.setup_prefix = "setup"
-        cfg.storage.requests_prefix = "requests"
+        cfg.storage.reusable_setup.path = "setup"
+        cfg.storage.request_data.path = "requests"
         runtime = build_runtime_config(cfg)
         self.assertEqual(runtime.setup_store.root_dir, "prefix/setup")
         self.assertEqual(runtime.request_store.root_dir, "prefix/requests")
@@ -185,7 +171,7 @@ class StorageConfigurationTests(unittest.TestCase):
 
     def test_overlapping_roots_are_rejected(self):
         cfg = OmegaConf.load(Path(__file__).parents[1] / "zkinfer/config/config.yaml")
-        cfg.storage.requests_prefix = "storage"
+        cfg.storage.request_data.path = "storage"
         with self.assertRaisesRegex(ValueError, "must be separate"):
             build_runtime_config(cfg)
         cfg.storage.backend = "s3"
@@ -196,11 +182,17 @@ class StorageConfigurationTests(unittest.TestCase):
     def test_suite_cleanup_deletes_only_its_requests_and_preserves_setup_and_other_requests(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            cfg = OmegaConf.create({"storage": {
-                "requests_dir": str(root / "requests"), "setup_dir": str(root / "setup"),
-                "retain_requests_after_run": False, "reuse_setup": True,
-            }, "paths": {"runs_dir": str(root / "runs")}})
-            own, other, model = root / "requests/own/proofs", root / "requests/other/proofs", root / "setup/key/model.onnx"
+            cfg = OmegaConf.create({
+                "storage": {
+                    "request_data": {"path": str(root / "requests")},
+                    "reusable_setup": {"path": str(root / "setup"), "enabled": True},
+                },
+                "output": {"keep_request_data": False},
+                "paths": {"runs_dir": str(root / "runs")},
+            })
+            own = root / "requests/own/proofs"
+            other = root / "requests/other/proofs"
+            model = root / "setup/key/model.onnx"
             for path in (own, other, model):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"data")
@@ -208,17 +200,17 @@ class StorageConfigurationTests(unittest.TestCase):
             self.assertFalse(own.exists())
             self.assertTrue(other.exists())
             self.assertTrue(model.exists())
-            cfg.storage.retain_requests_after_run = True
+            cfg.output.keep_request_data = True
             cleanup_request_store(cfg, Mock(), ["other"])
             self.assertTrue(other.exists())
 
-    def test_experiment_overrides_use_new_runtime_keys(self):
+    def test_experiment_overrides_use_current_runtime_keys(self):
         cfg = OmegaConf.load(Path(__file__).parents[1] / "experiments/config/config.yaml")
         overrides = common_overrides(cfg)
-        self.assertIn("storage.setup_prefix=storage/setup", overrides)
-        self.assertIn("storage.requests_prefix=storage/requests", overrides)
-        self.assertIn("storage.reuse_setup=false", overrides)
-        self.assertFalse(any("artifact_prefix" in item or "transfer_prefix" in item for item in overrides))
+        self.assertIn("storage.reusable_setup.path=storage/setup", overrides)
+        self.assertIn("storage.request_data.path=storage/requests", overrides)
+        self.assertIn("storage.reusable_setup.enabled=false", overrides)
+        self.assertIn("coordinator.scheduling_policy=lpt", overrides)
         with initialize_config_dir(config_dir=str(Path(__file__).parents[1] / "zkinfer/config"), version_base=None):
             resolved = compose(config_name="config", overrides=overrides)
         runtime = build_runtime_config(resolved)
