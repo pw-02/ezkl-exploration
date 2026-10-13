@@ -23,8 +23,6 @@ class StageAdmissionConfig:
     memory_safety_reserve_gb: float
     history_percentile: float
 
-    # Compatibility accessors for runtime code that still uses the older
-    # internal names. CPU is deliberately not an admission policy input.
     @property
     def memory_reserve_gb(self) -> float:
         return self.memory_safety_reserve_gb
@@ -55,8 +53,6 @@ class NodeConfig:
     local_cache_max_bytes: int
     runtime_state_dir: str
 
-    # Compatibility accessors keep the runtime implementation stable while the
-    # public configuration vocabulary is simplified.
     @property
     def resource_monitor_interval_sec(self) -> float:
         return self.resource_sampling_interval_sec
@@ -93,16 +89,13 @@ class SetupStoreConfig:
 class JobConfig:
     scheduling_policy: str
     max_retries: int
+    # Compatibility tombstone. The transfer-only experiment mode is no longer
+    # configurable or created by build_runtime_config.
+    transfer_only: bool = False
 
     @property
     def scheduler(self) -> str:
         return self.scheduling_policy
-
-    @property
-    def transfer_only(self) -> bool:
-        # Transfer-only was an experiment-specific benchmark mode and is no
-        # longer part of normal proof-serving semantics.
-        return False
 
 
 @dataclass(frozen=True)
@@ -148,7 +141,11 @@ def _gb_to_bytes(value) -> int:
 
 def _resolve_request_store_config(cfg: DictConfig) -> RequestStoreConfig:
     backend = cfg.storage.backend
-    request_path = str(cfg.storage.request_data.get("path", "storage/requests"))
+    if "request_data" in cfg.storage:
+        request_path = str(cfg.storage.request_data.get("path", "storage/requests"))
+    else:
+        request_path = str(cfg.storage.get("requests_prefix", "storage/requests"))
+
     if backend == "filesystem":
         return RequestStoreConfig(
             "filesystem",
@@ -171,9 +168,13 @@ def _resolve_request_store_config(cfg: DictConfig) -> RequestStoreConfig:
 
 def _resolve_setup_store_config(cfg: DictConfig) -> SetupStoreConfig:
     backend = cfg.storage.backend
-    reusable_setup = cfg.storage.reusable_setup
-    enabled = bool(reusable_setup.get("enabled", False))
-    setup_path = str(reusable_setup.get("path", "storage/setup"))
+    if "reusable_setup" in cfg.storage:
+        reusable_setup = cfg.storage.reusable_setup
+        enabled = bool(reusable_setup.get("enabled", False))
+        setup_path = str(reusable_setup.get("path", "storage/setup"))
+    else:
+        enabled = bool(cfg.storage.get("reuse_setup", False))
+        setup_path = str(cfg.storage.get("setup_prefix", "storage/setup"))
 
     if backend == "filesystem":
         return SetupStoreConfig(
@@ -221,22 +222,24 @@ def _resolve_verification_config(cfg: DictConfig) -> VerificationConfig:
 
 
 def _resolve_stage_admission_config(cfg: DictConfig) -> StageAdmissionConfig:
-    admission = cfg.node.get("stage_admission", {})
+    if "stage_admission" in cfg.node:
+        admission = cfg.node.stage_admission
+        reserve = admission.get("memory_safety_reserve_gb", 8.0)
+        percentile = admission.get("history_percentile", 0.90)
+    else:
+        admission = cfg.node.get("phase_admission", {})
+        reserve = admission.get("memory_reserve_gb", 8.0)
+        percentile = admission.get("profile_percentile", 0.90)
+
     return StageAdmissionConfig(
         enabled=bool(admission.get("enabled", True)),
-        memory_safety_reserve_gb=max(
-            0.0,
-            float(admission.get("memory_safety_reserve_gb", 8.0)),
-        ),
-        history_percentile=min(
-            1.0,
-            max(0.5, float(admission.get("history_percentile", 0.90))),
-        ),
+        memory_safety_reserve_gb=max(0.0, float(reserve)),
+        history_percentile=min(1.0, max(0.5, float(percentile))),
     )
 
 
 def _resolve_max_concurrent_jobs(cfg: DictConfig) -> Optional[int]:
-    value = cfg.node.get("max_concurrent_jobs", None)
+    value = cfg.node.get("max_concurrent_jobs", cfg.node.get("max_active_jobs", None))
     if value is None:
         return None
     return max(1, int(value))
@@ -254,8 +257,16 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
     coordinator_logs_dir = _resolve_path(cfg.coordinator.logs_dir)
     node_runs_dir = _resolve_path(cfg.node.runs_dir)
     node_logs_dir = _resolve_path(cfg.node.logs_dir)
-    node_cache_cfg = cfg.node.get("local_cache", {})
-    node_cache_dir = _resolve_path(node_cache_cfg.get("path", "storage/node/cache"))
+
+    if "local_cache" in cfg.node:
+        node_cache_cfg = cfg.node.local_cache
+        node_cache_path = node_cache_cfg.get("path", "storage/node/cache")
+        node_cache_max_gb = node_cache_cfg.get("max_gb", 100)
+    else:
+        node_cache_path = cfg.node.get("local_cache_dir", "storage/node/cache")
+        node_cache_max_gb = cfg.node.get("local_cache_max_gb", 100)
+    node_cache_dir = _resolve_path(node_cache_path)
+
     node_runtime_state_dir = _resolve_path(
         cfg.node.get("runtime_state_dir", "storage/node/runtime")
     )
@@ -299,6 +310,15 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
         node_cache_dir.mkdir(parents=True, exist_ok=True)
         node_runtime_state_dir.mkdir(parents=True, exist_ok=True)
 
+    resource_sampling_interval = cfg.node.get(
+        "resource_sampling_interval_sec",
+        cfg.node.get("resource_monitor_interval_sec", 1.0),
+    )
+    scheduling_policy = cfg.coordinator.get(
+        "scheduling_policy",
+        cfg.get("jobs", {}).get("scheduler", "fifo"),
+    )
+
     return RuntimeConfig(
         coordinator=CoordinatorConfig(
             host=cfg.coordinator.host,
@@ -313,21 +333,19 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
             runs_dir=str(node_runs_dir),
             logs_dir=str(node_logs_dir),
             job_poll_interval_sec=int(cfg.node.job_poll_interval_sec),
-            resource_sampling_interval_sec=max(
-                0.05,
-                float(cfg.node.resource_sampling_interval_sec),
-            ),
+            resource_sampling_interval_sec=max(0.05, float(resource_sampling_interval)),
             max_concurrent_jobs=_resolve_max_concurrent_jobs(cfg),
             stage_admission=stage_admission,
             local_cache_dir=str(node_cache_dir),
-            local_cache_max_bytes=_gb_to_bytes(node_cache_cfg.get("max_gb", 100)),
+            local_cache_max_bytes=_gb_to_bytes(node_cache_max_gb),
             runtime_state_dir=str(node_runtime_state_dir),
         ),
         request_store=request_store,
         setup_store=setup_store,
         jobs=JobConfig(
-            scheduling_policy=str(cfg.coordinator.scheduling_policy),
-            max_retries=int(cfg.jobs.max_retries),
+            scheduling_policy=str(scheduling_policy),
+            max_retries=int(cfg.get("jobs", {}).get("max_retries", 1)),
+            transfer_only=False,
         ),
         heartbeat=HeartbeatConfig(
             interval_sec=int(cfg.heartbeat.interval_sec),
