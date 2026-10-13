@@ -22,7 +22,9 @@ jobs:
   # fifo: request-fair queue order
   # lpt: longest predicted job first within the selected request
   # cache_aware: prefer setup already present on the polling node
-  # resource_aware: use stage resource profiles plus cache locality
+  # resource_aware: reject jobs that cannot fit the machine, then use cache
+  # locality and duration only as coarse placement preferences. Stage-level
+  # admission remains node-local.
   scheduler: lpt
   # Keep proof.pf/witness.json/vk.json/settings.json under experiments/runs.
   # false keeps only traces/logs/manifests there; canonical proof artifacts still
@@ -43,11 +45,14 @@ node:
 
   phase_admission:
     # false is appropriate for isolated Section 3 characterization runs.
+    # Memory is the primary admission resource. The fixed reserve is retained
+    # independently of historical predictions. CPU fallback is zero so unknown
+    # CPU demand does not become a scheduling constraint by default.
     enabled: false
     memory_reserve_gb: 8
     cpu_budget_percent: 100
     profile_percentile: 0.90
-    fallback_cpu_percent: 100
+    fallback_cpu_percent: 0
 
 storage:
   # ONNX partitions and reusable settings/circuit/PK/VK share one setup identity.
