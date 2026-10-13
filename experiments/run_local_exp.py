@@ -171,14 +171,14 @@ def common_overrides(cfg: DictConfig) -> List[str]:
         f"coordinator.port={cfg.launch.coordinator_port}",
         f"coordinator.runs_dir={requests_dir}",
         f"coordinator.logs_dir={logs_dir}",
+        f"coordinator.scheduling_policy={cfg.coordinator.scheduling_policy}",
         f"node.runs_dir={requests_dir}",
         f"node.logs_dir={logs_dir}",
-        f"node.local_cache_dir={cfg.storage.local_cache.path}",
-        f"node.local_cache_max_gb={cfg.storage.local_cache.max_gb}",
-        f"jobs.scheduler={cfg.coordinator.scheduling_policy}",
-        f"storage.requests_prefix={cfg.storage.request_data.path}",
-        f"storage.setup_prefix={cfg.storage.reusable_setup.path}",
-        f"storage.reuse_setup={str(bool(cfg.storage.reusable_setup.enabled)).lower()}",
+        f"node.local_cache.path={cfg.storage.local_cache.path}",
+        f"node.local_cache.max_gb={cfg.storage.local_cache.max_gb}",
+        f"storage.request_data.path={cfg.storage.request_data.path}",
+        f"storage.reusable_setup.path={cfg.storage.reusable_setup.path}",
+        f"storage.reusable_setup.enabled={str(bool(cfg.storage.reusable_setup.enabled)).lower()}",
     ]
 
 
@@ -196,17 +196,13 @@ def node_command(cfg: DictConfig) -> List[str]:
     admission = cfg.node.stage_admission
     overrides = [
         f"node.node_id={cfg.node.node_id}",
-        f"node.resource_monitor_interval_sec={cfg.node.resource_sampling_interval_sec}",
-        f"node.phase_admission.enabled={str(bool(admission.enabled)).lower()}",
-        f"node.phase_admission.memory_reserve_gb={admission.memory_safety_reserve_gb}",
-        f"node.phase_admission.profile_percentile={admission.history_percentile}",
-        # CPU is still measured for characterization, but is not an admission
-        # constraint in the experiment-facing policy.
-        "node.phase_admission.cpu_budget_percent=100",
-        "node.phase_admission.fallback_cpu_percent=0",
+        f"node.resource_sampling_interval_sec={cfg.node.resource_sampling_interval_sec}",
+        f"node.stage_admission.enabled={str(bool(admission.enabled)).lower()}",
+        f"node.stage_admission.memory_safety_reserve_gb={admission.memory_safety_reserve_gb}",
+        f"node.stage_admission.history_percentile={admission.history_percentile}",
     ]
     if cfg.node.get("max_concurrent_jobs", None) is not None:
-        overrides.append(f"node.max_active_jobs={int(cfg.node.max_concurrent_jobs)}")
+        overrides.append(f"node.max_concurrent_jobs={int(cfg.node.max_concurrent_jobs)}")
 
     return [
         sys.executable,
