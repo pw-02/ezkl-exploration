@@ -141,10 +141,10 @@ def _gb_to_bytes(value) -> int:
 
 def _resolve_request_store_config(cfg: DictConfig) -> RequestStoreConfig:
     backend = cfg.storage.backend
-    if "request_data" in cfg.storage:
-        request_path = str(cfg.storage.request_data.get("path", "storage/requests"))
+    if "requests_prefix" in cfg.storage:
+        request_path = str(cfg.storage.requests_prefix)
     else:
-        request_path = str(cfg.storage.get("requests_prefix", "storage/requests"))
+        request_path = str(cfg.storage.request_data.get("path", "storage/requests"))
 
     if backend == "filesystem":
         return RequestStoreConfig(
@@ -168,13 +168,13 @@ def _resolve_request_store_config(cfg: DictConfig) -> RequestStoreConfig:
 
 def _resolve_setup_store_config(cfg: DictConfig) -> SetupStoreConfig:
     backend = cfg.storage.backend
-    if "reusable_setup" in cfg.storage:
+    if "setup_prefix" in cfg.storage or "reuse_setup" in cfg.storage:
+        enabled = bool(cfg.storage.get("reuse_setup", False))
+        setup_path = str(cfg.storage.get("setup_prefix", "storage/setup"))
+    else:
         reusable_setup = cfg.storage.reusable_setup
         enabled = bool(reusable_setup.get("enabled", False))
         setup_path = str(reusable_setup.get("path", "storage/setup"))
-    else:
-        enabled = bool(cfg.storage.get("reuse_setup", False))
-        setup_path = str(cfg.storage.get("setup_prefix", "storage/setup"))
 
     if backend == "filesystem":
         return SetupStoreConfig(
@@ -222,14 +222,14 @@ def _resolve_verification_config(cfg: DictConfig) -> VerificationConfig:
 
 
 def _resolve_stage_admission_config(cfg: DictConfig) -> StageAdmissionConfig:
-    if "stage_admission" in cfg.node:
-        admission = cfg.node.stage_admission
-        reserve = admission.get("memory_safety_reserve_gb", 8.0)
-        percentile = admission.get("history_percentile", 0.90)
-    else:
-        admission = cfg.node.get("phase_admission", {})
+    if "phase_admission" in cfg.node:
+        admission = cfg.node.phase_admission
         reserve = admission.get("memory_reserve_gb", 8.0)
         percentile = admission.get("profile_percentile", 0.90)
+    else:
+        admission = cfg.node.get("stage_admission", {})
+        reserve = admission.get("memory_safety_reserve_gb", 8.0)
+        percentile = admission.get("history_percentile", 0.90)
 
     return StageAdmissionConfig(
         enabled=bool(admission.get("enabled", True)),
@@ -239,7 +239,10 @@ def _resolve_stage_admission_config(cfg: DictConfig) -> StageAdmissionConfig:
 
 
 def _resolve_max_concurrent_jobs(cfg: DictConfig) -> Optional[int]:
-    value = cfg.node.get("max_concurrent_jobs", cfg.node.get("max_active_jobs", None))
+    if "max_active_jobs" in cfg.node:
+        value = cfg.node.max_active_jobs
+    else:
+        value = cfg.node.get("max_concurrent_jobs", None)
     if value is None:
         return None
     return max(1, int(value))
@@ -258,13 +261,13 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
     node_runs_dir = _resolve_path(cfg.node.runs_dir)
     node_logs_dir = _resolve_path(cfg.node.logs_dir)
 
-    if "local_cache" in cfg.node:
-        node_cache_cfg = cfg.node.local_cache
+    if "local_cache_dir" in cfg.node:
+        node_cache_path = cfg.node.local_cache_dir
+        node_cache_max_gb = cfg.node.get("local_cache_max_gb", 100)
+    else:
+        node_cache_cfg = cfg.node.get("local_cache", {})
         node_cache_path = node_cache_cfg.get("path", "storage/node/cache")
         node_cache_max_gb = node_cache_cfg.get("max_gb", 100)
-    else:
-        node_cache_path = cfg.node.get("local_cache_dir", "storage/node/cache")
-        node_cache_max_gb = cfg.node.get("local_cache_max_gb", 100)
     node_cache_dir = _resolve_path(node_cache_path)
 
     node_runtime_state_dir = _resolve_path(
@@ -310,14 +313,16 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
         node_cache_dir.mkdir(parents=True, exist_ok=True)
         node_runtime_state_dir.mkdir(parents=True, exist_ok=True)
 
-    resource_sampling_interval = cfg.node.get(
-        "resource_sampling_interval_sec",
-        cfg.node.get("resource_monitor_interval_sec", 1.0),
-    )
-    scheduling_policy = cfg.coordinator.get(
-        "scheduling_policy",
-        cfg.get("jobs", {}).get("scheduler", "fifo"),
-    )
+    if "resource_monitor_interval_sec" in cfg.node:
+        resource_sampling_interval = cfg.node.resource_monitor_interval_sec
+    else:
+        resource_sampling_interval = cfg.node.get("resource_sampling_interval_sec", 1.0)
+
+    jobs_cfg = cfg.get("jobs", {})
+    if "scheduler" in jobs_cfg:
+        scheduling_policy = jobs_cfg.scheduler
+    else:
+        scheduling_policy = cfg.coordinator.get("scheduling_policy", "fifo")
 
     return RuntimeConfig(
         coordinator=CoordinatorConfig(
@@ -344,7 +349,7 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
         setup_store=setup_store,
         jobs=JobConfig(
             scheduling_policy=str(scheduling_policy),
-            max_retries=int(cfg.get("jobs", {}).get("max_retries", 1)),
+            max_retries=int(jobs_cfg.get("max_retries", 1)),
             transfer_only=False,
         ),
         heartbeat=HeartbeatConfig(
