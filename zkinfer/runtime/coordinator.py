@@ -45,7 +45,7 @@ class Coordinator:
         self.jobs_config = runtime_config.jobs
         self.heartbeat_config = runtime_config.heartbeat
         self.verification_config = runtime_config.verification
-        self.scheduler_policy = self.jobs_config.scheduler or "fifo"
+        self.scheduler_policy = self.jobs_config.scheduling_policy or "fifo"
         self.max_retries = self.jobs_config.max_retries
 
         self.shared_storage = SharedStorage(
@@ -150,9 +150,7 @@ class Coordinator:
             shared_storage=self.shared_storage,
             setup_store=self.setup_store,
             max_retries=self.max_retries,
-            transfer_only=self.jobs_config.transfer_only,
         )
-        request.preparation_metrics["transfer_only"] = self.jobs_config.transfer_only
         request.preparation_metrics["scheduler_policy"] = self.scheduler_policy
         self._enqueue_request(request)
         self.logger.info(
@@ -313,8 +311,6 @@ class Coordinator:
                 )
                 if known_job is None and self.state_store:
                     known_job = self.state_store.load_job(job_id)
-                # Retrying an accepted terminal result after a lost RPC reply
-                # must not append reports/events or trigger verification twice.
                 return bool(
                     known_job
                     and known_job.job_status in {JobStatus.COMPLETED, JobStatus.FAILED}
@@ -529,8 +525,6 @@ class Coordinator:
         if not parent_request:
             return
 
-        # Serialise the entire shared-profile read/merge/write, not just CSV
-        # appends. Different requests can finish the same circuit concurrently.
         profile_key = job.profiling_file_path or job.job_id
         with self.lock:
             profile_lock = self.profile_locks.setdefault(profile_key, threading.Lock())
@@ -702,6 +696,7 @@ class Coordinator:
                 "Failed to write final reports for request %s",
                 parent_request.request_id,
             )
+
     def _verify_request_if_enabled(
         self,
         request: InferenceRequest,
@@ -725,4 +720,3 @@ class Coordinator:
                 exc_info=True,
             )
             return {"enabled": True, "valid": False, "error": str(exc)}
-
