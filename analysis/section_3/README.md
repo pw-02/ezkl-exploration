@@ -4,31 +4,31 @@ Section 3 should establish the execution properties, opportunities, and challeng
 
 The intended argument is:
 
-1. model decomposition exposes independent proof jobs, but those jobs are heterogeneous;
+1. model partitioning exposes independent proof jobs, but those jobs are heterogeneous;
 2. memory demand changes substantially over the lifetime of a proof job;
 3. repeated executions of the same circuit may make that demand predictable;
 4. setup work is expensive and reusable, which makes placement stateful;
 5. concurrent inference requests expose enough independent work for these properties to matter in a serving system.
 
-Section 4 can then introduce the corresponding mechanisms: global job placement, historical resource profiles, node-local phase admission, and setup-aware placement. Admission ON/OFF throughput comparisons and scheduler ablations belong in the system evaluation.
+Section 4 can then introduce the corresponding mechanisms: global job placement, historical resource profiles, node-local stage admission, and setup-aware placement. Admission ON/OFF throughput comparisons and scheduler ablations belong in the system evaluation.
 
 ## Questions Section 3 must answer
 
-### 1. What does decomposition expose?
+### 1. What does partitioning expose?
 
 Measure how partitioning changes the number of proof jobs, aggregate proving cost, longest-job duration, and peak process memory. Show the distribution across partitions rather than only averages.
 
-The important question is whether fine-grained decomposition creates useful parallel work while also producing heterogeneous jobs that should not be treated as interchangeable.
+The important question is whether fine-grained partitioning creates useful parallel work while also producing heterogeneous jobs that should not be treated as interchangeable.
 
 ### 2. How does resource demand change during a proof job?
 
-Measure calibration, compilation, SRS preparation, witness generation, key generation, proving, and the instrumented Halo2 proving phases.
+Measure calibration, compilation, SRS preparation, witness generation, key generation, proving, and the instrumented Halo2 proving stages.
 
 For memory accounting use the following terminology throughout the analysis:
 
 - **Job peak**: assume an active proof job occupies its measured maximum memory for its full execution.
 - **Current stage**: use the measured peak of the EZKL stage that is currently executing.
-- **Fine-grained proving**: use the current EZKL-stage peak outside proving and the current instrumented Halo2 phase peak inside proving.
+- **Fine-grained proving**: use the current EZKL-stage peak outside proving and the current instrumented Halo2 stage peak inside proving.
 
 These are counterfactual memory-demand models, not runtime policies. They quantify how much information is lost when a scheduler reasons only about a job-level maximum.
 
@@ -60,23 +60,22 @@ For isolated characterization runs use:
 
 ```yaml
 execution:
-  partitioning:
-    mode: fixed_size
-    operators_per_partition: 1
+  partitioning_enabled: true
+  partition_size: 1
 node:
-  max_active_jobs: 1
-  resource_monitor_interval_sec: 0.25
-  phase_admission:
+  max_concurrent_jobs: 1
+  resource_sampling_interval_sec: 0.25
+  stage_admission:
     enabled: false
 ```
 
-Admission is disabled because these runs measure the workload rather than zkInfer's control policy. `max_active_jobs: 1` prevents unrelated jobs from overlapping and contaminating per-job resource traces.
+Admission is disabled because these runs measure the workload rather than zkInfer's control policy. `max_concurrent_jobs: 1` prevents unrelated jobs from overlapping and contaminating per-job resource traces.
 
 ## Recommended experiment order
 
 ### E1. Fine-grained job population
 
-Run MobileNetV2 and NanoGPT-4L with one meaningful operator per partition and one active proof job at a time.
+Run MobileNetV2 and NanoGPT-4L with `partition_size: 1` and one concurrent proof job at a time.
 
 Report:
 
@@ -111,7 +110,7 @@ Primary outputs:
 - average CPU;
 - fraction of runtime spent near the job peak;
 - differences between key generation and proving;
-- variation among Halo2 proving phases.
+- variation among Halo2 proving stages.
 
 A useful negative result is possible: if proving stays close to the job peak for most of execution, finer-grained memory accounting has limited value for that workload.
 
@@ -155,8 +154,8 @@ For workload characterization keep admission disabled and remove the count cap:
 
 ```yaml
 node:
-  max_active_jobs: null
-  phase_admission:
+  max_concurrent_jobs: null
+  stage_admission:
     enabled: false
 ```
 
@@ -191,68 +190,13 @@ The characterization script produces per-job and per-stage tables, repeatability
 
 ### A. Find the best packing opportunity
 
-For a small all-at-once workload, the `--oracle` mode performs an exact search for the minimum makespan subject to the measured phase ordering and the configured memory budget. Exact search is intentionally bounded by job count, phase count, and wall-clock search time because the problem is combinatorial.
-
-Example:
-
-```bash
-python analysis/section_3/simulate_scheduling.py \
-  --runs-dir experiments/runs \
-  --output-dir analysis/section_3/simulation \
-  --memory-budget-gb 760 \
-  --workload mobilenet_v2 \
-  --replicas 4 \
-  --oracle
-```
-
-The oracle should be treated as an upper bound on packing quality, not as an implementable online policy. The output explicitly records whether optimality was proven; a timed-out search must not be reported as optimal.
+For a small all-at-once workload, the `--oracle` mode performs an exact search for the minimum makespan subject to the measured stage ordering and the configured memory budget. Exact search is intentionally bounded by job count, stage count, and wall-clock search time because the problem is combinatorial.
 
 ### B. Compare scheduling heuristics
 
-The same simulator can compare work-conserving policies:
+The same simulator can compare work-conserving policies such as FIFO, LPT, SPT, memory-fit, and request-fair ordering. These are offline simulation heuristics and are deliberately separate from claims about the production coordinator implementation.
 
-- `fifo`: earliest-ready work first;
-- `lpt`: work from the job with the largest remaining runtime first;
-- `spt`: work from the job with the smallest remaining runtime first;
-- `memory_fit`: prefer the ready phase with the largest memory demand that fits;
-- `request_fair`: prefer the request that has received the fewest dispatches.
-
-These are offline simulation heuristics. They are deliberately separate from claims about the production coordinator implementation.
-
-For an offline batch, all requests can arrive at time zero. For a serving-style experiment, stagger synthetic request arrivals and optionally specify an SLO:
-
-```bash
-python analysis/section_3/simulate_scheduling.py \
-  --runs-dir experiments/runs \
-  --output-dir analysis/section_3/simulation_online \
-  --memory-budget-gb 760 \
-  --workload mobilenet_v2 \
-  --replicas 8 \
-  --request-arrival-gap-s 10 \
-  --slo-seconds 300
-```
-
-The simulator writes:
-
-- `simulation_summary.csv`: makespan, throughput, latency, utilization, and lower-bound efficiency;
-- `simulation_schedule.csv`: every simulated phase start/end decision;
-- `request_latency.csv`: per-request completion latency and SLO status;
-- `oracle_summary.csv`: exact-search status and minimum makespan when proven;
-- `oracle_schedule.csv`: the exact schedule for completed oracle searches;
-- `simulation_metadata.json`: complete simulator inputs.
-
-The simulator supports `--max-active-jobs 1` for a sequential-node baseline and zero for no count-based limit.
-
-## How to use simulation results in the paper
-
-For Section 3, use the simulator primarily to answer:
-
-- how much packing headroom exists in principle;
-- whether stage-level information captures most of the available headroom;
-- whether finer Halo2 information materially improves the bound;
-- whether concurrent requests expose enough work to exploit that headroom.
-
-Do **not** make the main Section 3 result a comparison of FIFO/LPT/etc. Those policy comparisons are more naturally used in the later system evaluation, where the simulated trends can guide which real policies are worth running.
+The simulator supports `--max-concurrent-jobs 1` for a sequential-node baseline and zero for no count-based limit.
 
 ## Interpretation rules
 
@@ -260,6 +204,6 @@ Do **not** make the main Section 3 result a comparison of FIFO/LPT/etc. Those po
 - Keep cold and cached-setup executions separate.
 - Do not infer memory peaks from timing logs alone; align them with process-memory traces.
 - Report when proving remains close to the job peak for most of a cached run; that is evidence that finer-grained accounting has limited opportunity.
-- Treat CPU as secondary unless it is stable enough to support a clear scheduling claim. Memory is the primary safety and packing resource.
-- If fine-grained proving captures little additional opportunity beyond current-stage accounting, stop at EZKL-stage admission in the final design.
+- Treat CPU as characterization data rather than an admission constraint. Memory is the primary safety and packing resource.
+- If finer-grained proving captures little additional opportunity beyond current-stage accounting, stop at EZKL-stage admission in the final design.
 - Separate offline objectives (makespan/throughput) from serving objectives (request latency/SLO attainment). A policy that is good for one is not automatically good for the other.
