@@ -136,7 +136,6 @@ def select_jobs(rows):
 def reports(source):
     if source.is_dir():
         return [(str(p), p.read_text()) for p in sorted(source.rglob("job_report.csv"))]
-    # Read members directly; never extract paths from the archive.
     with tarfile.open(source) as archive:
         return [(m.name, archive.extractfile(m).read().decode("utf-8-sig"))
                 for m in archive.getmembers() if m.isfile() and m.name.endswith("/reports/job_report.csv")]
@@ -280,20 +279,22 @@ def prepare(args):
 
 
 def worker(task_path):
-    # This executes in a fresh OS process for each proof.
     import logging
-    from zkinfer.runtime.node.prover_task import LocalProverTask, ProverTaskRunner, ResourceAwareEZKLProofStages
-    from zkinfer.runtime.node.phase_admission import ResourceAdmissionController
+    from zkinfer.runtime.node.prover_task import (
+        LocalProverTask,
+        ProverTaskRunner,
+        StageAwareEZKLProofStages,
+    )
+    from zkinfer.runtime.node.stage_admission import StageAdmissionController
+
     payload = json.loads(task_path.read_text())
     task = LocalProverTask.from_dict(payload["task"])
     output = Path(task.output_dir)
     logging.basicConfig(level=logging.INFO)
     fingerprint_path = Path(payload["fingerprint_path"])
 
-    class Stages(ResourceAwareEZKLProofStages):
+    class Stages(StageAwareEZKLProofStages):
         def calibrate_settings_with_fallback(self):
-            # Fix calibration input across repetitions; proof witnesses still vary.
-            # Otherwise input-dependent calibration can silently change the circuit.
             request_input = self.input_data_path
             try:
                 self.input_data_path = payload["calibration_input"]
@@ -317,18 +318,27 @@ def worker(task_path):
             raise RuntimeError("Resource sampler did not become ready before proof execution")
 
         def _build_proof_stages(self, task, status_file):
-            return Stages(input_data_path=task.input_path, onnx_model_path=task.model_path,
-                          artifact_dir=task.output_dir, proving_cache_enabled=True,
-                          proving_cache_overwrite=False, proving_cache_type="filesystem",
-                          proving_cache_root_dir=task.setup_dir, local_tmp_dir=task.tmp_dir,
-                          status_file=status_file, srs_dir=payload["srs_dir"],
-                          admission=ResourceAdmissionController(root_dir=task.phase_admission_dir,
-                              setup_key=task.setup_key, enabled=False,
-                              memory_reserve_gb=task.phase_memory_reserve_gb,
-                              cpu_budget_percent=task.phase_cpu_budget_percent,
-                              fallback_memory_gb=task.predicted_peak_memory_gb,
-                              fallback_cpu_percent=task.phase_fallback_cpu_percent,
-                              profile_percentile=task.phase_profile_percentile))
+            return Stages(
+                input_data_path=task.input_path,
+                onnx_model_path=task.model_path,
+                artifact_dir=task.output_dir,
+                proving_cache_enabled=True,
+                proving_cache_overwrite=False,
+                proving_cache_type="filesystem",
+                proving_cache_root_dir=task.setup_dir,
+                local_tmp_dir=task.tmp_dir,
+                status_file=status_file,
+                srs_dir=payload["srs_dir"],
+                admission=StageAdmissionController(
+                    root_dir=task.stage_admission_dir,
+                    setup_key=task.setup_key,
+                    enabled=False,
+                    fallback_memory_gb=task.predicted_peak_memory_gb,
+                    memory_safety_reserve_gb=task.memory_safety_reserve_gb,
+                    history_percentile=task.history_percentile,
+                ),
+            )
+
     started = time.perf_counter()
     try:
         result = Runner().run(task)
@@ -399,7 +409,6 @@ def run(args):
     manifest = json.loads((args.prepared / "manifest.json").read_text())
     output = fresh_output(args.output)
     write_json(output / "manifest.json", manifest)
-    # Check heavyweight dependencies before starting a measured proof.
     write_json(output / "run_metadata.json", metadata(args, manifest))
     selected = [c for c in manifest["cases"] if not args.case or
                 f"{c['model']}:{c['partition']}" in args.case]
@@ -425,14 +434,23 @@ def run(args):
                     input_path = source / case["inputs"][k]
                     if digest(input_path.read_bytes()) != case["input_sha256"][k]:
                         raise ValueError("Prepared input changed")
-                    task = {"node_id": "microbench", "request_id": "repeatability",
-                            "job_id": f"partition_{case['partition']}", "setup_key": case["setup_key"],
-                            "model_path": str((source / "model.onnx").resolve()),
-                            "input_path": str(input_path.resolve()), "setup_dir": str(setup.resolve()),
-                            "tmp_dir": str((temp / "work").resolve()), "output_dir": str(path.resolve()),
-                            "output_prefix": str((temp / "published").resolve()), "output_backend": "filesystem",
-                            "resource_monitor_interval_sec": args.interval, "phase_admission_enabled": False,
-                            "phase_admission_dir": str((temp / "admission").resolve()), "retain_run_artifacts": False}
+                    task = {
+                        "node_id": "microbench",
+                        "request_id": "repeatability",
+                        "job_id": f"partition_{case['partition']}",
+                        "setup_key": case["setup_key"],
+                        "model_path": str((source / "model.onnx").resolve()),
+                        "input_path": str(input_path.resolve()),
+                        "setup_dir": str(setup.resolve()),
+                        "tmp_dir": str((temp / "work").resolve()),
+                        "output_dir": str(path.resolve()),
+                        "output_prefix": str((temp / "published").resolve()),
+                        "output_backend": "filesystem",
+                        "resource_sampling_interval_sec": args.interval,
+                        "stage_admission_enabled": False,
+                        "stage_admission_dir": str((temp / "admission").resolve()),
+                        "keep_proof_artifacts": False,
+                    }
                     write_json(path / "execution.json", {"model": case["model"], "partition": case["partition"],
                                "condition": condition, "repetition": k, "warmup": warmup,
                                "setup_key": case["setup_key"], "input_sha256": digest(input_path.read_bytes())})
@@ -456,7 +474,6 @@ def run(args):
                     if code:
                         raise RuntimeError(f"Proof failed; see {path / 'prover.log'}")
             finally:
-                # Only benchmark-owned setup is removed. Shared runtime caches/SRS are untouched.
                 if not args.keep_setup:
                     shutil.rmtree(cache, ignore_errors=True)
     print(f"Finished. Analyze with: python -m experiments.microbench.analysis --runs {output}")
