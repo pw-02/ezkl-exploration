@@ -157,7 +157,7 @@ def make_env(cfg: DictConfig) -> dict:
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = f".:{existing}" if existing else "."
     env["PYTHONUNBUFFERED"] = "1"
-    env["ZKINFER_RETAIN_RUN_ARTIFACTS"] = (
+    env["ZKINFER_KEEP_PROOF_ARTIFACTS"] = (
         "true" if bool(cfg.output.keep_proof_artifacts) else "false"
     )
     return env
@@ -331,7 +331,11 @@ def save_request_metadata(
     return logs_dir
 
 
-def cleanup_request_store(cfg: DictConfig, logger: logging.Logger, request_ids: List[str]) -> None:
+def cleanup_request_store(
+    cfg: DictConfig,
+    logger: logging.Logger,
+    request_ids: List[str],
+) -> None:
     if bool(cfg.output.keep_request_data):
         logger.info("Keeping canonical request inputs and proof outputs after experiment run")
         return
