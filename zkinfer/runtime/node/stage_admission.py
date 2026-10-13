@@ -64,8 +64,8 @@ def process_tree_memory_gb(pid: int) -> float:
 class StageResourceHistory:
     """Persistent node-local observations for each setup key and execution stage.
 
-    Memory is the admission resource. CPU samples are still retained in the
-    observation record for characterization, but they never gate stage entry.
+    Memory is the admission resource. CPU samples are retained for
+    characterization but never gate stage entry.
     """
 
     def __init__(self, root_dir: str | Path, max_observations: int = 32):
@@ -156,17 +156,8 @@ class StageResourceHistory:
         setup_key: str,
         stage: str,
         fallback_memory_gb: float,
-        fallback_cpu_percent: float = 0.0,
-        percentile: float = 0.90,
-        history_percentile: Optional[float] = None,
+        history_percentile: float,
     ) -> Dict[str, Any]:
-        """Estimate stage peak memory from prior successful observations.
-
-        `fallback_cpu_percent` is accepted only for compatibility with older
-        callers. CPU is not part of the admission estimate.
-        """
-        del fallback_cpu_percent
-        q = percentile if history_percentile is None else history_percentile
         profile = self.load(setup_key)
         stages = profile.get("stages") or {}
 
@@ -183,11 +174,10 @@ class StageResourceHistory:
             memory_gb = (
                 max(memory_values)
                 if len(memory_values) < 5
-                else _percentile(memory_values, q)
+                else _percentile(memory_values, history_percentile)
             )
             return {
                 "memory_gb": memory_gb,
-                "cpu_percent": 0.0,
                 "samples": len(memory_values),
                 "source": "historical",
             }
@@ -197,7 +187,6 @@ class StageResourceHistory:
             if all(item is not None for item in parts):
                 return {
                     "memory_gb": max(item["memory_gb"] for item in parts),
-                    "cpu_percent": 0.0,
                     "samples": min(item["samples"] for item in parts),
                     "source": "historical_fused",
                 }
@@ -208,7 +197,6 @@ class StageResourceHistory:
 
         return {
             "memory_gb": max(0.0, float(fallback_memory_gb or 0.0)),
-            "cpu_percent": 0.0,
             "samples": 0,
             "source": "fallback",
         }
@@ -230,44 +218,29 @@ class StageAdmissionController:
         setup_key: str,
         enabled: bool,
         fallback_memory_gb: float,
-        memory_safety_reserve_gb: Optional[float] = None,
-        history_percentile: Optional[float] = None,
+        memory_safety_reserve_gb: float = 8.0,
+        history_percentile: float = 0.90,
         poll_interval_s: float = 0.25,
-        # Compatibility keywords used by older internal callers.
-        memory_reserve_gb: Optional[float] = None,
-        cpu_budget_percent: Optional[float] = None,
-        fallback_cpu_percent: Optional[float] = None,
-        profile_percentile: Optional[float] = None,
     ):
-        del cpu_budget_percent, fallback_cpu_percent
-        reserve = memory_safety_reserve_gb
-        if reserve is None:
-            reserve = 0.0 if memory_reserve_gb is None else memory_reserve_gb
-        percentile = history_percentile
-        if percentile is None:
-            percentile = 0.90 if profile_percentile is None else profile_percentile
-
         self.root_dir = Path(root_dir)
         self.root_dir.mkdir(parents=True, exist_ok=True)
         self.setup_key = setup_key
         self.enabled = bool(enabled)
-        self.memory_safety_reserve_gb = max(0.0, float(reserve or 0.0))
+        self.memory_safety_reserve_gb = max(
+            0.0,
+            float(memory_safety_reserve_gb or 0.0),
+        )
         self.fallback_memory_gb = max(0.0, float(fallback_memory_gb or 0.0))
-        self.history_percentile = min(1.0, max(0.5, float(percentile)))
+        self.history_percentile = min(
+            1.0,
+            max(0.5, float(history_percentile)),
+        )
         self.poll_interval_s = max(0.05, float(poll_interval_s))
         self.lock_path = self.root_dir / "admission.lock"
         self.reservations_dir = self.root_dir / "reservations"
         self.reservations_dir.mkdir(parents=True, exist_ok=True)
         self.holder_path = self.reservations_dir / f"{os.getpid()}.json"
         self.profiles = StageResourceHistory(self.root_dir / "resource_profiles")
-
-    @property
-    def memory_reserve_gb(self) -> float:
-        return self.memory_safety_reserve_gb
-
-    @property
-    def profile_percentile(self) -> float:
-        return self.history_percentile
 
     def _clean_stale_reservations(self) -> None:
         for path in self.reservations_dir.glob("*.json"):
@@ -310,10 +283,9 @@ class StageAdmissionController:
             setup_key=self.setup_key,
             stage=stage,
             fallback_memory_gb=fallback_memory,
-            percentile=self.history_percentile,
+            history_percentile=self.history_percentile,
         )
         estimate["memory_gb"] = max(0.0, float(estimate.get("memory_gb") or 0.0))
-        estimate["cpu_percent"] = 0.0
         return estimate
 
     def acquire(self, stage: str) -> Dict[str, Any]:
@@ -421,9 +393,6 @@ class StageAdmissionController:
                     "memory_gb": sum(
                         float(item.get("memory_gb") or 0.0) for item in reservations
                     ),
-                    # Retained for callers/reporting that expect the key. CPU is
-                    # not reserved by stage admission.
-                    "cpu_percent": 0.0,
                 }
             finally:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
