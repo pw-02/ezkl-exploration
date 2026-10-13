@@ -23,7 +23,7 @@ from zkinfer.profiling.msm_fft_parser import (
 )
 from zkinfer.profiling.resource_parser import parse_resource_usage_file
 from zkinfer.runtime.data_plane import ArtifactRef
-from zkinfer.runtime.node.phase_admission import ResourceAdmissionController
+from zkinfer.runtime.node.stage_admission import StageAdmissionController
 from zkinfer.storage.s3 import upload_file
 
 
@@ -48,21 +48,18 @@ class LocalProverTask:
     output_prefix: str
     output_backend: str
     output_s3_bucket: str = ""
-    transfer_only: bool = False
-    resource_monitor_interval_sec: float = 1.0
+    resource_sampling_interval_sec: float = 1.0
     model_materialize_time_s: float = 0.0
     input_materialize_time_s: float = 0.0
     transfer_metrics: Dict[str, Any] = field(default_factory=dict)
-    phase_admission_dir: str = ""
-    phase_admission_enabled: bool = True
-    phase_memory_reserve_gb: float = 8.0
-    phase_cpu_budget_percent: float = 100.0
-    phase_profile_percentile: float = 0.90
-    phase_fallback_cpu_percent: float = 100.0
+    stage_admission_dir: str = ""
+    stage_admission_enabled: bool = True
+    memory_safety_reserve_gb: float = 8.0
+    history_percentile: float = 0.90
     predicted_peak_memory_gb: float = 0.0
     lease_id: str = ""
-    retain_run_artifacts: bool = field(
-        default_factory=lambda: _env_bool("ZKINFER_RETAIN_RUN_ARTIFACTS", False)
+    keep_proof_artifacts: bool = field(
+        default_factory=lambda: _env_bool("ZKINFER_KEEP_PROOF_ARTIFACTS", False)
     )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -70,10 +67,7 @@ class LocalProverTask:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "LocalProverTask":
-        data = dict(data)
-        if "setup_dir" not in data and "setup_cache_dir" in data:
-            data["setup_dir"] = data.pop("setup_cache_dir")
-        return cls(**data)
+        return cls(**dict(data))
 
 
 @dataclass(frozen=True)
@@ -103,25 +97,20 @@ class ProverTaskResult:
         )
 
 
-class ResourceAwareEZKLProofStages(EZKLProofStages):
-    """EZKL stages guarded by node-local resource reservations.
-
-    The controller predicts each stage's memory/CPU demand from prior runs of
-    the same setup key. There are no configured job-count or heavy-phase-count
-    limits in the normal admission path.
-    """
+class StageAwareEZKLProofStages(EZKLProofStages):
+    """EZKL stages guarded by node-local memory admission."""
 
     def __init__(
         self,
         *args,
-        admission: ResourceAdmissionController,
+        admission: StageAdmissionController,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.admission = admission
         self.admission_metrics: Dict[str, Any] = {
-            "phase_admission_enabled": admission.enabled,
-            "phase_admission_wait_time(s)": 0.0,
+            "stage_admission_enabled": admission.enabled,
+            "stage_admission_wait_time(s)": 0.0,
         }
         self._transition_started = time.perf_counter()
         self._transition_path = (
@@ -135,12 +124,6 @@ class ResourceAwareEZKLProofStages(EZKLProofStages):
         return stage.lower().replace("-", "_")
 
     def _update_status(self, stage: str) -> None:
-        """Update the live stage and append an exact transition event.
-
-        Resource samples remain periodic, but stage duration no longer depends
-        on the resource sampling interval. Every transition carries both an
-        explicit UTC wall-clock timestamp and monotonic elapsed time.
-        """
         super()._update_status(stage)
         self._record_transition(stage)
 
@@ -161,8 +144,11 @@ class ResourceAwareEZKLProofStages(EZKLProofStages):
                     "timestamp": timestamp or datetime.now(timezone.utc).isoformat(
                         timespec="microseconds"
                     ),
-                    "elapsed_s": (time.perf_counter() - self._transition_started
-                                  if elapsed_s is None else elapsed_s),
+                    "elapsed_s": (
+                        time.perf_counter() - self._transition_started
+                        if elapsed_s is None
+                        else elapsed_s
+                    ),
                     "stage": stage,
                     "event": "enter",
                 }
@@ -171,29 +157,25 @@ class ResourceAwareEZKLProofStages(EZKLProofStages):
 
     @contextmanager
     def _admit(self, stage: str) -> Iterator[Dict[str, Any]]:
-        # Waiting is explicit in the resource trace instead of being attributed
-        # to the previous EZKL phase.
         self._update_status(f"WAITING_FOR_{stage}")
         with self.admission.hold(stage) as info:
             metric_stage = self._metric_stage(stage)
             wait_time = float(info.get("wait_time_s") or 0.0)
-            self.admission_metrics["phase_admission_wait_time(s)"] += wait_time
+            self.admission_metrics["stage_admission_wait_time(s)"] += wait_time
             self.admission_metrics[
-                f"phase_admission_{metric_stage}_wait_time(s)"
+                f"stage_admission_{metric_stage}_wait_time(s)"
             ] = self.admission_metrics.get(
-                f"phase_admission_{metric_stage}_wait_time(s)", 0.0
+                f"stage_admission_{metric_stage}_wait_time(s)",
+                0.0,
             ) + wait_time
             self.admission_metrics[
-                f"phase_admission_{metric_stage}_predicted_memory(GB)"
+                f"stage_admission_{metric_stage}_predicted_memory(GB)"
             ] = float(info.get("memory_gb") or 0.0)
             self.admission_metrics[
-                f"phase_admission_{metric_stage}_predicted_cpu_machine(%)"
-            ] = float(info.get("cpu_percent") or 0.0)
-            self.admission_metrics[
-                f"phase_admission_{metric_stage}_estimate_samples"
+                f"stage_admission_{metric_stage}_estimate_samples"
             ] = int(info.get("samples") or 0)
             self.admission_metrics[
-                f"phase_admission_{metric_stage}_estimate_source"
+                f"stage_admission_{metric_stage}_estimate_source"
             ] = str(info.get("source") or "fallback")
             yield info
 
@@ -222,39 +204,39 @@ class ResourceAwareEZKLProofStages(EZKLProofStages):
             return super().compute_proof()
 
     def setup_and_compute_proof(self) -> Dict[str, float]:
-        # The fused Rust operation does not return to Python between keygen and
-        # proving. Reserve the larger of their historical resource envelopes for
-        # the combined region while the Rust status file still records the exact
-        # KEY_GEN -> PROVING transition.
         with self._admit("FUSED_KEYGEN_PROVE"):
-            # Acquiring admission ends waiting even with an older EZKL wheel.
             self._update_status("FUSED_KEYGEN_PROVE")
             try:
                 return super().setup_and_compute_proof()
             finally:
-                trace = (Path(self.status_file).with_name("fused_stage_transitions.csv")
-                         if self.status_file else None)
+                trace = (
+                    Path(self.status_file).with_name("fused_stage_transitions.csv")
+                    if self.status_file
+                    else None
+                )
                 available = trace is not None and trace.exists()
                 self.admission_metrics["ezkl_fused_stage_trace_available"] = available
                 if available:
                     with trace.open(newline="", encoding="utf-8") as file:
                         for row in csv.DictReader(file):
                             timestamp = datetime.fromtimestamp(
-                                int(row["timestamp_unix_us"]) / 1_000_000, timezone.utc
+                                int(row["timestamp_unix_us"]) / 1_000_000,
+                                timezone.utc,
                             ).isoformat(timespec="microseconds")
-                            self._record_transition(row["stage"], timestamp,
-                                                    float(row["elapsed_s"]))
+                            self._record_transition(
+                                row["stage"],
+                                timestamp,
+                                float(row["elapsed_s"]),
+                            )
                 else:
-                    self.logger.warning("EZKL wheel lacks detailed fused stage events; "
-                                        "combined execution is recorded. Rebuild the wheel.")
+                    self.logger.warning(
+                        "EZKL wheel lacks detailed fused stage events; "
+                        "combined execution is recorded. Rebuild the wheel."
+                    )
 
 
 class ProverTaskRunner:
-    """Execute one proof using local paths only.
-
-    This runner executes inside an isolated OS process. It has no coordinator or
-    node-cache policy responsibilities.
-    """
+    """Execute one proof using local paths only."""
 
     def __init__(self, logger: Optional[logging.Logger] = None):
         self.logger = logger or logging.getLogger(__name__)
@@ -263,16 +245,14 @@ class ProverTaskRunner:
         os.makedirs(task.output_dir, exist_ok=True)
         os.makedirs(task.tmp_dir, exist_ok=True)
 
-        if task.transfer_only:
-            return self._run_transfer_only(task)
-
         status_file = os.path.join(task.output_dir, "status.txt")
-        resource_proc, resource_usage_file = self._start_resource_logger(task, status_file)
+        resource_proc, resource_usage_file = self._start_resource_logger(
+            task,
+            status_file,
+        )
 
         try:
             proof_stages = self._build_proof_stages(task, status_file)
-            # Preserve the exact history used by admission before this run adds a
-            # new observation. This makes experiments reproducible.
             with open(
                 os.path.join(task.output_dir, "admission_profile_before.json"),
                 "w",
@@ -294,7 +274,10 @@ class ProverTaskRunner:
                 proof_stages=proof_stages,
                 ezkl_metrics=ezkl_metrics,
             )
-            manifest_ref, publish_metrics = self._publish_job_artifacts(task, proof_stages)
+            manifest_ref, publish_metrics = self._publish_job_artifacts(
+                task,
+                proof_stages,
+            )
             metrics.update(self._flatten_transfer_metrics(task.transfer_metrics))
             metrics.update(self._flatten_output_metrics(publish_metrics))
             metrics["prover_process_pid"] = os.getpid()
@@ -305,25 +288,6 @@ class ProverTaskRunner:
             )
         finally:
             self._stop_process(resource_proc)
-
-    def _run_transfer_only(self, task: LocalProverTask) -> ProverTaskResult:
-        parse_start = time.perf_counter()
-        with open(task.input_path, "r", encoding="utf-8") as file:
-            json.load(file)
-        input_parse_time_s = time.perf_counter() - parse_start
-        metrics = {
-            "node_id": task.node_id,
-            "setup_key": task.setup_key,
-            "transfer_only": True,
-            "model_materialize_time(s)": task.model_materialize_time_s,
-            "input_materialize_time(s)": task.input_materialize_time_s,
-            "input_parse_time(s)": input_parse_time_s,
-            "input_transfer_bytes": os.path.getsize(task.input_path),
-            "prover_process_pid": os.getpid(),
-            "phase_admission_enabled": False,
-        }
-        metrics.update(self._flatten_transfer_metrics(task.transfer_metrics))
-        return ProverTaskResult(None, metrics, "Transfer-only benchmark completed")
 
     def _start_resource_logger(self, task: LocalProverTask, status_file: str):
         resource_usage_file = os.path.join(task.output_dir, "resource_usage.csv")
@@ -337,11 +301,11 @@ class ProverTaskRunner:
                 "--pid",
                 str(os.getpid()),
                 "--interval",
-                str(task.resource_monitor_interval_sec),
+                str(task.resource_sampling_interval_sec),
                 "--status_file",
                 status_file,
                 "--admission_dir",
-                task.phase_admission_dir,
+                task.stage_admission_dir,
                 "--include_children",
                 "--exclude_pid",
                 str(os.getpid()),
@@ -363,19 +327,20 @@ class ProverTaskRunner:
         self,
         task: LocalProverTask,
         status_file: str,
-    ) -> ResourceAwareEZKLProofStages:
-        admission_dir = task.phase_admission_dir or os.path.join(task.tmp_dir, "phase-admission")
-        admission = ResourceAdmissionController(
+    ) -> StageAwareEZKLProofStages:
+        admission_dir = task.stage_admission_dir or os.path.join(
+            task.tmp_dir,
+            "stage-admission",
+        )
+        admission = StageAdmissionController(
             root_dir=admission_dir,
             setup_key=task.setup_key,
-            enabled=task.phase_admission_enabled,
-            memory_reserve_gb=task.phase_memory_reserve_gb,
-            cpu_budget_percent=task.phase_cpu_budget_percent,
+            enabled=task.stage_admission_enabled,
             fallback_memory_gb=task.predicted_peak_memory_gb,
-            fallback_cpu_percent=task.phase_fallback_cpu_percent,
-            profile_percentile=task.phase_profile_percentile,
+            memory_safety_reserve_gb=task.memory_safety_reserve_gb,
+            history_percentile=task.history_percentile,
         )
-        return ResourceAwareEZKLProofStages(
+        return StageAwareEZKLProofStages(
             input_data_path=task.input_path,
             onnx_model_path=task.model_path,
             artifact_dir=task.output_dir,
@@ -404,14 +369,20 @@ class ProverTaskRunner:
             return number if math.isfinite(number) and number >= 0 else None
 
         def stage_actual(stage, metric):
-            stages = ("key_gen", "proving", "fused_keygen_prove") if stage == "fused_keygen_prove" else (stage,)
-            values = [observed(resource_metrics.get(f"stage_{name}_{metric}"))
-                      for name in stages]
+            stages = (
+                ("key_gen", "proving", "fused_keygen_prove")
+                if stage == "fused_keygen_prove"
+                else (stage,)
+            )
+            values = [
+                observed(resource_metrics.get(f"stage_{name}_{metric}"))
+                for name in stages
+            ]
             values = [value for value in values if value is not None]
             return max(values) if values else None
 
         result: Dict[str, Any] = {}
-        prefix = "phase_admission_"
+        prefix = "stage_admission_"
         suffix = "_predicted_memory(GB)"
         for key, predicted_raw in admission_metrics.items():
             if not (key.startswith(prefix) and key.endswith(suffix)):
@@ -419,20 +390,14 @@ class ProverTaskRunner:
             stage = key[len(prefix) : -len(suffix)]
             predicted = observed(predicted_raw)
             actual = stage_actual(stage, "max_memory(GB)")
-            result[f"phase_admission_{stage}_actual_memory(GB)"] = actual
+            result[f"stage_admission_{stage}_actual_memory(GB)"] = actual
             if actual is not None and predicted is not None:
                 error = predicted - actual
-                result[f"phase_admission_{stage}_memory_error(GB)"] = error
+                result[f"stage_admission_{stage}_memory_error(GB)"] = error
                 if actual > 0:
-                    result[f"phase_admission_{stage}_memory_abs_pct_error"] = abs(error) / actual * 100.0
-
-            predicted_cpu = observed(admission_metrics.get(
-                f"phase_admission_{stage}_predicted_cpu_machine(%)"
-            ))
-            actual_cpu = stage_actual(stage, "avg_cpu_machine(%)")
-            result[f"phase_admission_{stage}_actual_cpu_machine(%)"] = actual_cpu
-            if actual_cpu is not None and actual_cpu > 0 and predicted_cpu is not None:
-                result[f"phase_admission_{stage}_cpu_abs_pct_error"] = abs(predicted_cpu - actual_cpu) / actual_cpu * 100.0
+                    result[
+                        f"stage_admission_{stage}_memory_abs_pct_error"
+                    ] = abs(error) / actual * 100.0
         return result
 
     def _collect_metrics(
@@ -445,7 +410,11 @@ class ProverTaskRunner:
         try:
             resource_metrics = parse_resource_usage_file(resource_usage_file)
         except Exception as exc:
-            self.logger.error("Failed to parse resource usage file: %s", exc, exc_info=True)
+            self.logger.error(
+                "Failed to parse resource usage file: %s",
+                exc,
+                exc_info=True,
+            )
             resource_metrics = {
                 "max_process_memory(GB)": None,
                 "max_system_memory(GB)": None,
@@ -462,7 +431,7 @@ class ProverTaskRunner:
             "node_id": task.node_id,
             "setup_key": task.setup_key,
             "predicted_peak_memory(GB)": task.predicted_peak_memory_gb,
-            "resource_monitor_interval(s)": task.resource_monitor_interval_sec,
+            "resource_sampling_interval(s)": task.resource_sampling_interval_sec,
             "model_materialize_time(s)": task.model_materialize_time_s,
             "input_materialize_time(s)": task.input_materialize_time_s,
             **resource_metrics,
@@ -491,8 +460,9 @@ class ProverTaskRunner:
     ) -> Tuple[str, Dict[str, Any]]:
         started = time.perf_counter()
         size_bytes = os.path.getsize(local_path)
-        # Keep one shared folder per job, while fencing delayed old workers.
-        published_name = f"{task.lease_id}--{artifact_name}" if task.lease_id else artifact_name
+        published_name = (
+            f"{task.lease_id}--{artifact_name}" if task.lease_id else artifact_name
+        )
         if task.output_backend == "filesystem":
             output_path = os.path.join(task.output_prefix, published_name)
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -552,7 +522,7 @@ class ProverTaskRunner:
             publish_source = source
             retained_path: Optional[str] = None
 
-            if task.retain_run_artifacts:
+            if task.keep_proof_artifacts:
                 output_path = os.path.join(task.output_dir, artifact_name)
                 try:
                     source.relative_to(tmp_dir)
@@ -588,7 +558,7 @@ class ProverTaskRunner:
                 "file": artifact_name,
                 "published_uri": published_uri,
                 "size_bytes": size_bytes,
-                "retained_in_run": bool(task.retain_run_artifacts),
+                "kept_in_run": bool(task.keep_proof_artifacts),
             }
             if retained_path:
                 artifact_entry["local_path"] = retained_path
@@ -604,7 +574,7 @@ class ProverTaskRunner:
             "storage_backend": task.output_backend,
             "s3_bucket": task.output_s3_bucket,
             "srs_path": proof_stages.srs_path,
-            "retain_run_artifacts": bool(task.retain_run_artifacts),
+            "keep_proof_artifacts": bool(task.keep_proof_artifacts),
             "artifacts": artifact_metadata,
             "transfer_metrics": task.transfer_metrics,
             "output_publish_metrics": publish_metrics,
@@ -644,15 +614,21 @@ class ProverTaskRunner:
         return {
             "transfer_model_cache_hit": bool(model.get("cache_hit", False)),
             "transfer_input_cache_hit": bool(input_metrics.get("cache_hit", False)),
-            "transfer_model_bytes_downloaded": int(model.get("bytes_downloaded", 0) or 0),
-            "transfer_input_bytes_downloaded": int(input_metrics.get("bytes_downloaded", 0) or 0),
+            "transfer_model_bytes_downloaded": int(
+                model.get("bytes_downloaded", 0) or 0
+            ),
+            "transfer_input_bytes_downloaded": int(
+                input_metrics.get("bytes_downloaded", 0) or 0
+            ),
             "transfer_model_bytes_from_local_cache": int(
                 model.get("bytes_from_local_cache", 0) or 0
             ),
             "transfer_input_bytes_from_local_cache": int(
                 input_metrics.get("bytes_from_local_cache", 0) or 0
             ),
-            "transfer_setup_bytes_downloaded": int(setup.get("bytes_downloaded", 0) or 0),
+            "transfer_setup_bytes_downloaded": int(
+                setup.get("bytes_downloaded", 0) or 0
+            ),
             "transfer_setup_bytes_from_local_cache": int(
                 setup.get("bytes_from_local_cache", 0) or 0
             ),
@@ -667,8 +643,12 @@ class ProverTaskRunner:
     @staticmethod
     def _flatten_output_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
         return {
-            "output_bytes_uploaded": int(metrics.get("output_bytes_uploaded", 0) or 0),
-            "output_bytes_written": int(metrics.get("output_bytes_written", 0) or 0),
+            "output_bytes_uploaded": int(
+                metrics.get("output_bytes_uploaded", 0) or 0
+            ),
+            "output_bytes_written": int(
+                metrics.get("output_bytes_written", 0) or 0
+            ),
             "output_publish_time(s)": float(
                 metrics.get("output_publish_time(s)", 0.0) or 0.0
             ),
