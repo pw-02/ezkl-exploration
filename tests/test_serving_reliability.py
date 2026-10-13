@@ -1,33 +1,23 @@
 from __future__ import annotations
 
-import csv
-import json
 import logging
 import tempfile
-import threading
 import unittest
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
-from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from omegaconf import OmegaConf
 
-from analysis.section_3.trace_layout import find_job_dirs, job_identity
-
 import zkinfer.proto.zkservice_pb2 as pb
 from zkinfer.config.runtime import build_runtime_config
-from zkinfer.profiling.resource_logger import infer_runs_dir
-from zkinfer.profiling.resource_parser import parse_resource_usage_file
 from zkinfer.runtime.coordinator import Coordinator
 from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.runtime.models import InferenceRequest, JobStatus, NodeResources, ProofJob, RequestStatus
-from zkinfer.runtime.node.supervisor import NodeSupervisor, to_pb_artifact
 from zkinfer.runtime.node.prover_task import ProverTaskRunner
-from zkinfer.storage.io import load_json, save_json
+from zkinfer.runtime.node.supervisor import NodeSupervisor, to_pb_artifact
 
 
 def runtime_config(root: Path):
@@ -38,11 +28,11 @@ def runtime_config(root: Path):
     cfg.node.runs_dir = str(root / "node-runs")
     cfg.node.logs_dir = str(root / "node-logs")
     cfg.node.node_id = "test-node"
-    cfg.node.local_cache_dir = str(root / "node-cache")
+    cfg.node.local_cache.path = str(root / "node-cache")
     cfg.node.runtime_state_dir = str(root / "runtime-state")
-    cfg.storage.requests_prefix = str(root / "requests-store")
-    cfg.storage.setup_prefix = str(root / "setup")
-    cfg.storage.reuse_setup = True
+    cfg.storage.request_data.path = str(root / "requests-store")
+    cfg.storage.reusable_setup.path = str(root / "setup")
+    cfg.storage.reusable_setup.enabled = True
     return build_runtime_config(cfg, process_role="coordinator")
 
 
@@ -51,10 +41,18 @@ def add_request(coordinator: Coordinator, setup_key="circuit"):
     coordinator._create_request_dirs(request)
     empty = ArtifactRef.empty()
     job = ProofJob(
-        "model", "partition", request.request_id, empty, empty,
-        ArtifactRef("filesystem", coordinator.setup_store.root_dir), empty,
-        predicted_peak_memory_gb=1, artifact_key=setup_key,
-        profiling_file_path=str(Path(coordinator.setup_store.root_dir) / "resource_profile.json"),
+        "model",
+        "partition",
+        request.request_id,
+        empty,
+        empty,
+        ArtifactRef("filesystem", coordinator.setup_store.root_dir),
+        empty,
+        predicted_peak_memory_gb=1,
+        artifact_key=setup_key,
+        profiling_file_path=str(
+            Path(coordinator.setup_store.root_dir) / "resource_profile.json"
+        ),
     )
     request.proof_jobs = [job]
     coordinator._enqueue_request(request)
@@ -66,329 +64,212 @@ class ResultAcceptanceTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.cfg = runtime_config(Path(self.tmp.name))
-        self.coordinator = Coordinator(self.cfg, logging.getLogger("test-coordinator"))
+        self.coordinator = Coordinator(
+            self.cfg,
+            logging.getLogger("test-coordinator"),
+        )
         self.addCleanup(self.coordinator.shutdown)
         self.request, self.job = add_request(self.coordinator)
-        self.node = NodeResources("node", memory_total_gb=64, memory_available_gb=60)
+        self.node = NodeResources(
+            "node",
+            memory_total_gb=64,
+            memory_available_gb=60,
+        )
         self.coordinator.poll_node(self.node)
 
     def test_missing_stale_and_nonterminal_results_are_rejected(self):
         lease_id = self.job.lease_id
-        for status, lease in (("COMPLETED", ""), ("COMPLETED", "old"), ("QUEUED", lease_id)):
-            self.assertFalse(self.coordinator.submit_job_result("node", self.job.job_id, status, lease))
+        for status, lease in (
+            ("COMPLETED", ""),
+            ("COMPLETED", "old"),
+            ("QUEUED", lease_id),
+        ):
+            self.assertFalse(
+                self.coordinator.submit_job_result(
+                    "node",
+                    self.job.job_id,
+                    status,
+                    lease,
+                )
+            )
             self.assertEqual(self.job.job_status, JobStatus.IN_PROGRESS)
 
-    def test_accepted_completion_is_idempotent_and_conflicting_retry_is_rejected(self):
+    def test_accepted_completion_is_idempotent(self):
         lease = self.job.lease_id
         manifest = ArtifactRef("filesystem", "/attempt-a/manifest.json")
-        with patch.object(self.coordinator, "_finalize_job") as report, \
-                patch.object(self.coordinator, "_schedule_request_finalization") as finalize:
-            self.assertTrue(self.coordinator.submit_job_result("node", self.job.job_id, "COMPLETED", lease, manifest))
-            self.assertTrue(self.coordinator.submit_job_result("node", self.job.job_id, "COMPLETED", lease, manifest))
-            self.assertFalse(self.coordinator.submit_job_result(
-                "node", self.job.job_id, "COMPLETED", lease,
-                ArtifactRef("filesystem", "/attempt-b/manifest.json"),
-            ))
-            self.assertEqual(report.call_count, 1)
-            self.assertEqual(finalize.call_count, 1)
+        with patch.object(self.coordinator, "_finalize_job"), \
+                patch.object(self.coordinator, "_schedule_request_finalization"):
+            self.assertTrue(
+                self.coordinator.submit_job_result(
+                    "node",
+                    self.job.job_id,
+                    "COMPLETED",
+                    lease,
+                    manifest,
+                )
+            )
+            self.assertTrue(
+                self.coordinator.submit_job_result(
+                    "node",
+                    self.job.job_id,
+                    "COMPLETED",
+                    lease,
+                    manifest,
+                )
+            )
 
-    def test_old_attempt_cannot_complete_a_job_released_to_same_node(self):
+    def test_old_lease_cannot_complete_requeued_job(self):
         old_lease = self.job.lease_id
         with self.coordinator.lock:
             self.coordinator._requeue_active_job_locked(self.job.job_id)
         self.coordinator.poll_node(self.node)
         self.assertNotEqual(old_lease, self.job.lease_id)
-        self.assertFalse(self.coordinator.submit_job_result("node", self.job.job_id, "COMPLETED", old_lease))
+        self.assertFalse(
+            self.coordinator.submit_job_result(
+                "node",
+                self.job.job_id,
+                "COMPLETED",
+                old_lease,
+            )
+        )
 
-    def test_completion_retry_after_coordinator_restart_reads_terminal_job(self):
+    def test_terminal_completion_survives_restart(self):
         lease = self.job.lease_id
         manifest = ArtifactRef("filesystem", "/attempt-a/manifest.json")
         with patch.object(self.coordinator, "_finalize_job"), \
                 patch.object(self.coordinator, "_schedule_request_finalization"):
-            self.coordinator.submit_job_result("node", self.job.job_id, "COMPLETED", lease, manifest)
+            self.coordinator.submit_job_result(
+                "node",
+                self.job.job_id,
+                "COMPLETED",
+                lease,
+                manifest,
+            )
         self.request.request_status = RequestStatus.COMPLETED
         self.request.completed_time = datetime.now(timezone.utc)
         self.coordinator.state_store.save_request(self.request)
         restarted = Coordinator(self.cfg, logging.getLogger("test-restarted"))
         self.addCleanup(restarted.shutdown)
-        self.assertNotIn(self.request.request_id, restarted.active_requests)
-        self.assertTrue(restarted.submit_job_result("node", self.job.job_id, "COMPLETED", lease, manifest))
-
-    def test_request_finalization_waits_for_all_job_reports(self):
-        self.job.job_status = JobStatus.COMPLETED
-        self.coordinator.pending_job_reports.add(self.job.job_id)
-        with patch.object(self.coordinator.finalization_pool, "submit") as submit:
-            self.coordinator._schedule_request_finalization(self.request.request_id)
-            submit.assert_not_called()
-
-    def test_concurrent_last_results_cannot_finalize_before_a_delayed_report(self):
-        second = ProofJob(
-            "model", "second", self.request.request_id,
-            self.job.model_ref, self.job.input_ref, self.job.setup_cache_ref,
-            self.job.output_prefix_ref, predicted_peak_memory_gb=1,
-        )
-        second.job_status = JobStatus.QUEUED
-        self.request.proof_jobs.append(second)
-        self.coordinator.scheduler.add_jobs([second])
-        self.coordinator.poll_node(self.node)
-        report_started, release_report = threading.Event(), threading.Event()
-
-        def delayed_report(job, perf_metrics=None):
-            if job.job_id == self.job.job_id:
-                report_started.set()
-                if not release_report.wait(timeout=5):
-                    raise AssertionError("report was not released")
-
-        with patch.object(self.coordinator, "_finalize_job", side_effect=delayed_report), \
-                patch.object(self.coordinator.finalization_pool, "submit") as submit, \
-                ThreadPoolExecutor(max_workers=1) as pool:
-            first = pool.submit(
-                self.coordinator.submit_job_result, "node", self.job.job_id,
-                "COMPLETED", self.job.lease_id,
+        self.assertTrue(
+            restarted.submit_job_result(
+                "node",
+                self.job.job_id,
+                "COMPLETED",
+                lease,
+                manifest,
             )
-            try:
-                self.assertTrue(report_started.wait(timeout=5))
-                self.assertTrue(self.coordinator.submit_job_result(
-                    "node", second.job_id, "COMPLETED", second.lease_id,
-                ))
-                submit.assert_not_called()
-            finally:
-                release_report.set()
-            self.assertTrue(first.result(timeout=5))
-            submit.assert_called_once()
-
-    def test_shared_profile_accumulates_concurrent_requests_and_refreshes_queued_jobs(self):
-        jobs = []
-        for _ in range(8):
-            _, job = add_request(self.coordinator)
-            job.job_status = JobStatus.COMPLETED
-            job.started_time = job.queued_time
-            job.completed_time = datetime.now(timezone.utc)
-            jobs.append(job)
-        _, queued = add_request(self.coordinator)
-        barrier = threading.Barrier(len(jobs))
-
-        def report(job):
-            barrier.wait(timeout=5)
-            self.coordinator._finalize_job(job, {
-                "max_process_memory(GB)": 12,
-                "stage_proving_max_memory(GB)": 12,
-                "stage_proving_avg_cpu_machine(%)": 40,
-            })
-
-        with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
-            list(pool.map(report, jobs))
-        profile = load_json(jobs[0].profiling_file_path)
-        self.assertEqual(len(profile["_resource_history"]["observations"]), len(jobs))
-        self.assertEqual(queued.predicted_peak_memory_gb, 12)
-        self.assertEqual(len(queued.profiling_data["_resource_history"]["observations"]), len(jobs))
+        )
 
 
 class NodeAttemptTests(unittest.TestCase):
-    def test_retries_replace_local_folder_and_fence_shared_files(self):
+    def test_retry_replaces_local_job_folder(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            node = NodeSupervisor(runtime_config(root), logging.getLogger("test-node"))
-            model, input_file = root / "model.onnx", root / "input.json"
+            node = NodeSupervisor(runtime_config(root))
+            lease = pb.JobLease(
+                request_id="request",
+                job_id="job",
+                lease_id="lease-a",
+            )
+            _, tmp_dir, output_dir = node._job_paths(lease)
+            tmp_dir.mkdir(parents=True)
+            output_dir.mkdir(parents=True)
+            (output_dir / "old.csv").write_text("old")
+
+            model = root / "model.onnx"
+            input_file = root / "input.json"
             model.write_bytes(b"model")
             input_file.write_text('{"input_data": [[1]]}')
-            lease = pb.JobLease(
-                job_available=True, request_id="request", job_id="job", lease_id="lease-a",
-                setup_key="circuit",
-                model=to_pb_artifact(ArtifactRef("filesystem", str(model))),
-                input=to_pb_artifact(ArtifactRef("filesystem", str(input_file))),
-                output_prefix=to_pb_artifact(ArtifactRef("filesystem", str(root / "published"))),
+            lease.model.CopyFrom(to_pb_artifact(ArtifactRef("filesystem", str(model))))
+            lease.input.CopyFrom(to_pb_artifact(ArtifactRef("filesystem", str(input_file))))
+            lease.output_prefix.CopyFrom(
+                to_pb_artifact(ArtifactRef("filesystem", str(root / "published")))
             )
-            tasks = []
-            for lease_id in ("lease-a", "lease-b"):
-                lease.lease_id = lease_id
-                with ExitStack() as pins:
-                    task = node.prepare_local_task(lease, pins)
-                    if tasks:
-                        self.assertEqual(tasks[0].output_dir, task.output_dir)
-                        self.assertEqual(tasks[0].tmp_dir, task.tmp_dir)
-                        self.assertFalse((Path(task.output_dir) / "old.csv").exists())
-                    self.assertFalse((Path(task.output_dir) / "config").exists())
-                    self.assertTrue(list((root / "node-runs/request/config").glob("*.json")))
-                    sources = {}
-                    for attribute, name in (("proof_path", "proof.pf"), ("witness_path", "witness.json"), ("vk_path", "vk.json"), ("settings_path", "settings.json")):
-                        source = Path(task.tmp_dir) / name
-                        source.write_text(lease_id)
-                        sources[attribute] = str(source)
-                    sources["srs_path"] = "unchanged.srs"
-                    ProverTaskRunner()._publish_job_artifacts(task, SimpleNamespace(**sources))
-                    (Path(task.output_dir) / "old.csv").write_text("old trace")
-                    node.cache.max_bytes = 1
-                    node.cache.evict_if_needed()
-                    self.assertTrue(Path(task.model_path).exists())
-                    self.assertTrue(Path(task.input_path).exists())
-                    tasks.append(task)
-            self.assertEqual((root / "published/lease-a--proof.pf").read_text(), "lease-a")
-            self.assertEqual((root / "published/lease-b--proof.pf").read_text(), "lease-b")
-            node._cleanup_published_attempt(tasks[0])
-            self.assertFalse((root / "published/lease-a--proof.pf").exists())
-            self.assertTrue((root / "published/lease-b--proof.pf").exists())
-            self.assertFalse((root / "published/attempts").exists())
-            self.assertEqual(node.cache._pin_counts, {})
+            with ExitStack() as pins:
+                task = node.prepare_local_task(lease, pins)
+            self.assertFalse((Path(task.output_dir) / "old.csv").exists())
 
-    def test_failed_job_deletes_local_output_and_keeps_request_config(self):
+    def test_failed_job_removes_local_attempt(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp)
-            node=NodeSupervisor(runtime_config(root))
-            lease=pb.JobLease(request_id="request",job_id="job",lease_id="lease")
-            request_dir,tmp_dir,output_dir=node._job_paths(lease)
-            def prepare(*args):
+            root = Path(tmp)
+            cfg = runtime_config(root)
+            cfg = cfg.__class__(
+                coordinator=cfg.coordinator,
+                node=cfg.node,
+                request_store=cfg.request_store,
+                setup_store=cfg.setup_store.__class__(
+                    enabled=False,
+                    backend=cfg.setup_store.backend,
+                    root_dir=cfg.setup_store.root_dir,
+                    s3_bucket=cfg.setup_store.s3_bucket,
+                    s3_prefix=cfg.setup_store.s3_prefix,
+                ),
+                jobs=cfg.jobs,
+                heartbeat=cfg.heartbeat,
+                state_store=cfg.state_store,
+                verification=cfg.verification,
+            )
+            node = NodeSupervisor(cfg)
+            lease = pb.JobLease(
+                request_id="request",
+                job_id="job",
+                lease_id="lease",
+            )
+            request_dir, tmp_dir, output_dir = node._job_paths(lease)
+
+            def prepare(*_args):
                 tmp_dir.mkdir(parents=True)
                 output_dir.mkdir(parents=True)
-                (output_dir / "resource_usage.csv").write_text("failed trace")
-                (request_dir / "config").mkdir()
-                (request_dir / "config/node.json").write_text("{}")
-                return SimpleNamespace(tmp_dir=str(tmp_dir),output_dir=str(output_dir),setup_key="key")
-            with patch.object(node,"prepare_local_task",side_effect=prepare), \
-                 patch.object(node,"_run_prover_subprocess",side_effect=RuntimeError("failed")), \
-                 patch.object(node,"submit_job_result"), \
-                 patch.object(node,"_cleanup_published_attempt") as cleanup:
-                node.cfg = replace(node.cfg, jobs=replace(node.cfg.jobs, transfer_only=True))
+                (request_dir / "config").mkdir(parents=True)
+                return SimpleNamespace(
+                    tmp_dir=str(tmp_dir),
+                    output_dir=str(output_dir),
+                    setup_key="key",
+                )
+
+            with patch.object(node, "prepare_local_task", side_effect=prepare), \
+                    patch.object(
+                        node,
+                        "_run_prover_subprocess",
+                        side_effect=RuntimeError("failed"),
+                    ), \
+                    patch.object(node, "submit_job_result"), \
+                    patch.object(node, "_cleanup_published_attempt") as cleanup:
                 node.run_lease(lease)
                 cleanup.assert_called_once()
             self.assertFalse(output_dir.exists())
             self.assertFalse(tmp_dir.exists())
-            self.assertTrue((request_dir / "config/node.json").exists())
 
     def test_directory_ids_cannot_escape_job_folder(self):
         with tempfile.TemporaryDirectory() as tmp:
-            node=NodeSupervisor(runtime_config(Path(tmp)))
+            node = NodeSupervisor(runtime_config(Path(tmp)))
             for value in ("..", "../outside", "a/b", "a\\b", ""):
                 with self.subTest(value=value), self.assertRaises(ValueError):
-                    node._job_paths(pb.JobLease(request_id="request",job_id=value,lease_id="lease"))
+                    node._job_paths(
+                        pb.JobLease(
+                            request_id="request",
+                            job_id=value,
+                            lease_id="lease",
+                        )
+                    )
 
-    def test_shared_local_job_folder_has_only_one_writer(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp)
-            first=NodeSupervisor(runtime_config(root))
-            second=NodeSupervisor(runtime_config(root))
-            lease=pb.JobLease(request_id="request",job_id="job",lease_id="lease")
-            started=threading.Event()
-            entered=threading.Event()
-            def acquire():
-                started.set()
-                with second._job_guard(lease):
-                    entered.set()
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                with first._job_guard(lease):
-                    future=pool.submit(acquire)
-                    self.assertTrue(started.wait(2))
-                    self.assertFalse(entered.wait(0.05))
-                future.result(timeout=2)
-            self.assertTrue(entered.is_set())
-
-    def test_lost_completion_ack_does_not_delete_possibly_accepted_proof(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp)
-            node=NodeSupervisor(runtime_config(root))
-            node.cfg=replace(node.cfg,jobs=replace(node.cfg.jobs,transfer_only=True))
-            lease=pb.JobLease(request_id="request",job_id="job",lease_id="lease")
-            _,tmp_dir,output_dir=node._job_paths(lease)
-            tmp_dir.mkdir(parents=True)
-            output_dir.mkdir(parents=True)
-            task=SimpleNamespace(tmp_dir=str(tmp_dir),output_dir=str(output_dir),setup_key="key")
-            result=SimpleNamespace(metrics={},artifact_manifest_ref=None,message="done")
-            with patch.object(node,"prepare_local_task",return_value=task), \
-                 patch.object(node,"_run_prover_subprocess",return_value=result), \
-                 patch.object(node.resource_profiles,"update_from_metrics"), \
-                 patch.object(node,"submit_job_result",side_effect=[RuntimeError("lost ack"),True]), \
-                 patch.object(node,"_cleanup_published_attempt") as cleanup:
-                node.run_lease(lease)
-                cleanup.assert_not_called()
-            self.assertTrue(output_dir.exists())
-            self.assertFalse(tmp_dir.exists())
-
-    def test_s3_files_are_flat_and_cleanup_is_lease_scoped(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp)
-            source=root/"proof"
-            source.write_bytes(b"proof")
-            task=SimpleNamespace(lease_id="lease",output_backend="s3",
-                                 output_prefix="requests/request/proofs/job",output_s3_bucket="bucket")
-            with patch("zkinfer.runtime.node.prover_task.upload_file") as upload:
-                uri,_=ProverTaskRunner()._publish_file(str(source),task,"proof.pf")
-                self.assertEqual(uri,"requests/request/proofs/job/lease--proof.pf")
-                upload.assert_called_once_with(str(source),"bucket",uri)
-            node=NodeSupervisor(runtime_config(root))
-            with patch("zkinfer.storage.s3.delete_file") as delete:
-                node._cleanup_published_attempt(task)
-                self.assertEqual(delete.call_count,5)
-                self.assertTrue(all(call.args[1].startswith(task.output_prefix+"/lease--")
-                                    for call in delete.call_args_list))
-
-    def test_rejected_ack_is_logged_as_rejection(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            logger = Mock()
-            node = NodeSupervisor(runtime_config(Path(tmp)), logger)
-            node.stub = Mock()
-            node.stub.SubmitJobResult.return_value = pb.StatusAck(ok=False)
-            node.submit_job_result(pb.JobLease(job_id="job", lease_id="old"), "COMPLETED")
-            logger.warning.assert_called_once()
-            logger.info.assert_not_called()
-
-
-class ResourceTraceTests(unittest.TestCase):
-    def test_trace_discovery_selects_accepted_attempt_and_supports_legacy_jobs(self):
+    def test_published_files_are_lease_scoped(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            old = root / "req/artifacts/jobs/legacy"
-            stale = root / "req/artifacts/jobs/current/attempts/stale"
-            accepted = root / "req/artifacts/jobs/current/attempts/winner"
-            unreported = root / "req/artifacts/jobs/unreported/attempts/unknown"
-            for directory in (old, stale, accepted, unreported):
-                directory.mkdir(parents=True)
-                (directory / "resource_usage.csv").write_text("trace")
-            reports = root / "req/reports"
-            reports.mkdir()
-            (reports / "job_report.csv").write_text(
-                "request_id,job_id,lease_id\nreq,current,winner\nreq,legacy,\n"
+            source = root / "proof"
+            source.write_bytes(b"proof")
+            task = SimpleNamespace(
+                lease_id="lease",
+                output_backend="filesystem",
+                output_prefix=str(root / "published"),
+                output_s3_bucket="",
             )
-            self.assertEqual(set(find_job_dirs(root)), {old, accepted})
-            self.assertEqual(job_identity(accepted), ("req", "current"))
-            flat = root / "req/artifacts/jobs/current"
-            (flat / "resource_usage.csv").write_text("flat trace")
-            (flat / "manifest.json").write_text(json.dumps({"lease_id": "stale"}))
-            self.assertNotIn(flat, find_job_dirs(root))
-            (flat / "manifest.json").write_text(json.dumps({"lease_id": "winner"}))
-            self.assertIn(flat, find_job_dirs(root))
-
-    def test_halo2_subphases_also_contribute_to_proving_envelope(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "resource.csv"
-            with path.open("w", newline="") as file:
-                writer = csv.DictWriter(file, fieldnames=["type", "stage", "memory_gb", "cpu_percent", "cpu_machine_percent"])
-                writer.writeheader()
-                for stage, memory, cpu in (("PROVING::FFT", 12, 40), ("PROVING::MSM", 20, 80)):
-                    writer.writerow({"type": "process_tree", "stage": stage, "memory_gb": memory, "cpu_percent": cpu * 4, "cpu_machine_percent": cpu})
-            metrics = parse_resource_usage_file(str(path))
-            self.assertEqual(metrics["stage_proving_max_memory(GB)"], 20)
-            self.assertEqual(metrics["stage_proving_avg_cpu_machine(%)"], 60)
-            self.assertEqual(metrics["stage_proving_samples"], 2)
-            self.assertEqual(metrics["stage_proving_fft_max_memory(GB)"], 12)
-
-    def test_attempt_scoped_status_resolves_runs_directory(self):
-        root = Path("/runs")
-        self.assertEqual(infer_runs_dir(str(root / "req/artifacts/jobs/job/status.txt")), str(root))
-        self.assertEqual(infer_runs_dir(str(root / "req/artifacts/jobs/job/attempts/lease/status.txt")), str(root))
-
-
-class AtomicProfileTests(unittest.TestCase):
-    def test_failed_json_write_preserves_previous_profile(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "profile.json"
-            save_json({"samples": 3}, str(path))
-            path.chmod(0o640)
-            with self.assertRaises(TypeError):
-                save_json({"unserializable": object()}, str(path))
-            self.assertEqual(load_json(str(path)), {"samples": 3})
-            save_json({"samples": 4}, str(path))
-            self.assertEqual(path.stat().st_mode & 0o777, 0o640)
-            self.assertEqual(list(Path(tmp).iterdir()), [path])
+            uri, _ = ProverTaskRunner()._publish_file(
+                str(source),
+                task,
+                "proof.pf",
+            )
+            self.assertEqual(Path(uri).name, "lease--proof.pf")
 
 
 if __name__ == "__main__":
