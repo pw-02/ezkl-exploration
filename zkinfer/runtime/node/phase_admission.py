@@ -7,6 +7,7 @@ from zkinfer.runtime.node.stage_admission import (
     StageAdmissionController,
     StageResourceHistory,
     process_tree_memory_gb,
+    psutil,
 )
 
 # Compatibility aliases for older internal imports and historical tests.
@@ -19,4 +20,5 @@ __all__ = [
     "ResourceAdmissionController",
     "HistoricalResourceProfiles",
     "process_tree_memory_gb",
+    "psutil",
 ]
