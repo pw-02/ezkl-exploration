@@ -1,38 +1,9 @@
 #!/usr/bin/env python3
-"""Replay measured zkML proof traces under counterfactual memory and scheduling policies.
+"""Replay measured zkML proof traces under counterfactual memory policies.
 
-The simulator has two uses:
-
-1. characterize the best packing opportunity exposed by measured traces; and
-2. compare practical scheduling heuristics before running expensive system tests.
-
-It never changes measured phase duration or memory demand. It only changes when
-measured work is allowed to run. The exact oracle is intentionally limited to
-small, all-at-once workloads because finding the minimum-makespan schedule is a
-combinatorial resource-constrained scheduling problem.
-
-Examples
---------
-Offline batch / packing study::
-
-    python analysis/section_3/simulate_scheduling.py \
-        --runs-dir experiments/runs \
-        --output-dir analysis/section_3/simulation \
-        --memory-budget-gb 760 \
-        --workload mobilenet_v2 \
-        --replicas 4 \
-        --oracle
-
-Staggered serving-style arrivals::
-
-    python analysis/section_3/simulate_scheduling.py \
-        --runs-dir experiments/runs \
-        --output-dir analysis/section_3/simulation_online \
-        --memory-budget-gb 760 \
-        --workload mobilenet_v2 \
-        --replicas 8 \
-        --request-arrival-gap-s 10 \
-        --slo-seconds 300
+The simulator compares heuristic schedules and, for small all-at-once
+workloads, an exact minimum-makespan oracle. Measured stage durations and memory
+demands are never changed; only start times are varied.
 """
 
 from __future__ import annotations
@@ -44,7 +15,7 @@ import math
 import re
 import statistics
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from functools import lru_cache
 from itertools import combinations
 from pathlib import Path
@@ -52,7 +23,7 @@ from typing import Dict, Iterable, Iterator, Optional, Sequence
 
 try:
     from .trace_layout import find_job_dirs, job_identity
-except ImportError:  # direct script execution
+except ImportError:
     from trace_layout import find_job_dirs, job_identity
 
 
@@ -131,11 +102,7 @@ class TraceJob:
                     )
                 else:
                     collapsed.append(
-                        SimPhase(
-                            name=segment.stage,
-                            duration_s=segment.duration_s,
-                            memory_gb=demand,
-                        )
+                        SimPhase(segment.stage, segment.duration_s, demand)
                     )
             return tuple(collapsed)
 
@@ -147,9 +114,9 @@ class TraceJob:
             )
         return tuple(
             SimPhase(
-                name=segment.exact_stage,
-                duration_s=segment.duration_s,
-                memory_gb=peak_by_exact_stage[segment.exact_stage],
+                segment.exact_stage,
+                segment.duration_s,
+                peak_by_exact_stage[segment.exact_stage],
             )
             for segment in self.segments
         )
@@ -205,45 +172,18 @@ def parse_args() -> argparse.Namespace:
         default=",".join(POLICIES),
         help="Comma-separated: fifo, lpt, spt, memory_fit, request_fair.",
     )
+    parser.add_argument("--workload", default="")
+    parser.add_argument("--request-regex", default="")
+    parser.add_argument("--replicas", type=int, default=1)
+    parser.add_argument("--request-arrival-gap-s", type=float, default=0.0)
     parser.add_argument(
-        "--workload",
-        default="",
-        help="Optional exact workload name, e.g. mobilenet_v2.",
-    )
-    parser.add_argument(
-        "--request-regex",
-        default="",
-        help="Optional regular expression selecting source request IDs.",
-    )
-    parser.add_argument(
-        "--replicas",
-        type=int,
-        default=1,
-        help="Replicate the selected source workload N times as independent requests.",
-    )
-    parser.add_argument(
-        "--request-arrival-gap-s",
-        type=float,
-        default=0.0,
-        help="Synthetic gap between replica arrivals. Zero models an offline batch.",
-    )
-    parser.add_argument(
-        "--max-active-jobs",
+        "--max-concurrent-jobs",
         type=int,
         default=0,
-        help="Optional active-job cap. Zero means no count-based cap.",
+        help="Optional whole-job concurrency cap. Zero means no count cap.",
     )
-    parser.add_argument(
-        "--slo-seconds",
-        type=float,
-        default=0.0,
-        help="Optional request-latency SLO used only for reporting misses.",
-    )
-    parser.add_argument(
-        "--oracle",
-        action="store_true",
-        help="Run exact minimum-makespan search when the selected workload is small enough.",
-    )
+    parser.add_argument("--slo-seconds", type=float, default=0.0)
+    parser.add_argument("--oracle", action="store_true")
     parser.add_argument("--oracle-max-jobs", type=int, default=8)
     parser.add_argument("--oracle-max-phases", type=int, default=64)
     parser.add_argument("--oracle-time-limit-s", type=float, default=30.0)
@@ -264,13 +204,7 @@ def _workload_from_request_id(request_id: str) -> str:
 
 
 def _parent_stage(stage: str) -> str:
-    if stage.startswith("PROVING::"):
-        return "PROVING"
-    return stage
-
-
-def _find_job_dirs(runs_dir: Path) -> list[Path]:
-    return find_job_dirs(runs_dir)
+    return "PROVING" if stage.startswith("PROVING::") else stage
 
 
 def _row_durations(elapsed: Sequence[float]) -> list[float]:
@@ -318,16 +252,15 @@ def _load_trace_job(job_dir: Path) -> Optional[TraceJob]:
     current_stage = rows[0][1]
     current_duration = 0.0
     current_peak = 0.0
-
     for (_, stage, memory_gb), duration_s in zip(rows, durations):
         if stage != current_stage:
             if current_duration > 0:
                 segments.append(
                     MeasuredSegment(
-                        exact_stage=current_stage,
-                        stage=_parent_stage(current_stage),
-                        duration_s=current_duration,
-                        peak_memory_gb=current_peak,
+                        current_stage,
+                        _parent_stage(current_stage),
+                        current_duration,
+                        current_peak,
                     )
                 )
             current_stage = stage
@@ -335,25 +268,23 @@ def _load_trace_job(job_dir: Path) -> Optional[TraceJob]:
             current_peak = 0.0
         current_duration += max(0.0, duration_s)
         current_peak = max(current_peak, memory_gb)
-
     if current_duration > 0:
         segments.append(
             MeasuredSegment(
-                exact_stage=current_stage,
-                stage=_parent_stage(current_stage),
-                duration_s=current_duration,
-                peak_memory_gb=current_peak,
+                current_stage,
+                _parent_stage(current_stage),
+                current_duration,
+                current_peak,
             )
         )
-
     if not segments:
         return None
     request_id, job_id = job_identity(job_dir)
     return TraceJob(
-        request_id=request_id,
-        job_id=job_id,
-        workload=_workload_from_request_id(request_id),
-        segments=tuple(segments),
+        request_id,
+        job_id,
+        _workload_from_request_id(request_id),
+        tuple(segments),
     )
 
 
@@ -364,7 +295,7 @@ def load_trace_jobs(
 ) -> list[TraceJob]:
     pattern = re.compile(request_regex) if request_regex else None
     jobs = []
-    for job_dir in _find_job_dirs(runs_dir):
+    for job_dir in find_job_dirs(runs_dir):
         job = _load_trace_job(job_dir)
         if job is None:
             continue
@@ -468,7 +399,7 @@ def simulate(
     memory_budget_gb: float,
     policy: str,
     memory_model: str,
-    max_active_jobs: int = 0,
+    max_concurrent_jobs: int = 0,
     slo_seconds: float = 0.0,
 ) -> tuple[dict, list[ScheduledPhase], list[dict]]:
     if memory_budget_gb <= 0:
@@ -497,15 +428,23 @@ def simulate(
     last_running_memory = 0.0
     peak_memory = 0.0
 
-    def active_jobs() -> int:
-        return sum(1 for idx in range(len(jobs)) if started[idx] and not completed[idx])
+    def concurrent_jobs() -> int:
+        return sum(
+            1
+            for idx in range(len(jobs))
+            if started[idx] and not completed[idx]
+        )
 
     while not all(completed):
         if t > last_event_t:
             memory_area += last_running_memory * (t - last_event_t)
             last_event_t = t
 
-        finished = [idx for idx, state in running.items() if state[0] <= t + 1e-9]
+        finished = [
+            idx
+            for idx, state in running.items()
+            if state[0] <= t + 1e-9
+        ]
         for idx in finished:
             running.pop(idx)
             phase_index[idx] += 1
@@ -525,13 +464,18 @@ def simulate(
                 current_index = phase_index[idx]
                 if current_index >= len(job.phases):
                     continue
-                if not started[idx] and max_active_jobs > 0 and active_jobs() >= max_active_jobs:
+                if (
+                    not started[idx]
+                    and max_concurrent_jobs > 0
+                    and concurrent_jobs() >= max_concurrent_jobs
+                ):
                     continue
                 phase = job.phases[current_index]
                 if phase.memory_gb <= free_memory + 1e-9:
                     candidates.append(idx)
             if not candidates:
                 break
+
             chosen = min(
                 candidates,
                 key=lambda idx: _policy_key(
@@ -546,31 +490,36 @@ def simulate(
             current_index = phase_index[chosen]
             phase = job.phases[current_index]
             started[chosen] = True
-            request_dispatches[job.request_id] = request_dispatches.get(job.request_id, 0) + 1
+            request_dispatches[job.request_id] = (
+                request_dispatches.get(job.request_id, 0) + 1
+            )
             end_s = t + phase.duration_s
             running[chosen] = (end_s, phase.memory_gb, current_index)
             schedule.append(
                 ScheduledPhase(
-                    policy=policy,
-                    memory_model=memory_model,
-                    request_id=job.request_id,
-                    job_id=job.job_id,
-                    phase_index=current_index,
-                    phase=phase.name,
-                    start_s=t,
-                    end_s=end_s,
-                    memory_gb=phase.memory_gb,
+                    policy,
+                    memory_model,
+                    job.request_id,
+                    job.job_id,
+                    current_index,
+                    phase.name,
+                    t,
+                    end_s,
+                    phase.memory_gb,
                 )
             )
 
         current_memory = sum(state[1] for state in running.values())
         peak_memory = max(peak_memory, current_memory)
         last_running_memory = current_memory
-
         if all(completed):
             break
 
-        future_events = [state[0] for state in running.values() if state[0] > t + 1e-9]
+        future_events = [
+            state[0]
+            for state in running.values()
+            if state[0] > t + 1e-9
+        ]
         future_events.extend(
             job.arrival_s
             for idx, job in enumerate(jobs)
@@ -585,13 +534,16 @@ def simulate(
             raise RuntimeError(f"Simulation deadlocked; blocked jobs: {blocked}")
         t = min(future_events)
 
-    makespan_s = max(completion_time.values(), default=0.0) - min(
-        (job.arrival_s for job in jobs), default=0.0
-    )
-    job_latencies = [completion_time[idx] - job.arrival_s for idx, job in enumerate(jobs)]
+    first_arrival = min((job.arrival_s for job in jobs), default=0.0)
+    makespan_s = max(completion_time.values(), default=0.0) - first_arrival
+    job_latencies = [
+        completion_time[idx] - job.arrival_s
+        for idx, job in enumerate(jobs)
+    ]
     request_jobs: Dict[str, list[int]] = {}
     for idx, job in enumerate(jobs):
         request_jobs.setdefault(job.request_id, []).append(idx)
+
     request_rows = []
     request_latencies = []
     for request_id, indices in sorted(request_jobs.items()):
@@ -629,16 +581,28 @@ def simulate(
         "jobs": len(jobs),
         "requests": len(request_jobs),
         "memory_budget_gb": memory_budget_gb,
-        "max_active_jobs": max_active_jobs if max_active_jobs > 0 else "",
+        "max_concurrent_jobs": (
+            max_concurrent_jobs if max_concurrent_jobs > 0 else ""
+        ),
         "makespan_s": makespan_s,
-        "throughput_jobs_per_s": len(jobs) / makespan_s if makespan_s > 0 else 0.0,
-        "mean_job_latency_s": statistics.mean(job_latencies) if job_latencies else 0.0,
+        "throughput_jobs_per_s": (
+            len(jobs) / makespan_s if makespan_s > 0 else 0.0
+        ),
+        "mean_job_latency_s": (
+            statistics.mean(job_latencies) if job_latencies else 0.0
+        ),
         "p95_job_latency_s": _percentile(job_latencies, 0.95),
-        "mean_request_latency_s": statistics.mean(request_latencies) if request_latencies else 0.0,
+        "mean_request_latency_s": (
+            statistics.mean(request_latencies) if request_latencies else 0.0
+        ),
         "p95_request_latency_s": _percentile(request_latencies, 0.95),
         "slo_seconds": slo_seconds if slo_seconds > 0 else "",
         "slo_miss_rate": (
-            sum(1 for value in request_latencies if slo_seconds > 0 and value > slo_seconds)
+            sum(
+                1
+                for value in request_latencies
+                if slo_seconds > 0 and value > slo_seconds
+            )
             / len(request_latencies)
             if request_latencies and slo_seconds > 0
             else ""
@@ -651,7 +615,9 @@ def simulate(
         ),
         "memory_work_gb_seconds": memory_work,
         "capacity_lower_bound_s": lower_bound,
-        "lower_bound_efficiency": lower_bound / makespan_s if makespan_s > 0 else 0.0,
+        "lower_bound_efficiency": (
+            lower_bound / makespan_s if makespan_s > 0 else 0.0
+        ),
     }
     return summary, schedule, request_rows
 
@@ -674,7 +640,7 @@ def exact_minimum_makespan(
 ) -> tuple[float, list[ScheduledPhase], int]:
     """Return the exact minimum makespan for a small all-at-once workload."""
     if any(abs(job.arrival_s) > 1e-9 for job in jobs):
-        raise ValueError("Exact oracle currently requires all requests to arrive at t=0")
+        raise ValueError("Exact oracle requires all requests to arrive at t=0")
 
     durations_ms = [
         [max(1, int(round(phase.duration_s * 1000.0))) for phase in job.phases]
@@ -702,20 +668,27 @@ def exact_minimum_makespan(
         if time.monotonic() > deadline:
             raise OracleTimeout
         if not running and all(
-            next_phase[idx] >= len(jobs[idx].phases) for idx in range(len(jobs))
+            next_phase[idx] >= len(jobs[idx].phases)
+            for idx in range(len(jobs))
         ):
             return 0
 
         running_jobs = {item[0] for item in running}
-        used_memory = sum(demands[job_idx][phase_idx] for job_idx, phase_idx, _ in running)
+        used_memory = sum(
+            demands[job_idx][phase_idx]
+            for job_idx, phase_idx, _ in running
+        )
         capacity = memory_budget_gb - used_memory
         ready = [
             idx
             for idx in range(len(jobs))
-            if idx not in running_jobs and next_phase[idx] < len(jobs[idx].phases)
+            if idx not in running_jobs
+            and next_phase[idx] < len(jobs[idx].phases)
         ]
         next_demands = [
-            demands[idx][next_phase[idx]] if next_phase[idx] < len(demands[idx]) else 0.0
+            demands[idx][next_phase[idx]]
+            if next_phase[idx] < len(demands[idx])
+            else 0.0
             for idx in range(len(jobs))
         ]
         choices = list(_feasible_subsets(ready, next_demands, capacity))
@@ -743,7 +716,10 @@ def exact_minimum_makespan(
                 for job_idx, phase_idx, remaining in new_running
                 if remaining - dt > 0
             ]
-            candidate = dt + solve(tuple(new_next), canonical_running(advanced))
+            candidate = dt + solve(
+                tuple(new_next),
+                canonical_running(advanced),
+            )
             if candidate < best:
                 best = candidate
                 best_choice = tuple(choice)
@@ -761,7 +737,8 @@ def exact_minimum_makespan(
     running = initial_running
     t_ms = 0
     while running or any(
-        next_phase[idx] < len(jobs[idx].phases) for idx in range(len(jobs))
+        next_phase[idx] < len(jobs[idx].phases)
+        for idx in range(len(jobs))
     ):
         choice = decisions[(next_phase, running)]
         new_next = list(next_phase)
@@ -772,15 +749,15 @@ def exact_minimum_makespan(
             duration_ms = durations_ms[job_idx][phase_idx]
             schedule.append(
                 ScheduledPhase(
-                    policy="oracle",
-                    memory_model="",
-                    request_id=jobs[job_idx].request_id,
-                    job_id=jobs[job_idx].job_id,
-                    phase_index=phase_idx,
-                    phase=phase.name,
-                    start_s=t_ms / 1000.0,
-                    end_s=(t_ms + duration_ms) / 1000.0,
-                    memory_gb=phase.memory_gb,
+                    "oracle",
+                    "",
+                    jobs[job_idx].request_id,
+                    jobs[job_idx].job_id,
+                    phase_idx,
+                    phase.name,
+                    t_ms / 1000.0,
+                    (t_ms + duration_ms) / 1000.0,
+                    phase.memory_gb,
                 )
             )
             new_running.append((job_idx, phase_idx, duration_ms))
@@ -835,8 +812,16 @@ def _schedule_rows(schedule: Sequence[ScheduledPhase]) -> list[dict]:
 
 def main() -> None:
     args = parse_args()
-    memory_models = [item.strip() for item in args.memory_models.split(",") if item.strip()]
-    policies = [item.strip() for item in args.policies.split(",") if item.strip()]
+    memory_models = [
+        item.strip()
+        for item in args.memory_models.split(",")
+        if item.strip()
+    ]
+    policies = [
+        item.strip()
+        for item in args.policies.split(",")
+        if item.strip()
+    ]
     unknown_models = sorted(set(memory_models) - set(MEMORY_MODELS))
     unknown_policies = sorted(set(policies) - set(POLICIES))
     if unknown_models:
@@ -873,7 +858,7 @@ def main() -> None:
                 memory_budget_gb=args.memory_budget_gb,
                 policy=policy,
                 memory_model=memory_model,
-                max_active_jobs=args.max_active_jobs,
+                max_concurrent_jobs=args.max_concurrent_jobs,
                 slo_seconds=args.slo_seconds,
             )
             summary_rows.append(summary)
@@ -893,14 +878,20 @@ def main() -> None:
                 "minimum_makespan_s": "",
                 "states_visited": "",
             }
-            if args.max_active_jobs > 0:
-                oracle_record["reason"] = "oracle does not model max_active_jobs"
+            if args.max_concurrent_jobs > 0:
+                oracle_record["reason"] = (
+                    "oracle does not model max_concurrent_jobs"
+                )
             elif args.request_arrival_gap_s > 0:
                 oracle_record["reason"] = "oracle requires all requests at t=0"
             elif len(jobs) > args.oracle_max_jobs:
-                oracle_record["reason"] = f"job count exceeds {args.oracle_max_jobs}"
+                oracle_record["reason"] = (
+                    f"job count exceeds {args.oracle_max_jobs}"
+                )
             elif total_phases > args.oracle_max_phases:
-                oracle_record["reason"] = f"phase count exceeds {args.oracle_max_phases}"
+                oracle_record["reason"] = (
+                    f"phase count exceeds {args.oracle_max_phases}"
+                )
             else:
                 try:
                     optimum, oracle_schedule, states = exact_minimum_makespan(
@@ -928,11 +919,14 @@ def main() -> None:
     oracle_by_model = {
         row["memory_model"]: float(row["minimum_makespan_s"])
         for row in oracle_rows
-        if row.get("optimality_proven") and row.get("minimum_makespan_s") != ""
+        if row.get("optimality_proven")
+        and row.get("minimum_makespan_s") != ""
     }
     for row in summary_rows:
         optimum = oracle_by_model.get(row["memory_model"])
-        row["oracle_minimum_makespan_s"] = optimum if optimum is not None else ""
+        row["oracle_minimum_makespan_s"] = (
+            optimum if optimum is not None else ""
+        )
         row["makespan_gap_to_oracle_percent"] = (
             (float(row["makespan_s"]) / optimum - 1.0) * 100.0
             if optimum and optimum > 0
@@ -954,7 +948,7 @@ def main() -> None:
         "replicas": args.replicas,
         "request_arrival_gap_s": args.request_arrival_gap_s,
         "memory_budget_gb": args.memory_budget_gb,
-        "max_active_jobs": args.max_active_jobs,
+        "max_concurrent_jobs": args.max_concurrent_jobs,
         "slo_seconds": args.slo_seconds,
         "memory_models": memory_models,
         "policies": policies,
@@ -971,4 +965,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
