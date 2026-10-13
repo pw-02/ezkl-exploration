@@ -16,6 +16,11 @@ coordinator:
   state_store_enabled: true
   state_db_path: experiments/runs/coordinator_state.sqlite3
 
+  # Global request-fair scheduling policy for whole-job placement.
+  # Stage-level memory admission remains node-local.
+  # fifo | lpt | cache_aware | resource_aware
+  scheduling_policy: cache_aware
+
 node:
   # One NodeSupervisor runs per physical machine/cloud instance.
   node_id: null
@@ -23,51 +28,34 @@ node:
   logs_dir: logs/nodes
   job_poll_interval_sec: 5
 
-  # RSS/CPU sampling interval for resource_usage.csv. Exact EZKL and Halo2
-  # transition durations are recorded separately and do not depend on this.
-  # Use 0.25-0.5s for Section 3 characterization; 1.0s is a lighter default.
-  resource_monitor_interval_sec: 1.0
+  # RSS/CPU trace sampling interval. Exact stage transitions are timestamped
+  # separately and do not depend on this interval.
+  resource_sampling_interval_sec: 1.0
 
-  # Optional whole-job concurrency cap on this node.
-  # 1    = safe default and the isolated Section 3 baseline.
-  # N    = at most N active proof jobs on this node.
-  # null = no fixed job-count cap. Use only for intentional concurrency runs,
-  #        ideally with resource/phase admission enabled and established profiles.
-  max_active_jobs: 1
+  # Optional hard whole-job concurrency cap.
+  # 1    = safe sequential default
+  # N    = fixed-concurrency baseline
+  # null = no fixed cap; stage admission controls memory safety
+  max_concurrent_jobs: 1
 
-  # Persistent local copies used by this node. The directory contains:
-  #   objects/ : materialized model/input artifacts
-  #   setup/   : local copies of reusable setup files
-  local_cache_dir: storage/node/cache
-  local_cache_max_gb: 50
+  local_cache:
+    path: storage/node/cache
+    max_gb: 50
 
-  # Live phase reservations and node-local historical resource profiles.
-  # This is runtime/scheduling state, not cached model data.
+  # Live stage reservations and node-local historical profiles.
   runtime_state_dir: storage/node/runtime
 
-  # Stage-level resource admission. Memory is the primary safety resource.
-  # Historical stage measurements improve packing, while memory_reserve_gb is a
-  # fixed safety margin independent of the learned profile. CPU remains optional
-  # policy input rather than a required predictor; a zero fallback avoids making
-  # unknown CPU demand block otherwise memory-safe work.
-  phase_admission:
+  stage_admission:
     enabled: false
-    memory_reserve_gb: 8
-    cpu_budget_percent: 100
-    profile_percentile: 0.90
-    fallback_cpu_percent: 0
+    # RAM intentionally left unavailable to proof workloads. This fixed reserve
+    # is independent of historical predictions.
+    memory_safety_reserve_gb: 8
+    # Once enough observations exist, estimate stage memory from this percentile
+    # of historical runs. Sparse history uses the observed maximum.
+    history_percentile: 0.90
 
 jobs:
-  # Global coordinator scheduling policy:
-  #   fifo           request-fair queue order
-  #   lpt            longest predicted job first within the selected request
-  #   cache_aware    prefer setup already resident on the polling node
-  #   resource_aware reject jobs that cannot fit the machine, then use cache
-  #                  locality and duration only as coarse placement preferences;
-  #                  stage-level packing remains node-local
-  scheduler: cache_aware
   max_retries: 1
-  transfer_only: false
 
 verification:
   enabled: false
@@ -81,13 +69,15 @@ heartbeat:
 
 storage:
   backend: filesystem # filesystem | s3
-  # Reusable state: <setup_key>/model.onnx + settings/circuit/PK/VK.
-  setup_prefix: storage/setup
-  # Request-owned state: <request_id>/inputs/ + proofs/<partition>/attempts/.
-  requests_prefix: storage/requests
-  # Reuse derived settings/circuit/keys; false gives a cold private setup per job.
-  # Immutable ONNX transfer caching is available in both modes.
-  reuse_setup: false
+
+  reusable_setup:
+    # Reuse settings/circuit/PK/VK generated for the same setup identity.
+    enabled: false
+    path: storage/setup
+
+  request_data:
+    # Request-owned inputs, proofs, witnesses, and manifests.
+    path: storage/requests
 
   s3_bucket: null
   s3_prefix: zkinfer
