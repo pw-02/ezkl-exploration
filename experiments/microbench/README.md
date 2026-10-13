@@ -1,0 +1,179 @@
+# Proof-job repeatability microbenchmark
+
+This benchmark measures isolated repeated execution of selected partitions. It
+does not start a coordinator or supervisor, enable admission, flush the OS page
+cache, or change existing setup stores. Each proof runs in a fresh subprocess.
+
+## Selection
+
+From one completed `job_report.csv` per model, select the jobs closest to the
+median and p90 duration, plus the maximum sampled process-memory job. Percentiles
+use linear interpolation; equal-distance ties choose the lower partition index.
+Duplicate selections are included once. The October 12 characterization archive
+selects:
+
+| Model | Median-duration partition | p90-duration partition | Maximum-memory partition |
+| --- | ---: | ---: | ---: |
+| MNIST GAN | 2 | 10 | 7 |
+| MobileNetV2 | 43 | 15 | 96 |
+| NanoGPT (4L) | 25 | 172 | 63 |
+
+Selection reads either extracted runs or a `.tar.gz` archive, without extracting
+untrusted archive paths. It uses reported job durations, not final stage elapsed
+timestamps. It rejects duplicate IDs, failed jobs, and invalid measurements.
+
+Run all commands from the repository root using the Python environment with the
+repository's requirements and the custom `pw-02/ezkl:sacdad27` wheel installed.
+The cold fused path must provide detailed stage events. ONNX model files and
+baseline inputs must match the archived run. Default paths are the three model
+paths used in that archive; override them with `--config` if needed.
+
+```bash
+python -m experiments.microbench.repeatability select \
+  --source experiments/runs \
+  --output /tmp/repeatability-selection.json
+```
+
+Point `--source` at a narrower directory/archive if it contains multiple runs of
+the same model. Use `--models mnist_gan` (or either other model name) for a subset.
+
+## Prepare distinct inputs outside the measured runs
+
+The recommended paper experiment uses real full-model inputs in the standard
+EZKL JSON format (`{"input_data": [...]}`). Supply paths in a JSON config:
+
+```json
+{
+  "mnist_gan": {
+    "model": "experiments/models/mnist_gan/mnist_gan.onnx",
+    "baseline_input": "experiments/models/mnist_gan/input.json",
+    "inputs": ["data/gan/input_01.json", "data/gan/input_02.json", "data/gan/input_03.json"]
+  }
+}
+```
+
+Provide at least as many distinct input files as `--repetitions` for every
+selected model. Paths are absolute or relative to the repository root.
+
+```bash
+python -m experiments.microbench.repeatability prepare \
+  --source experiments/runs \
+  --config experiments/microbench/inputs.json \
+  --models mnist_gan \
+  --repetitions 10 \
+  --output experiments/microbench_outputs/prepared
+```
+
+For a synthetic pilot, floating-point full-model inputs can instead be perturbed
+with seeded Gaussian noise, default standard deviation 1% of their RMS magnitude:
+
+```bash
+python -m experiments.microbench.repeatability prepare \
+  --source experiments/runs \
+  --input-mode perturb \
+  --repetitions 10 \
+  --output experiments/microbench_outputs/prepared
+```
+
+Synthetic inputs are explicitly recorded as such, are not clipped or assumed to
+follow a realistic request distribution, and should not be described as real
+client traffic. Integer inputs need real files or an explicitly valid
+`--integer-upper-bound` (exclusive vocabulary bound). Attention masks and token
+type IDs are preserved. Do not guess a vocabulary bound.
+
+Preparation evaluates each full-model input and uses the runtime's splitter to
+materialize the selected partition boundary inputs. It checks that each selected
+ONNX component matches its archived setup key and remains byte-identical across
+inputs. If model, serialization, or splitter changes cause a mismatch, regenerate
+the characterization baseline rather than silently treating it as the same
+circuit. It also rejects repeated partition inputs, including partitions whose
+inputs remain invariant despite varying full-model inputs. This work is not
+included in proof measurements.
+
+## Collect cold and warm measurements
+
+```bash
+python -m experiments.microbench.repeatability run \
+  --prepared experiments/microbench_outputs/prepared \
+  --output experiments/microbench_outputs/measurements \
+  --interval 0.1 \
+  --srs-dir srs \
+  --verify
+```
+
+For a smaller pilot add `--case mnist_gan:2` (repeat the flag for more cases).
+Use `--conditions warm` or `--conditions cold` to run one condition. Output
+directories must be new; existing results are never overwritten. Runs stop on
+failure, retaining failure logs and any completed measurements for analysis.
+
+- Cold repetitions each start with an empty, benchmark-owned circuit setup
+  directory, generating settings, compilation, and keys afresh. Shared SRS files
+  remain available and are not deleted or counted as regenerated circuit setup.
+- Warm groups first execute a separate, unmeasured setup-creation proof. Measured
+  repetitions reuse these local disk artifacts but run in fresh processes, so
+  keys are loaded afresh rather than retained in the preceding process's memory.
+- Calibration always uses the same baseline partition input, while measured
+  proof inputs vary. This holds input-dependent calibration settings constant
+  without removing calibration work from cold repetitions. Document this
+  reference-calibration policy in the paper. A settings fingerprint is checked
+  before compilation/proving; changes fail the run rather than contaminate a
+  resource-history group.
+- Actual settings/compiled/key cache flags are checked. A warm miss fails instead
+  of silently regenerating setup. A cold cache hit likewise fails.
+- `--verify` checks each proof after resource profiling ends, with verification
+  time recorded separately from proof execution. Without the flag, completion
+  reports execution success, not independently verified correctness.
+- Sampling defaults to 0.1 seconds. Even this may miss very short stages, notably
+  compilation and witness generation. Sample counts remain explicit.
+- Setup and published proof/witness intermediates are deleted after they are no
+  longer needed, while all measurement logs and settings snapshots remain. Warm
+  caches are removed after their group by default; `--keep-setup` retains them.
+  Cleanup never touches the source inputs, shared SRS, or runtime caches.
+- No root access or page-cache dropping is used. "Cold" and "warm" describe
+  circuit artifact availability, not a guarantee about OS disk-cache state.
+
+The campaign metadata records Git revision and tracked changes, Python/platform,
+CPU/RAM, EZKL version and native-library SHA256, prepared manifest hash, sampling
+interval, conditions, and verification policy. Every execution records its input
+hash, result, settings fingerprint, and task paths. Raw traces include stage
+transitions, process-tree RSS/CPU samples, and the available Halo2 profiling CSVs.
+
+## Analyze
+
+```bash
+python -m experiments.microbench.analysis \
+  --runs experiments/microbench_outputs/measurements
+```
+
+Outputs under `measurements/analysis`:
+
+| File | Contents |
+| --- | --- |
+| `stage_measurements.csv` | Per-run durations, sampled memory peaks, CPU, and sample counts |
+| `repeatability.csv` | Per-circuit/condition/stage mean, sample CV, p90, maximum, excluded counts |
+| `predictions.csv` | Every causal prediction, history size, error, underprediction and shortfall |
+| `prediction_by_history.csv` | Prediction summaries by available history size |
+| `failures.csv` | Failed/incomplete measured executions |
+
+For each metric and stage, prediction starts after two valid earlier observations.
+With 2–4 observations, use their maximum; with at least five, use their empirical
+p90 (linear interpolation). Missing samples do not enter history as zeros. Cold
+and warm groups, circuit IDs, stages, and settings fingerprints are kept separate.
+The estimator is evaluated as an estimate, not guaranteed to upper-bound memory.
+
+Memory includes only stage executions with at least one valid process-memory
+sample. Raw sample counts and excluded counts are reported; one sample is not
+proof that the true stage peak was captured. CV uses sample standard deviation.
+For repeated Halo2 phase names, durations are summed and observed peaks are taken
+over their intervals. Native timestamp intervals are aligned to resource samples
+using UTC wall-clock times, rather than assuming the two elapsed clocks match.
+
+Diagnostic Halo2 stages and the combined `FUSED_KEYGEN_PROVE_ENVELOPE` are both
+reported. The latter reflects the runtime's actual admission region, including
+key/proof persistence within the fused call. Detailed subphase timestamps do not
+imply independently controllable admission boundaries. Warm cached preparation
+checks are named as cache lookups rather than regeneration.
+
+For publication, aggregate prediction counts across cases while retaining the
+history dimension. Ten runs leave only eight predictions per sampled stage; do
+not interpret a zero underprediction count as a validated safety guarantee.
