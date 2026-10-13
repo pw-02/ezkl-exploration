@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock
 
 from zkinfer.backends.ezkl.ezkl_prover import EZKLProofStages
-from zkinfer.profiling.reports import _numeric_values, _safe_max, write_request_report
+from zkinfer.profiling.reports import _safe_max, write_request_report
 from zkinfer.profiling.resource_parser import parse_resource_usage_file
 from zkinfer.runtime.models import InferenceRequest
 from zkinfer.runtime.node.prover_task import ProverTaskRunner
@@ -75,25 +75,23 @@ class StageMetricsTests(unittest.TestCase):
             self.assertTrue(all(value is None for value in metrics.values()))
 
     def test_prediction_error_does_not_invent_unsampled_measurements(self):
-        estimates = {'phase_admission_witness_predicted_memory(GB)': 5,
-                     'phase_admission_witness_predicted_cpu_machine(%)': 100}
+        estimates = {'stage_admission_witness_predicted_memory(GB)': 5}
         metrics = ProverTaskRunner._prediction_error_metrics({}, estimates)
-        self.assertIsNone(metrics['phase_admission_witness_actual_memory(GB)'])
-        self.assertIsNone(metrics['phase_admission_witness_actual_cpu_machine(%)'])
-        self.assertNotIn('phase_admission_witness_memory_error(GB)', metrics)
+        self.assertIsNone(metrics['stage_admission_witness_actual_memory(GB)'])
+        self.assertNotIn('stage_admission_witness_memory_error(GB)', metrics)
         metrics = ProverTaskRunner._prediction_error_metrics(
-            {'stage_witness_max_memory(GB)': 0, 'stage_witness_avg_cpu_machine(%)': 0}, estimates)
-        self.assertEqual(metrics['phase_admission_witness_actual_memory(GB)'], 0)
-        self.assertEqual(metrics['phase_admission_witness_memory_error(GB)'], 5)
-        self.assertNotIn('phase_admission_witness_memory_abs_pct_error', metrics)
+            {'stage_witness_max_memory(GB)': 0}, estimates)
+        self.assertEqual(metrics['stage_admission_witness_actual_memory(GB)'], 0)
+        self.assertEqual(metrics['stage_admission_witness_memory_error(GB)'], 5)
+        self.assertNotIn('stage_admission_witness_memory_abs_pct_error', metrics)
 
     def test_fused_measurement_can_be_partial_or_from_older_wheel(self):
-        estimates = {'phase_admission_fused_keygen_prove_predicted_memory(GB)': 10}
+        estimates = {'stage_admission_fused_keygen_prove_predicted_memory(GB)': 10}
         for inputs, expected in (({}, None), ({'stage_key_gen_max_memory(GB)': 3}, 3),
                                  ({'stage_fused_keygen_prove_max_memory(GB)': 6}, 6),
                                  ({'stage_proving_max_memory(GB)': math.nan}, None)):
             metrics = ProverTaskRunner._prediction_error_metrics(inputs, estimates)
-            self.assertEqual(metrics['phase_admission_fused_keygen_prove_actual_memory(GB)'], expected)
+            self.assertEqual(metrics['stage_admission_fused_keygen_prove_actual_memory(GB)'], expected)
 
     def run_path(self, warm=False, setup_only=False):
         stages = EZKLProofStages.__new__(EZKLProofStages)
