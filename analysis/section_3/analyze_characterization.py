@@ -1,21 +1,10 @@
 #!/usr/bin/env python3
 """Generate Section 3 characterization tables and figures from zkInfer runs.
 
-The analysis is intentionally policy-independent. It consumes the raw resource
-traces and exact stage labels produced by the prover runtime and quantifies:
-
-* EZKL-stage and Halo2-subphase resource demand;
-* repeatability across runs of the same setup key;
-* whole-job versus finer-grained memory reservation waste;
-* historical prediction accuracy when predictions are available;
-* cold versus cached-setup behavior; and
-* node activity under concurrent requests.
-
-Example:
-    python analysis/section_3/analyze_characterization.py \
-        --runs-dir experiments/runs \
-        --output-dir analysis/section_3/generated \
-        --memory-budget-gb 760
+The analysis is policy-independent. It consumes raw resource traces and exact
+stage labels and quantifies stage demand, repeatability, reservation
+opportunity, historical memory prediction, cold versus cached setup, and node
+activity under concurrent requests.
 """
 
 from __future__ import annotations
@@ -34,14 +23,14 @@ import pandas as pd
 
 try:
     from .trace_layout import find_job_dirs, job_identity
-except ImportError:  # direct script execution
+except ImportError:
     from trace_layout import find_job_dirs, job_identity
 
 
 PROCESS_TYPES = {"process", "process_tree"}
 IGNORE_STAGES = {"", "UNKNOWN", "STARTING", "DONE", "FAILED"}
 PREDICTED_MEMORY_RE = re.compile(
-    r"^phase_admission_(?P<stage>.+)_predicted_memory\(GB\)$"
+    r"^stage_admission_(?P<stage>.+)_predicted_memory\(GB\)$"
 )
 
 
@@ -58,15 +47,11 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.0,
         help=(
-            "Usable node memory for pairwise packing analysis. Set to the node "
-            "admission budget after the OS/safety reserve."
+            "Usable node memory for pairwise packing analysis after the fixed "
+            "node memory safety reserve."
         ),
     )
-    parser.add_argument(
-        "--no-figures",
-        action="store_true",
-        help="Write tables and summaries without rendering figures.",
-    )
+    parser.add_argument("--no-figures", action="store_true")
     return parser.parse_args()
 
 
@@ -122,10 +107,8 @@ def _safe_cv(values: Iterable[float]) -> float:
 
 
 def _weighted_duration(samples: pd.DataFrame) -> pd.Series:
-    """Return per-row duration weights from the monotonic resource timeline."""
     elapsed = pd.to_numeric(samples["elapsed_s"], errors="coerce")
-    next_elapsed = elapsed.shift(-1)
-    deltas = next_elapsed - elapsed
+    deltas = elapsed.shift(-1) - elapsed
     positive = deltas[deltas > 0]
     fallback = float(positive.median()) if not positive.empty else 0.0
     return deltas.where(deltas > 0, fallback).fillna(fallback)
@@ -135,12 +118,7 @@ def _find_job_dirs(runs_dir: Path) -> list[Path]:
     return find_job_dirs(runs_dir)
 
 
-def _load_perf_metrics(runs_dir: Path) -> pd.DataFrame:
-    """Load the canonical per-job scalar report.
-
-    The historical function name is kept to avoid unnecessary churn in the
-    analysis code. The runtime no longer writes a duplicate perf_metrics.csv.
-    """
+def _load_job_reports(runs_dir: Path) -> pd.DataFrame:
     frames = []
     for path in runs_dir.glob("*/reports/job_report.csv"):
         try:
@@ -157,34 +135,35 @@ def _load_perf_metrics(runs_dir: Path) -> pd.DataFrame:
     return data.drop_duplicates(subset=["request_id", "job_id"], keep="last")
 
 
-def _perf_row(
-    perf: pd.DataFrame,
+def _job_report_row(
+    reports: pd.DataFrame,
     request_id: str,
     job_id: str,
 ) -> Dict[str, Any]:
-    if perf.empty:
+    if reports.empty:
         return {}
-    rows = perf[(perf["request_id"] == request_id) & (perf["job_id"] == job_id)]
+    rows = reports[
+        (reports["request_id"] == request_id) & (reports["job_id"] == job_id)
+    ]
     if rows.empty:
         return {}
     return rows.iloc[-1].to_dict()
 
 
-def _read_setup_key(job_dir: Path, perf_row: Dict[str, Any]) -> str:
-    value = perf_row.get("setup_key")
+def _read_setup_key(job_dir: Path, report_row: Dict[str, Any]) -> str:
+    value = report_row.get("setup_key")
     if value is not None and str(value).strip() and str(value).lower() != "nan":
         return str(value)
     path = job_dir / "admission_profile_before.json"
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        value = payload.get("setup_key")
-        return str(value or "")
+        return str(payload.get("setup_key") or "")
     except Exception:
         return ""
 
 
-def _cache_state(perf_row: Dict[str, Any]) -> str:
-    cached = _as_bool(perf_row.get("ezkl_key_gen_used_cache"))
+def _cache_state(report_row: Dict[str, Any]) -> str:
+    cached = _as_bool(report_row.get("ezkl_key_gen_used_cache"))
     if cached is True:
         return "cached_setup"
     if cached is False:
@@ -193,8 +172,7 @@ def _cache_state(perf_row: Dict[str, Any]) -> str:
 
 
 def _resource_frame(job_dir: Path) -> pd.DataFrame:
-    path = job_dir / "resource_usage.csv"
-    frame = pd.read_csv(path)
+    frame = pd.read_csv(job_dir / "resource_usage.csv")
     for column in (
         "elapsed_s",
         "memory_gb",
@@ -202,7 +180,6 @@ def _resource_frame(job_dir: Path) -> pd.DataFrame:
         "cpu_machine_percent",
         "node_active_jobs",
         "node_reserved_memory_gb",
-        "node_reserved_cpu_percent",
     ):
         if column in frame.columns:
             frame[column] = pd.to_numeric(frame[column], errors="coerce")
@@ -211,8 +188,7 @@ def _resource_frame(job_dir: Path) -> pd.DataFrame:
 
 def _job_identity(job_dir: Path) -> tuple[str, str, str]:
     request_id, job_id = job_identity(job_dir)
-    workload = _workload_from_request_id(request_id)
-    return request_id, job_id, workload
+    return request_id, job_id, _workload_from_request_id(request_id)
 
 
 def _artifact_validation(job_dir: Path) -> Dict[str, Any]:
@@ -254,11 +230,10 @@ def _stage_rows(
     process["sample_duration_s"] = _weighted_duration(process)
     process["stage"] = process["stage"].fillna("UNKNOWN").astype(str)
 
-    rows: list[Dict[str, Any]] = []
+    rows = []
     for stage, group in process.groupby("stage", sort=False):
         if stage in IGNORE_STAGES:
             continue
-        duration_s = float(group["sample_duration_s"].sum())
         rows.append(
             {
                 "request_id": request_id,
@@ -269,12 +244,10 @@ def _stage_rows(
                 "stage": stage,
                 "ezkl_stage": _ezkl_stage(stage),
                 "is_halo2_subphase": stage.startswith("PROVING::"),
-                "duration_s": duration_s,
+                "duration_s": float(group["sample_duration_s"].sum()),
                 "peak_memory_gb": float(group["memory_gb"].max()),
                 "mean_memory_gb": float(group["memory_gb"].mean()),
-                "mean_cpu_machine_percent": float(
-                    group["cpu_machine_percent"].mean()
-                ),
+                "mean_cpu_machine_percent": float(group["cpu_machine_percent"].mean()),
                 "samples": int(len(group)),
             }
         )
@@ -353,7 +326,7 @@ def _job_row(
     workload: str,
     setup_key: str,
     cache_state: str,
-    perf_row: Dict[str, Any],
+    report_row: Dict[str, Any],
 ) -> Dict[str, Any]:
     process = resource[resource["type"].isin(PROCESS_TYPES)].copy()
     system = resource[resource["type"] == "system"].copy()
@@ -364,34 +337,37 @@ def _job_row(
         "setup_key": setup_key,
         "cache_state": cache_state,
         "peak_process_memory_gb": float(process["memory_gb"].max())
-        if not process.empty
-        else float("nan"),
+        if not process.empty else float("nan"),
         "peak_system_memory_gb": float(system["memory_gb"].max())
-        if not system.empty
-        else float("nan"),
+        if not system.empty else float("nan"),
         "mean_process_cpu_machine_percent": float(
             process["cpu_machine_percent"].mean()
-        )
-        if not process.empty
-        else float("nan"),
+        ) if not process.empty else float("nan"),
         "observed_trace_duration_s": float(process["elapsed_s"].max())
-        if not process.empty
-        else 0.0,
-        "reported_job_runtime_s": _as_float(perf_row.get("job_runtime(s)"), float("nan")),
-        "ezkl_setup_time_s": _as_float(perf_row.get("ezkl_setup_time(s)"), float("nan")),
+        if not process.empty else 0.0,
+        "reported_job_runtime_s": _as_float(
+            report_row.get("job_runtime(s)"), float("nan")
+        ),
+        "ezkl_setup_time_s": _as_float(
+            report_row.get("ezkl_setup_time(s)"), float("nan")
+        ),
         "ezkl_witness_time_s": _as_float(
-            perf_row.get("ezkl_gen_witness_time(s)"), float("nan")
+            report_row.get("ezkl_gen_witness_time(s)"), float("nan")
         ),
         "ezkl_keygen_time_s": _as_float(
-            perf_row.get("ezkl_key_gen_time(s)"), float("nan")
+            report_row.get("ezkl_key_gen_time(s)"), float("nan")
         ),
-        "ezkl_proof_time_s": _as_float(perf_row.get("ezkl_proof_time(s)"), float("nan")),
-        "pk_file_size_gb": _as_float(perf_row.get("pk_file_size(GB)"), float("nan")),
+        "ezkl_proof_time_s": _as_float(
+            report_row.get("ezkl_proof_time(s)"), float("nan")
+        ),
+        "pk_file_size_gb": _as_float(
+            report_row.get("pk_file_size(GB)"), float("nan")
+        ),
     }
 
 
 def _prediction_rows(
-    perf_row: Dict[str, Any],
+    report_row: Dict[str, Any],
     stage_rows: list[Dict[str, Any]],
     request_id: str,
     job_id: str,
@@ -408,7 +384,7 @@ def _prediction_rows(
         )
 
     result = []
-    for key, value in perf_row.items():
+    for key, value in report_row.items():
         match = PREDICTED_MEMORY_RE.match(str(key))
         if not match:
             continue
@@ -568,7 +544,6 @@ def _node_activity(resource_frames: list[pd.DataFrame]) -> pd.DataFrame:
                     "timestamp",
                     "node_active_jobs",
                     "node_reserved_memory_gb",
-                    "node_reserved_cpu_percent",
                     "memory_gb",
                 ]
             ]
@@ -577,8 +552,6 @@ def _node_activity(resource_frames: list[pd.DataFrame]) -> pd.DataFrame:
         return pd.DataFrame()
     data = pd.concat(rows, ignore_index=True)
     data = data.sort_values("timestamp").set_index("timestamp")
-    # Multiple job loggers may sample the same node state. Resampling and taking
-    # the maximum avoids counting those duplicate observers as additional jobs.
     data = data.resample("250ms").max().dropna(how="all").reset_index()
     if not data.empty:
         data["elapsed_s"] = (
@@ -667,13 +640,13 @@ def _render_figures(
             "normalized_reservation_waste"
         ].median()
         order = [
-            x
-            for x in ["whole_job", "ezkl_stage", "halo2_subphase"]
-            if x in summary
+            item
+            for item in ["whole_job", "ezkl_stage", "halo2_subphase"]
+            if item in summary
         ]
         if order:
             fig, ax = plt.subplots(figsize=(6.5, 4.2))
-            ax.bar(order, [summary[x] * 100.0 for x in order])
+            ax.bar(order, [summary[item] * 100.0 for item in order])
             ax.set_ylabel("Median reserved-but-unused memory (%)")
             ax.set_title("Reservation waste by accounting granularity")
             ax.tick_params(axis="x", labelrotation=20)
@@ -684,8 +657,7 @@ def _render_figures(
     if not repeatability.empty:
         plot = repeatability.dropna(subset=["memory_cv"]).copy()
         if not plot.empty:
-            grouped = plot.groupby("stage")["memory_cv"].median().sort_values()
-            grouped = grouped.tail(15)
+            grouped = plot.groupby("stage")["memory_cv"].median().sort_values().tail(15)
             fig, ax = plt.subplots(
                 figsize=(7.5, max(4.0, 0.3 * len(grouped)))
             )
@@ -736,20 +708,20 @@ def main() -> None:
     if not job_dirs:
         raise SystemExit(f"No resource_usage.csv files found under {runs_dir}")
 
-    perf = _load_perf_metrics(runs_dir)
-    validation_rows: list[Dict[str, Any]] = []
-    job_rows: list[Dict[str, Any]] = []
-    stage_rows: list[Dict[str, Any]] = []
-    reservation_rows: list[Dict[str, Any]] = []
-    prediction_rows: list[Dict[str, Any]] = []
-    resource_frames: list[pd.DataFrame] = []
+    reports = _load_job_reports(runs_dir)
+    validation_rows = []
+    job_rows = []
+    stage_rows = []
+    reservation_rows = []
+    prediction_rows = []
+    resource_frames = []
 
     for job_dir in job_dirs:
         validation_rows.append(_artifact_validation(job_dir))
         request_id, job_id, workload = _job_identity(job_dir)
-        perf_row = _perf_row(perf, request_id, job_id)
-        setup_key = _read_setup_key(job_dir, perf_row)
-        cache_state = _cache_state(perf_row)
+        report_row = _job_report_row(reports, request_id, job_id)
+        setup_key = _read_setup_key(job_dir, report_row)
+        cache_state = _cache_state(report_row)
 
         try:
             resource = _resource_frame(job_dir)
@@ -785,12 +757,12 @@ def main() -> None:
                 workload,
                 setup_key,
                 cache_state,
-                perf_row,
+                report_row,
             )
         )
         prediction_rows.extend(
             _prediction_rows(
-                perf_row,
+                report_row,
                 current_stage_rows,
                 request_id,
                 job_id,
@@ -880,4 +852,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
