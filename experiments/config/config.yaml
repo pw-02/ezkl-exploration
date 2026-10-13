@@ -8,16 +8,13 @@ suite:
     - nano_gpt_4_layers_64_embd #mnist_gan
 
 execution:
-  partitioning:
-    # whole_model    : one proof job for the complete model
-    # single_operator: one proof job per meaningful ONNX operator
-    # fixed_size     : consecutive meaningful operators grouped into fixed-size jobs
-    mode: fixed_size
-    # Used only when mode=fixed_size.
-    operators_per_partition: 1
+  # false = one proof job for the whole model
+  # true  = partition the model into consecutive groups of partition_size
+  partitioning_enabled: true
+  partition_size: 1
   simplify_model: true
 
-jobs:
+coordinator:
   # fifo | lpt | cache_aware | resource_aware
   # fifo: request-fair queue order
   # lpt: longest predicted job first within the selected request
@@ -25,42 +22,48 @@ jobs:
   # resource_aware: reject jobs that cannot fit the machine, then use cache
   # locality and duration only as coarse placement preferences. Stage-level
   # admission remains node-local.
-  scheduler: lpt
-  # Keep proof.pf/witness.json/vk.json/settings.json under experiments/runs.
-  # false keeps only traces/logs/manifests there; canonical proof artifacts still
-  # live under storage/requests until request-store cleanup runs.
-  retain_run_artifacts: false
+  scheduling_policy: lpt
 
 node:
   node_id: local-node
 
-  # Section 3 isolated characterization should run one proof job at a time.
-  # Set null only for experiments that intentionally study concurrent jobs;
-  # resource/phase admission must then be configured for that experiment.
-  max_active_jobs: 1
+  # Optional hard cap used for isolated runs and fixed-concurrency baselines.
+  # Set null when stage admission should control concurrency.
+  max_concurrent_jobs: 1
 
-  # Sampling interval for resource_usage.csv. Stage transitions have exact
-  # timestamps independent of this interval.
-  resource_monitor_interval_sec: 0.25
+  # Sampling interval for resource_usage.csv. Stage-transition timestamps are
+  # recorded separately and do not depend on this interval.
+  resource_sampling_interval_sec: 0.25
 
-  phase_admission:
+  stage_admission:
     # false is appropriate for isolated Section 3 characterization runs.
-    # Memory is the primary admission resource. The fixed reserve is retained
-    # independently of historical predictions. CPU fallback is zero so unknown
-    # CPU demand does not become a scheduling constraint by default.
+    # Memory is the admission resource. The fixed reserve is independent of
+    # historical predictions.
     enabled: false
-    memory_reserve_gb: 8
-    cpu_budget_percent: 100
-    profile_percentile: 0.90
-    fallback_cpu_percent: 0
+    memory_safety_reserve_gb: 8
+    history_percentile: 0.90
 
 storage:
-  # ONNX partitions and reusable settings/circuit/PK/VK share one setup identity.
-  setup_dir: storage/setup
-  reuse_setup: false
-  requests_dir: storage/requests
-  # Cleanup affects only request IDs submitted by this suite, never setup state.
-  retain_requests_after_run: false
+  reusable_setup:
+    enabled: false
+    path: storage/setup
+
+  request_data:
+    path: storage/requests
+
+  local_cache:
+    path: storage/node/cache
+    max_gb: 50
+
+output:
+  # Copy proof/witness/setup artifacts into experiments/runs for debugging.
+  # Traces, logs, manifests, and reports are always retained.
+  keep_proof_artifacts: false
+
+  # Keep canonical request-owned inputs/proofs under storage.request_data.path
+  # after the experiment finishes. Reusable setup and experiment records are
+  # never removed by this cleanup.
+  keep_request_data: false
 
 launch:
   coordinator_host: localhost
