@@ -219,7 +219,19 @@ class WorkerTests(unittest.TestCase):
                 return SimpleNamespace(metrics=metrics,to_dict=lambda:{'metrics':metrics})
         module.ResourceAwareEZKLProofStages=Stages;module.ProverTaskRunner=Runner
         admission=ModuleType('zkinfer.runtime.node.phase_admission')
-        admission.ResourceAdmissionController=lambda **kwargs:None
+        # Match the real required constructor arguments instead of accepting
+        # arbitrary kwargs, which previously hid the missing-arguments bug.
+        def controller(*,root_dir,setup_key,enabled,memory_reserve_gb,
+                       cpu_budget_percent,fallback_memory_gb,
+                       fallback_cpu_percent,profile_percentile):
+            self.assertFalse(enabled)
+            self.assertEqual(memory_reserve_gb,8)
+            self.assertEqual(cpu_budget_percent,100)
+            self.assertEqual(fallback_memory_gb,0)
+            self.assertEqual(fallback_cpu_percent,100)
+            self.assertEqual(profile_percentile,.9)
+            return None
+        admission.ResourceAdmissionController=controller
         return {'zkinfer.runtime.node.prover_task':module,
                 'zkinfer.runtime.node.phase_admission':admission}
 
@@ -227,7 +239,9 @@ class WorkerTests(unittest.TestCase):
         out=root/'run';out.mkdir()
         task={'output_dir':str(out),'input_path':'varied.json','setup_dir':str(root/'setup'),
               'model_path':'model.onnx','tmp_dir':str(root/'tmp'),'phase_admission_dir':str(root/'admission'),
-              'setup_key':'key'}
+              'setup_key':'key','phase_memory_reserve_gb':8,'phase_cpu_budget_percent':100,
+              'predicted_peak_memory_gb':0,'phase_fallback_cpu_percent':100,
+              'phase_profile_percentile':.9}
         payload={'task':task,'condition':condition,'fingerprint_path':str(root/'fingerprint'),
                  'calibration_input':'reference.json','srs_dir':str(root/'srs'),'verify':False}
         path=root/'task.json';write_json(path,payload);return path,out
@@ -240,6 +254,19 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(calls,[('calibration_input','reference.json'),('proof_input','varied.json')])
             self.assertTrue(json.loads((out/'result.json').read_text())['ok'])
             self.assertTrue((out/'settings_snapshot.json').exists())
+
+    def test_worker_constructs_real_disabled_admission_controller(self):
+        try:
+            from zkinfer.runtime.node.phase_admission import ResourceAdmissionController
+        except ModuleNotFoundError as exc:
+            self.skipTest(f'Runtime dependency unavailable: {exc}')
+        with TemporaryDirectory() as tmp:
+            root=Path(tmp);path,out=self.payload(root)
+            modules=self.fake_runtime([])
+            modules['zkinfer.runtime.node.phase_admission'].ResourceAdmissionController=ResourceAdmissionController
+            with patch.dict('sys.modules',modules):
+                self.assertEqual(worker(path),0)
+            self.assertTrue((root/'admission'/'reservations').is_dir())
 
     def test_warm_cache_miss_fails_instead_of_becoming_cold_measurement(self):
         with TemporaryDirectory() as tmp:
