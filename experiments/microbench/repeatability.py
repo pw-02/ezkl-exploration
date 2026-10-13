@@ -289,7 +289,12 @@ def worker(task_path):
                           proving_cache_root_dir=task.setup_dir, local_tmp_dir=task.tmp_dir,
                           status_file=status_file, srs_dir=payload["srs_dir"],
                           admission=ResourceAdmissionController(root_dir=task.phase_admission_dir,
-                                                               setup_key=task.setup_key, enabled=False))
+                              setup_key=task.setup_key, enabled=False,
+                              memory_reserve_gb=task.phase_memory_reserve_gb,
+                              cpu_budget_percent=task.phase_cpu_budget_percent,
+                              fallback_memory_gb=task.predicted_peak_memory_gb,
+                              fallback_cpu_percent=task.phase_fallback_cpu_percent,
+                              profile_percentile=task.phase_profile_percentile))
     started = time.perf_counter()
     try:
         result = Runner().run(task)
