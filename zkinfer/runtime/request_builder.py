@@ -4,6 +4,7 @@ import time
 from typing import Any, Dict, List
 
 from zkinfer.config.runtime import SetupStoreConfig
+from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.runtime.models import ProofJob
 from zkinfer.runtime.resource_profiles import get_profile_estimates, max_stage_memory_gb
 from zkinfer.storage.shared_store import SharedStorage
@@ -36,7 +37,10 @@ class RequestBuilder:
         shared_storage: SharedStorage,
         setup_store: SetupStoreConfig,
         max_retries: int,
+        transfer_only: bool = False,
     ) -> List[ProofJob]:
+        # transfer_only is retained only for compatibility with historical tests
+        # and stored runtime state. New configuration cannot enable it.
         materialized_partitions = self._load_or_split_model(request)
         jobs: List[ProofJob] = []
 
@@ -44,20 +48,26 @@ class RequestBuilder:
         total_input_store_time = 0.0
 
         for index, partition in enumerate(materialized_partitions):
-            model_bytes = partition.model.SerializeToString()
-            setup_key = shared_storage.setup_key_for_model(
-                model_bytes,
-                EZKL_SETUP_IDENTITY,
-            )
-            started = time.perf_counter()
-            model_ref = shared_storage.put_model(model_bytes, setup_key=setup_key)
-            setup_ref = shared_storage.setup_ref(setup_key)
-            model_write_time = time.perf_counter() - started
-            total_model_store_time += model_write_time
+            model_write_time = 0.0
+            if transfer_only:
+                model_ref = ArtifactRef.empty()
+                setup_key = partition.sub_hash
+                setup_ref = ArtifactRef.empty()
+            else:
+                model_bytes = partition.model.SerializeToString()
+                setup_key = shared_storage.setup_key_for_model(
+                    model_bytes,
+                    EZKL_SETUP_IDENTITY,
+                )
+                started = time.perf_counter()
+                model_ref = shared_storage.put_model(model_bytes, setup_key=setup_key)
+                setup_ref = shared_storage.setup_ref(setup_key)
+                model_write_time = time.perf_counter() - started
+                total_model_store_time += model_write_time
 
             resource_profile_path = (
                 os.path.join(setup_ref.uri, "resource_profile.json")
-                if setup_store.enabled else None
+                if setup_store.enabled and not transfer_only else None
             )
             profiling_data = (
                 self._load_resource_profile(partition.name, resource_profile_path, setup_store)
