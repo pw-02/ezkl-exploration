@@ -86,21 +86,22 @@ class JobScheduler:
         return max(candidates, key=score)[0]
 
     @staticmethod
-    def _predicted_peak_memory_gb(job: ProofJob) -> float:
+    def _profiled_peak_memory_gb(job: ProofJob) -> float:
         predicted_peak = max_stage_memory_gb(job.profiling_data)
         if predicted_peak <= 0.0:
             predicted_peak = max(0.0, float(job.predicted_peak_memory_gb or 0.0))
         return predicted_peak
 
     def _fits_node(self, job: ProofJob, node: NodeResources) -> bool:
-        predicted_peak = self._predicted_peak_memory_gb(job)
-
         if self.policy != "resource_aware":
-            # Baseline policies retain conservative whole-job admission so they
-            # remain useful comparisons against stage-aware execution.
-            if predicted_peak > 0.0:
-                return predicted_peak <= node.memory_available_gb
+            # Baseline policies retain their original conservative whole-job
+            # admission using the coordinator's attached peak estimate.
+            required_memory = max(0.0, float(job.predicted_peak_memory_gb or 0.0))
+            if required_memory > 0.0:
+                return required_memory <= node.memory_available_gb
             return True
+
+        predicted_peak = self._profiled_peak_memory_gb(job)
 
         # Do not lease known memory-consuming work to a node reporting no usable
         # memory. This also closes the short interval before local provisional
