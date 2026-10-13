@@ -152,11 +152,17 @@ failure, retaining failure logs and any completed measurements for analysis.
   repetitions reuse these local disk artifacts but run in fresh processes, so
   keys are loaded afresh rather than retained in the preceding process's memory.
 - Calibration always uses the same baseline partition input, while measured
-  proof inputs vary. This holds input-dependent calibration settings constant
-  without removing calibration work from cold repetitions. Document this
-  reference-calibration policy in the paper. A settings fingerprint is checked
-  before compilation/proving; changes fail the run rather than contaminate a
-  resource-history group.
+  proof inputs vary. The first calibration establishes reference proving settings.
+  Every cold repetition still executes calibration, but compilation, key generation
+  and proving use that fixed reference, even if calibration chooses a different
+  candidate on a later run. Candidate settings and changes are recorded in
+  `calibration_candidate.json` and `calibration_record.json`; the actual settings
+  are stored in `settings_snapshot.json`. This explicitly controls the proving
+  configuration rather than assuming calibration is deterministic. Warm cached
+  settings must match the reference or the run fails; cached keys are never paired
+  with replacement settings. Document this controlled calibration policy in the
+  paper. These are cold artifact-generation experiments under fixed proving
+  settings, not unconstrained recalibration experiments.
 - Actual settings/compiled/key cache flags are checked. A warm miss fails instead
   of silently regenerating setup. A cold cache hit likewise fails.
 - `--verify` checks each proof after resource profiling ends, with verification
