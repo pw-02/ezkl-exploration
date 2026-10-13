@@ -145,9 +145,47 @@ class InferenceRequest:
         return any(job.job_status == JobStatus.FAILED for job in self.proof_jobs)
 
     def compute_progress(self) -> float:
+        """Completed-job fraction retained for compatibility/reporting."""
         if not self.proof_jobs:
             return 0.0
         completed_jobs = sum(
             1 for job in self.proof_jobs if job.job_status == JobStatus.COMPLETED
         )
         return completed_jobs / len(self.proof_jobs) * 100.0
+
+    def predicted_total_work_s(self) -> float:
+        return sum(max(0.0, float(job.predicted_duration_s or 0.0)) for job in self.proof_jobs)
+
+    def predicted_completed_work_s(self) -> float:
+        return sum(
+            max(0.0, float(job.predicted_duration_s or 0.0))
+            for job in self.proof_jobs
+            if job.job_status == JobStatus.COMPLETED
+        )
+
+    def predicted_remaining_work_s(self) -> float:
+        return sum(
+            max(0.0, float(job.predicted_duration_s or 0.0))
+            for job in self.proof_jobs
+            if job.job_status in {JobStatus.PREPARING, JobStatus.QUEUED, JobStatus.IN_PROGRESS}
+        )
+
+    def predicted_remaining_bottleneck_s(self) -> float:
+        pending = [
+            max(0.0, float(job.predicted_duration_s or 0.0))
+            for job in self.proof_jobs
+            if job.job_status in {JobStatus.PREPARING, JobStatus.QUEUED, JobStatus.IN_PROGRESS}
+        ]
+        return max(pending, default=0.0)
+
+    def compute_work_progress(self) -> float:
+        """Progress weighted by predicted proof work rather than job count.
+
+        Decomposed requests can contain many cheap jobs and a few dominant jobs,
+        so a completed-job percentage can substantially overstate real progress.
+        When no duration history is available, fall back to the job-count metric.
+        """
+        total = self.predicted_total_work_s()
+        if total <= 0.0:
+            return self.compute_progress()
+        return 100.0 * self.predicted_completed_work_s() / total
