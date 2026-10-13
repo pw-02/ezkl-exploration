@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PHASE_ADMISSION="${1:-true}"
+STAGE_ADMISSION="${1:-true}"
 COORDINATOR_HOST="${2:-127.0.0.1}"
 COORDINATOR_PORT="${3:-50051}"
 
-if [[ "$PHASE_ADMISSION" != "true" && "$PHASE_ADMISSION" != "false" ]]; then
-  echo "Error: phase_admission must be true or false."
+if [[ "$STAGE_ADMISSION" != "true" && "$STAGE_ADMISSION" != "false" ]]; then
+  echo "Error: stage admission must be true or false."
   exit 1
 fi
 
@@ -18,10 +18,10 @@ WORKLOADS=(
 )
 
 for WORKLOAD in "${WORKLOADS[@]}"; do
-  echo "Running workload: ${WORKLOAD} admission=${PHASE_ADMISSION}"
+  echo "Running workload: ${WORKLOAD} admission=${STAGE_ADMISSION}"
   python experiments/run_local_exp.py \
     "suite.workloads=[${WORKLOAD}]" \
-    "node.phase_admission.enabled=${PHASE_ADMISSION}" \
+    "node.stage_admission.enabled=${STAGE_ADMISSION}" \
     "launch.coordinator_host=${COORDINATOR_HOST}" \
     "launch.coordinator_port=${COORDINATOR_PORT}"
   echo "Finished workload: ${WORKLOAD}"
