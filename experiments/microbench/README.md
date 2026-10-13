@@ -4,6 +4,45 @@ This benchmark measures isolated repeated execution of selected partitions. It
 does not start a coordinator or supervisor, enable admission, flush the OS page
 cache, or change existing setup stores. Each proof runs in a fresh subprocess.
 
+## Bash launchers for synthetic inputs
+
+Activate your usual EZKL Python environment, then run:
+
+```bash
+# Pilot: median-duration MNIST GAN job, 3 cold + 3 warm measured repetitions.
+bash experiments/microbench/run_pilot.sh --source /path/to/runs.tar.gz
+
+# Main: all 9 selected jobs, 10 cold + 10 warm repetitions each.
+bash experiments/microbench/run_main.sh --source /path/to/runs.tar.gz
+```
+
+Each launcher executes preparation, proofs, and analysis in order, verifies proofs,
+and uses seed 42 with 0.1-second sampling. Warm groups include an additional
+unmeasured setup-creation run. Results and launcher logs go into a new timestamped
+directory under `experiments/microbench_outputs`; its path is printed at startup.
+No JSON input configuration is needed with the default model paths. An archive
+or extracted directory with one characterization report per selected model is
+required. The scripts do not activate or install a Python environment for you.
+
+Run the main experiment for models individually:
+
+```bash
+bash experiments/microbench/run_main.sh --source /path/to/runs.tar.gz --model mnist_gan
+bash experiments/microbench/run_main.sh --source /path/to/runs.tar.gz --model mobilenet_v2
+bash experiments/microbench/run_main.sh --source /path/to/runs.tar.gz --model nanogpt
+```
+
+Run these sequentially on the same machine. Launching them concurrently would
+invalidate the isolated-execution condition. Pilot case selection is derived
+from the actual prepared manifest, not a hard-coded partition number.
+
+Optional parameters include `--repetitions`, `--seed`, `--interval`, `--srs-dir`,
+`--output-root`, `--noise-scale`, and `--config` for model/baseline path overrides.
+For integer model inputs, provide a valid `--integer-upper-bound`; do not guess
+the vocabulary size. `PYTHON_BIN=/path/to/venv/bin/python` selects an interpreter.
+Use `--help` for the full option list. These remain synthetic-input experiments
+and should be described that way in the paper.
+
 ## Selection
 
 From one completed `job_report.csv` per model, select the jobs closest to the
