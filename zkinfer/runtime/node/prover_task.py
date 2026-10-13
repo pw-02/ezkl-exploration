@@ -304,7 +304,7 @@ class ProverTaskRunner:
                 str(task.resource_sampling_interval_sec),
                 "--status_file",
                 status_file,
-                "--admission_dir",
+                "--stage_admission_dir",
                 task.stage_admission_dir,
                 "--include_children",
                 "--exclude_pid",
