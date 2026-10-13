@@ -61,13 +61,7 @@ def write_job_report(
     perf_metrics: Optional[Dict[str, Any]] = None,
     out_dir: str = "reports",
 ) -> Dict[str, Any]:
-    """Append one canonical derived row for a completed/failed proof job.
-
-    Raw time-series and transition files stay with the job under
-    ``experiments/runs/<request>/artifacts/jobs/<job>``. ``job_report.csv`` is
-    the single request-level table of derived per-job scalar metrics; the old
-    duplicate ``perf_metrics.csv`` is intentionally no longer written.
-    """
+    """Append one canonical derived row for a completed/failed proof job."""
     perf_metrics = perf_metrics or {}
     os.makedirs(out_dir, exist_ok=True)
 
@@ -90,7 +84,7 @@ def write_job_report(
         "total_elapsed_time(s)": _duration_seconds(job.queued_time, job.completed_time),
         "predicted_duration(s)": job.predicted_duration_s,
         "predicted_peak_memory(GB)": job.predicted_peak_memory_gb,
-        "resource_monitor_interval(s)": perf_metrics.get("resource_monitor_interval(s)"),
+        "resource_sampling_interval(s)": perf_metrics.get("resource_sampling_interval(s)"),
         "model_write_time(s)": job.model_write_time,
         "input_write_time(s)": job.input_write_time,
         "ezkl_setup_time(s)": perf_metrics.get("ezkl_setup_time(s)", 0.0),
@@ -111,16 +105,12 @@ def write_job_report(
         "fft_total_time(s)": perf_metrics.get("fft_total_time(s)", 0.0),
         "msm_count": perf_metrics.get("msm_count", 0),
         "msm_total_time(s)": perf_metrics.get("msm_total_time(s)", 0.0),
-        "transfer_only": perf_metrics.get("transfer_only", False),
     }
 
-    # job_report.csv is the single scalar report, so preserve all useful metric
-    # families here rather than writing a second overlapping perf_metrics.csv.
     for key, value in perf_metrics.items():
         if (
             key.startswith("ezkl_")
             or key.startswith("stage_")
-            or key.startswith("phase_")
             or key.startswith("transfer_")
             or key.startswith("output_")
             or key.startswith("prover_")
@@ -170,14 +160,13 @@ def write_request_report(request, out_dir: str = "reports") -> Dict[str, Any]:
         "request_runtime(s)": request_runtime_s,
         "total_elapsed_time(s)": total_elapsed_time_s,
         "verification_time(s)": float(request.preparation_metrics.get("verification_time(s)", 0.0) or 0.0),
-        "transfer_only": bool(request.preparation_metrics.get("transfer_only", False)),
         "agg_job_runtime(s)": _safe_sum(job_data, "job_runtime(s)"),
         "agg_ezkl_setup_time(s)": _safe_sum(job_data, "ezkl_setup_time(s)"),
         "agg_ezkl_key_gen_time(s)": _safe_sum(job_data, "ezkl_key_gen_time(s)"),
         "agg_ezkl_proof_time(s)": _safe_sum(job_data, "ezkl_proof_time(s)"),
-        "agg_phase_admission_wait_time(s)": _safe_sum(
+        "agg_stage_admission_wait_time(s)": _safe_sum(
             job_data,
-            "phase_admission_wait_time(s)",
+            "stage_admission_wait_time(s)",
         ),
         "agg_fft_time(s)": _safe_sum(job_data, "fft_total_time(s)"),
         "agg_msm_time(s)": _safe_sum(job_data, "msm_total_time(s)"),
@@ -196,4 +185,3 @@ def write_request_report(request, out_dir: str = "reports") -> Dict[str, Any]:
 
     write_dict_to_csv(report, os.path.join(out_dir, "request_report.csv"))
     return report
-
