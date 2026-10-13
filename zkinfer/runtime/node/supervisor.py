@@ -25,9 +25,9 @@ import zkinfer.proto.zkservice_pb2_grpc as pb_grpc
 from zkinfer.config.runtime import RuntimeConfig, build_runtime_config
 from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.runtime.node.cache import NodeCache
-from zkinfer.runtime.node.phase_admission import (
-    HistoricalResourceProfiles,
-    ResourceAdmissionController,
+from zkinfer.runtime.node.stage_admission import (
+    StageAdmissionController,
+    StageResourceHistory,
 )
 from zkinfer.runtime.node.prover_task import LocalProverTask, ProverTaskResult
 from zkinfer.utils.network import get_ip
@@ -78,22 +78,30 @@ class NodeSupervisor:
     """One control agent per machine.
 
     The coordinator assigns whole proof jobs. Each proof executes in an isolated
-    subprocess. ``max_active_jobs`` is an optional explicit whole-job cap.
-    When it is ``None``, the node uses live resource state and local admission;
+    subprocess. ``max_concurrent_jobs`` is an optional explicit whole-job cap.
+    When it is ``None``, the node uses live resource state and stage admission;
     provisional lease reservations prevent the polling loop from leasing a large
     burst of jobs before their process memory becomes visible to the OS.
     """
 
-    def __init__(self, runtime_config: RuntimeConfig, logger: Optional[logging.Logger] = None, resolved_config=None):
+    def __init__(
+        self,
+        runtime_config: RuntimeConfig,
+        logger: Optional[logging.Logger] = None,
+        resolved_config=None,
+    ):
         self.cfg = runtime_config
         self.metadata_snapshot = save_process_metadata(
             Path(self.cfg.node.runs_dir).parent / "config",
-            "node", runtime_config, resolved_config)
+            "node",
+            runtime_config,
+            resolved_config,
+        )
         self.node_id = self.cfg.node.node_id or get_ip()
         self.logger = logger or logging.getLogger("node-supervisor")
         self.target = f"{self.cfg.coordinator.host}:{self.cfg.coordinator.port}"
         self.poll_interval_sec = self.cfg.node.job_poll_interval_sec
-        self.phase_cfg = self.cfg.node.phase_admission
+        self.stage_cfg = self.cfg.node.stage_admission
         self.grpc_max_message_bytes = self.cfg.coordinator.grpc_max_message_mb * 1024 * 1024
 
         self.cache = NodeCache(
@@ -103,27 +111,22 @@ class NodeSupervisor:
             or self.cfg.setup_store.s3_bucket
             or "",
         )
-        self.phase_admission_dir = Path(self.cfg.node.runtime_state_dir)
-        self.phase_admission_dir.mkdir(parents=True, exist_ok=True)
-        self.resource_profiles = HistoricalResourceProfiles(
-            self.phase_admission_dir / "resource_profiles"
+        self.stage_admission_dir = Path(self.cfg.node.runtime_state_dir)
+        self.stage_admission_dir.mkdir(parents=True, exist_ok=True)
+        self.resource_profiles = StageResourceHistory(
+            self.stage_admission_dir / "resource_profiles"
         )
-        self.admission_probe = ResourceAdmissionController(
-            root_dir=str(self.phase_admission_dir),
+        self.admission_probe = StageAdmissionController(
+            root_dir=str(self.stage_admission_dir),
             setup_key="__supervisor__",
-            enabled=self.phase_cfg.enabled,
-            memory_reserve_gb=self.phase_cfg.memory_reserve_gb,
-            cpu_budget_percent=self.phase_cfg.cpu_budget_percent,
+            enabled=self.stage_cfg.enabled,
             fallback_memory_gb=0.0,
-            fallback_cpu_percent=0.0,
-            profile_percentile=self.phase_cfg.profile_percentile,
+            memory_safety_reserve_gb=self.stage_cfg.memory_safety_reserve_gb,
+            history_percentile=self.stage_cfg.history_percentile,
         )
 
         self.active_jobs: Dict[str, threading.Thread] = {}
         self.active_tasks: Dict[str, LocalProverTask] = {}
-        # Memory estimates attached to newly leased jobs. These reservations are
-        # used only until the prover reports a real stage, preventing the lease
-        # loop from outrunning psutil's view of newly started processes.
         self.lease_memory_reservations_gb: Dict[str, float] = {}
         self.active_lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -193,7 +196,7 @@ class NodeSupervisor:
         except OSError:
             return "STARTING"
 
-    def active_phases(self) -> Dict[str, str]:
+    def active_stages(self) -> Dict[str, str]:
         with self.active_lock:
             items = list(self.active_tasks.items())
         return {job_id: self._read_task_stage(task) for job_id, task in items}
@@ -221,21 +224,20 @@ class NodeSupervisor:
         return total
 
     def can_accept_more_work(self) -> bool:
-        max_active_jobs = self.cfg.node.max_active_jobs
-        if max_active_jobs is not None:
-            if self.active_job_count() >= max_active_jobs:
+        max_concurrent_jobs = self.cfg.node.max_concurrent_jobs
+        if max_concurrent_jobs is not None:
+            if self.active_job_count() >= max_concurrent_jobs:
                 return False
         elif self._has_unprofiled_active_job():
-            # Without a historical memory estimate, do not compound uncertainty
-            # by leasing another unknown job. Explicit max_active_jobs=N remains
-            # available for experiments that intentionally run unknown jobs in
-            # parallel.
             return False
 
         memory = psutil.virtual_memory()
         available_gb = float(memory.available) / (1024**3)
         provisional_gb = self._provisional_start_memory_gb()
-        return (available_gb - provisional_gb) > self.phase_cfg.memory_reserve_gb
+        return (
+            available_gb - provisional_gb
+            > self.stage_cfg.memory_safety_reserve_gb
+        )
 
     def build_node_status(self):
         memory = psutil.virtual_memory()
@@ -246,15 +248,15 @@ class NodeSupervisor:
 
         reservations = (
             self.admission_probe.current_reservations()
-            if self.phase_cfg.enabled
-            else {"memory_gb": 0.0, "cpu_percent": 0.0, "count": 0.0}
+            if self.stage_cfg.enabled
+            else {"memory_gb": 0.0, "count": 0.0}
         )
         provisional_start_gb = self._provisional_start_memory_gb()
         total_memory_gb = float(memory.total) / (1024**3)
         resource_available_gb = max(
             0.0,
             total_memory_gb
-            - self.phase_cfg.memory_reserve_gb
+            - self.stage_cfg.memory_safety_reserve_gb
             - float(reservations.get("memory_gb") or 0.0)
             - provisional_start_gb,
         )
@@ -262,29 +264,18 @@ class NodeSupervisor:
             max(
                 0.0,
                 actual_available_gb
-                - self.phase_cfg.memory_reserve_gb
+                - self.stage_cfg.memory_safety_reserve_gb
                 - provisional_start_gb,
             ),
             resource_available_gb,
         )
-
-        cpu_from_reservations = max(
-            0.0,
-            float(cpu_total)
-            * (
-                1.0
-                - min(100.0, float(reservations.get("cpu_percent") or 0.0))
-                / 100.0
-            ),
-        )
-        reported_cpu_available = min(actual_cpu_available, cpu_from_reservations)
 
         return pb.NodeStatus(
             node_id=self.node_id,
             memory_total_gb=total_memory_gb,
             memory_available_gb=reported_available_gb,
             cpu_total_cores=float(cpu_total),
-            cpu_available_cores=reported_cpu_available,
+            cpu_available_cores=actual_cpu_available,
             cache_limit_gb=float(self.cfg.node.local_cache_max_bytes) / (1024**3),
             cache_used_gb=float(self.cache.total_bytes()) / (1024**3),
             active_job_ids=self.active_job_ids(),
@@ -323,14 +314,16 @@ class NodeSupervisor:
         if not ack.ok:
             self.logger.warning(
                 "Coordinator rejected %s for job %s lease=%s",
-                status, lease.job_id, lease.lease_id,
+                status,
+                lease.job_id,
+                lease.lease_id,
             )
             return False
         self.logger.info("Submitted %s for job %s", status, lease.job_id)
         return True
 
     def send_heartbeat(self) -> None:
-        phases = self.active_phases()
+        stages = self.active_stages()
 
         def _call():
             return self.stub.SendNodeHeartbeat(
@@ -338,7 +331,7 @@ class NodeSupervisor:
                     node_id=self.node_id,
                     active_job_ids=self.active_job_ids(),
                     status="RUNNING",
-                    message=json.dumps({"phases": phases}, sort_keys=True),
+                    message=json.dumps({"stages": stages}, sort_keys=True),
                 )
             )
 
@@ -436,15 +429,19 @@ class NodeSupervisor:
         for value in (lease.request_id, lease.job_id, lease.lease_id):
             self._validate_job_component(value)
         request_dir = Path(self.cfg.node.runs_dir) / lease.request_id
-        return request_dir, request_dir / "tmp" / lease.job_id, request_dir / "artifacts" / "jobs" / lease.job_id
+        return (
+            request_dir,
+            request_dir / "tmp" / lease.job_id,
+            request_dir / "artifacts" / "jobs" / lease.job_id,
+        )
 
     @contextmanager
     def _job_guard(self, lease):
-        # The same local job directory must never have two writers, including
-        # separate supervisor processes sharing a runs directory.
         request_dir, _, _ = self._job_paths(lease)
-        key = hashlib.sha256(str((request_dir / lease.job_id).resolve()).encode()).hexdigest()
-        lock_dir = self.phase_admission_dir / "job_locks"
+        key = hashlib.sha256(
+            str((request_dir / lease.job_id).resolve()).encode()
+        ).hexdigest()
+        lock_dir = self.stage_admission_dir / "job_locks"
         lock_dir.mkdir(parents=True, exist_ok=True)
         with (lock_dir / f"{key}.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
@@ -454,14 +451,23 @@ class NodeSupervisor:
                 fcntl.flock(lock, fcntl.LOCK_UN)
 
     def _cleanup_published_attempt(self, task):
-        # Delete only this worker's files, never another lease's proof.
         from zkinfer.storage.s3 import delete_file
-        for name in ("proof.pf", "witness.json", "vk.json", "settings.json", "manifest.json"):
+
+        for name in (
+            "proof.pf",
+            "witness.json",
+            "vk.json",
+            "settings.json",
+            "manifest.json",
+        ):
             filename = f"{task.lease_id}--{name}"
             if task.output_backend == "filesystem":
                 (Path(task.output_prefix) / filename).unlink(missing_ok=True)
             elif task.output_backend == "s3":
-                delete_file(task.output_s3_bucket, f"{task.output_prefix.rstrip('/')}/{filename}")
+                delete_file(
+                    task.output_s3_bucket,
+                    f"{task.output_prefix.rstrip('/')}/{filename}",
+                )
 
     def run_lease(self, lease) -> None:
         with self._job_guard(lease), ExitStack() as cache_leases:
@@ -478,10 +484,7 @@ class NodeSupervisor:
             with self.active_lock:
                 self.active_tasks[lease.job_id] = local_task
 
-            if self.cfg.jobs.transfer_only or not self.cfg.setup_store.enabled:
-                # Setup caching disabled means every proof job gets a private
-                # setup directory and cannot reuse settings/compiled circuit/PK
-                # generated by another job on this node.
+            if not self.cfg.setup_store.enabled:
                 result = self._run_prover_subprocess(local_task)
                 setup_publish_metrics = {}
             elif self.cache.setup_ready(local_task.setup_key):
@@ -523,8 +526,6 @@ class NodeSupervisor:
                 cleanup_published = True
         except Exception as exc:
             failed = not completion_attempted
-            # A lost completion acknowledgement may already have been accepted.
-            # Preserve shared proof bytes until the coordinator resolves it.
             cleanup_published = not completion_attempted
             self.logger.error(
                 "Job %s failed on node %s: %s",
@@ -547,13 +548,15 @@ class NodeSupervisor:
                 try:
                     self._cleanup_published_attempt(local_task)
                 except Exception:
-                    self.logger.warning("Could not remove failed job's published files", exc_info=True)
+                    self.logger.warning(
+                        "Could not remove failed job's published files",
+                        exc_info=True,
+                    )
 
     def prepare_local_task(self, lease, cache_leases: ExitStack) -> LocalProverTask:
         prepare_started = time.perf_counter()
         lease_id = lease.lease_id
         request_dir, tmp_dir, output_dir = self._job_paths(lease)
-        # Retries replace the entire local job record, including old CSVs.
         for directory in (tmp_dir, output_dir):
             if directory.is_symlink():
                 directory.unlink()
@@ -562,28 +565,27 @@ class NodeSupervisor:
             directory.mkdir(parents=True, exist_ok=True)
         copy_run_metadata(self.metadata_snapshot, request_dir)
 
-        model_metrics = {}
-        model_materialize_time_s = 0.0
         setup_key = lease.setup_key or lease.job_id
-        if self.cfg.jobs.transfer_only:
-            model_path = ""
-        else:
-            cache_leases.enter_context(self.cache.pinned_setup(setup_key))
-            model_path, model_metrics = self.cache.materialize_model_with_metrics(
-                from_pb_artifact(lease.model), setup_key,
-            )
-            model_materialize_time_s = float(
-                model_metrics.get("materialize_time(s)", 0.0) or 0.0
-            )
+        cache_leases.enter_context(self.cache.pinned_setup(setup_key))
+        model_path, model_metrics = self.cache.materialize_model_with_metrics(
+            from_pb_artifact(lease.model),
+            setup_key,
+        )
+        model_materialize_time_s = float(
+            model_metrics.get("materialize_time(s)", 0.0) or 0.0
+        )
 
-        input_path, input_metrics = cache_leases.enter_context(self.cache.materialized_artifact(
-            from_pb_artifact(lease.input), filename_hint="input.json"
-        ))
+        input_path, input_metrics = cache_leases.enter_context(
+            self.cache.materialized_artifact(
+                from_pb_artifact(lease.input),
+                filename_hint="input.json",
+            )
+        )
         input_materialize_time_s = float(
             input_metrics.get("materialize_time(s)", 0.0) or 0.0
         )
 
-        if self.cfg.setup_store.enabled and not self.cfg.jobs.transfer_only:
+        if self.cfg.setup_store.enabled:
             setup_dir, setup_metrics = self.cache.restore_setup_with_metrics(
                 from_pb_artifact(lease.setup_cache),
                 setup_key,
@@ -624,17 +626,14 @@ class NodeSupervisor:
             output_s3_bucket=output_ref.s3_bucket
             or self.cfg.request_store.s3_bucket
             or "",
-            transfer_only=self.cfg.jobs.transfer_only,
-            resource_monitor_interval_sec=self.cfg.node.resource_monitor_interval_sec,
+            resource_sampling_interval_sec=self.cfg.node.resource_sampling_interval_sec,
             model_materialize_time_s=model_materialize_time_s,
             input_materialize_time_s=input_materialize_time_s,
             transfer_metrics=transfer_metrics,
-            phase_admission_dir=str(self.phase_admission_dir),
-            phase_admission_enabled=self.phase_cfg.enabled,
-            phase_memory_reserve_gb=self.phase_cfg.memory_reserve_gb,
-            phase_cpu_budget_percent=self.phase_cfg.cpu_budget_percent,
-            phase_profile_percentile=self.phase_cfg.profile_percentile,
-            phase_fallback_cpu_percent=self.phase_cfg.fallback_cpu_percent,
+            stage_admission_dir=str(self.stage_admission_dir),
+            stage_admission_enabled=self.stage_cfg.enabled,
+            memory_safety_reserve_gb=self.stage_cfg.memory_safety_reserve_gb,
+            history_percentile=self.stage_cfg.history_percentile,
             predicted_peak_memory_gb=float(lease.predicted_peak_memory_gb or 0.0),
         )
 
@@ -700,9 +699,12 @@ def main(cfg: DictConfig) -> None:
         log_file=f"{runtime_config.node.logs_dir}/node_{node_id}.log",
     )
     logger.info("Starting NodeSupervisor...")
-    NodeSupervisor(runtime_config=runtime_config, logger=logger, resolved_config=cfg).run()
+    NodeSupervisor(
+        runtime_config=runtime_config,
+        logger=logger,
+        resolved_config=cfg,
+    ).run()
 
 
 if __name__ == "__main__":
     main()
-
