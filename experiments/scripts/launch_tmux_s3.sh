@@ -82,7 +82,7 @@ cd ${ROOT_DIR} && \
 source \$(conda info --base)/etc/profile.d/conda.sh && \
 conda activate ${CONDA_ENV} && \
 export PYTHONPATH=${ROOT_DIR}:\${PYTHONPATH:-} && \
-export ZKINFER_RETAIN_RUN_ARTIFACTS=${KEEP_PROOF_ARTIFACTS}"
+export ZKINFER_KEEP_PROOF_ARTIFACTS=${KEEP_PROOF_ARTIFACTS}"
 
 RUNTIME_CFG="\
 coordinator.host=${COORDINATOR_HOST} \
