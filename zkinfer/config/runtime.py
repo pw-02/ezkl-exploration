@@ -16,12 +16,30 @@ class CoordinatorConfig:
 
 
 @dataclass(frozen=True)
-class PhaseAdmissionConfig:
+class StageAdmissionConfig:
+    """Node-local memory admission policy for proof execution stages."""
+
     enabled: bool
-    memory_reserve_gb: float
-    cpu_budget_percent: float
-    profile_percentile: float
-    fallback_cpu_percent: float
+    memory_safety_reserve_gb: float
+    history_percentile: float
+
+    # Compatibility accessors for runtime code that still uses the older
+    # internal names. CPU is deliberately not an admission policy input.
+    @property
+    def memory_reserve_gb(self) -> float:
+        return self.memory_safety_reserve_gb
+
+    @property
+    def profile_percentile(self) -> float:
+        return self.history_percentile
+
+    @property
+    def cpu_budget_percent(self) -> float:
+        return 100.0
+
+    @property
+    def fallback_cpu_percent(self) -> float:
+        return 0.0
 
 
 @dataclass(frozen=True)
@@ -30,12 +48,26 @@ class NodeConfig:
     runs_dir: str
     logs_dir: str
     job_poll_interval_sec: int
-    resource_monitor_interval_sec: float
-    max_active_jobs: Optional[int]
-    phase_admission: PhaseAdmissionConfig
+    resource_sampling_interval_sec: float
+    max_concurrent_jobs: Optional[int]
+    stage_admission: StageAdmissionConfig
     local_cache_dir: str
     local_cache_max_bytes: int
     runtime_state_dir: str
+
+    # Compatibility accessors keep the runtime implementation stable while the
+    # public configuration vocabulary is simplified.
+    @property
+    def resource_monitor_interval_sec(self) -> float:
+        return self.resource_sampling_interval_sec
+
+    @property
+    def max_active_jobs(self) -> Optional[int]:
+        return self.max_concurrent_jobs
+
+    @property
+    def phase_admission(self) -> StageAdmissionConfig:
+        return self.stage_admission
 
 
 @dataclass(frozen=True)
@@ -48,10 +80,7 @@ class RequestStoreConfig:
 
 @dataclass(frozen=True)
 class SetupStoreConfig:
-    """Reusable partition model and derived proving state.
-
-    enabled controls reuse of derived state; immutable models are always stored.
-    """
+    """Reusable partition model and derived proving state."""
 
     enabled: bool
     backend: str
@@ -62,9 +91,18 @@ class SetupStoreConfig:
 
 @dataclass(frozen=True)
 class JobConfig:
-    scheduler: str
+    scheduling_policy: str
     max_retries: int
-    transfer_only: bool
+
+    @property
+    def scheduler(self) -> str:
+        return self.scheduling_policy
+
+    @property
+    def transfer_only(self) -> bool:
+        # Transfer-only was an experiment-specific benchmark mode and is no
+        # longer part of normal proof-serving semantics.
+        return False
 
 
 @dataclass(frozen=True)
@@ -110,17 +148,17 @@ def _gb_to_bytes(value) -> int:
 
 def _resolve_request_store_config(cfg: DictConfig) -> RequestStoreConfig:
     backend = cfg.storage.backend
-    request_prefix = cfg.storage.get("requests_prefix", "storage/requests")
+    request_path = str(cfg.storage.request_data.get("path", "storage/requests"))
     if backend == "filesystem":
         return RequestStoreConfig(
             "filesystem",
-            str(_resolve_path(request_prefix)),
+            str(_resolve_path(request_path)),
             None,
             "",
         )
     if backend == "s3":
         base_prefix = cfg.storage.s3_prefix.strip("/")
-        object_prefix = request_prefix.strip("/")
+        object_prefix = request_path.strip("/")
         full_prefix = "/".join(part for part in (base_prefix, object_prefix) if part)
         return RequestStoreConfig(
             "s3",
@@ -133,20 +171,21 @@ def _resolve_request_store_config(cfg: DictConfig) -> RequestStoreConfig:
 
 def _resolve_setup_store_config(cfg: DictConfig) -> SetupStoreConfig:
     backend = cfg.storage.backend
-    enabled = bool(cfg.storage.get("reuse_setup", False))
-    cache_prefix = cfg.storage.get("setup_prefix", "storage/setup")
+    reusable_setup = cfg.storage.reusable_setup
+    enabled = bool(reusable_setup.get("enabled", False))
+    setup_path = str(reusable_setup.get("path", "storage/setup"))
 
     if backend == "filesystem":
         return SetupStoreConfig(
             enabled,
             "filesystem",
-            str(_resolve_path(cache_prefix)),
+            str(_resolve_path(setup_path)),
             None,
             "",
         )
     if backend == "s3":
         base_prefix = cfg.storage.s3_prefix.strip("/")
-        relative_prefix = str(cache_prefix).strip("/")
+        relative_prefix = setup_path.strip("/")
         full_prefix = "/".join(part for part in (base_prefix, relative_prefix) if part)
         return SetupStoreConfig(
             enabled,
@@ -181,44 +220,29 @@ def _resolve_verification_config(cfg: DictConfig) -> VerificationConfig:
     )
 
 
-def _resolve_phase_admission_config(cfg: DictConfig) -> PhaseAdmissionConfig:
-    admission = cfg.node.get("phase_admission", {})
-    return PhaseAdmissionConfig(
+def _resolve_stage_admission_config(cfg: DictConfig) -> StageAdmissionConfig:
+    admission = cfg.node.get("stage_admission", {})
+    return StageAdmissionConfig(
         enabled=bool(admission.get("enabled", True)),
-        memory_reserve_gb=max(0.0, float(admission.get("memory_reserve_gb", 8.0))),
-        cpu_budget_percent=min(
-            100.0,
-            max(1.0, float(admission.get("cpu_budget_percent", 100.0))),
+        memory_safety_reserve_gb=max(
+            0.0,
+            float(admission.get("memory_safety_reserve_gb", 8.0)),
         ),
-        profile_percentile=min(
+        history_percentile=min(
             1.0,
-            max(0.5, float(admission.get("profile_percentile", 0.90))),
-        ),
-        fallback_cpu_percent=min(
-            100.0,
-            max(0.0, float(admission.get("fallback_cpu_percent", 100.0))),
+            max(0.5, float(admission.get("history_percentile", 0.90))),
         ),
     )
 
 
-def _resolve_max_active_jobs(cfg: DictConfig) -> Optional[int]:
-    value = cfg.node.get("max_active_jobs", None)
+def _resolve_max_concurrent_jobs(cfg: DictConfig) -> Optional[int]:
+    value = cfg.node.get("max_concurrent_jobs", None)
     if value is None:
         return None
     return max(1, int(value))
 
 
 def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) -> RuntimeConfig:
-    legacy_keys = {
-        "artifact_prefix": "requests_prefix",
-        "setup_cache_prefix": "setup_prefix",
-        "setup_cache_enabled": "reuse_setup",
-        "transfer_prefix": "requests_prefix (transfer staging was removed)",
-        "setup_cache_overwrite": "reuse_setup=false for cold runs, or a fresh setup_prefix",
-    }
-    for old_key, replacement in legacy_keys.items():
-        if old_key in cfg.storage:
-            raise ValueError(f"storage.{old_key} was replaced; use storage.{replacement}")
     if cfg.storage.backend not in {"filesystem", "s3"}:
         raise ValueError("storage.backend must be either 'filesystem' or 's3'")
     if cfg.storage.backend == "s3" and not cfg.storage.s3_bucket:
@@ -230,9 +254,8 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
     coordinator_logs_dir = _resolve_path(cfg.coordinator.logs_dir)
     node_runs_dir = _resolve_path(cfg.node.runs_dir)
     node_logs_dir = _resolve_path(cfg.node.logs_dir)
-    node_cache_dir = _resolve_path(
-        cfg.node.get("local_cache_dir", "storage/node/cache")
-    )
+    node_cache_cfg = cfg.node.get("local_cache", {})
+    node_cache_dir = _resolve_path(node_cache_cfg.get("path", "storage/node/cache"))
     node_runtime_state_dir = _resolve_path(
         cfg.node.get("runtime_state_dir", "storage/node/runtime")
     )
@@ -242,18 +265,25 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
     if request_store.backend == "filesystem":
         request_root = Path(request_store.root_dir).resolve()
         setup_root = Path(setup_store.root_dir).resolve()
-        if (request_root == setup_root or request_root in setup_root.parents
-                or setup_root in request_root.parents):
-            raise ValueError("Setup and request storage roots must be separate")
+        if (
+            request_root == setup_root
+            or request_root in setup_root.parents
+            or setup_root in request_root.parents
+        ):
+            raise ValueError("Reusable setup and request-data roots must be separate")
     else:
         request_root = request_store.root_dir.rstrip("/")
         setup_root = setup_store.root_dir.rstrip("/")
-        if (request_root == setup_root or request_root.startswith(setup_root + "/")
-                or setup_root.startswith(request_root + "/")):
-            raise ValueError("Setup and request S3 prefixes must be separate")
+        if (
+            request_root == setup_root
+            or request_root.startswith(setup_root + "/")
+            or setup_root.startswith(request_root + "/")
+        ):
+            raise ValueError("Reusable setup and request-data prefixes must be separate")
+
     state_store = _resolve_state_store_config(cfg)
     verification = _resolve_verification_config(cfg)
-    phase_admission = _resolve_phase_admission_config(cfg)
+    stage_admission = _resolve_stage_admission_config(cfg)
 
     if process_role == "coordinator":
         coordinator_runs_dir.mkdir(parents=True, exist_ok=True)
@@ -283,24 +313,21 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
             runs_dir=str(node_runs_dir),
             logs_dir=str(node_logs_dir),
             job_poll_interval_sec=int(cfg.node.job_poll_interval_sec),
-            resource_monitor_interval_sec=max(
+            resource_sampling_interval_sec=max(
                 0.05,
-                float(cfg.node.resource_monitor_interval_sec),
+                float(cfg.node.resource_sampling_interval_sec),
             ),
-            max_active_jobs=_resolve_max_active_jobs(cfg),
-            phase_admission=phase_admission,
+            max_concurrent_jobs=_resolve_max_concurrent_jobs(cfg),
+            stage_admission=stage_admission,
             local_cache_dir=str(node_cache_dir),
-            local_cache_max_bytes=_gb_to_bytes(
-                cfg.node.get("local_cache_max_gb", 100)
-            ),
+            local_cache_max_bytes=_gb_to_bytes(node_cache_cfg.get("max_gb", 100)),
             runtime_state_dir=str(node_runtime_state_dir),
         ),
         request_store=request_store,
         setup_store=setup_store,
         jobs=JobConfig(
-            scheduler=cfg.jobs.scheduler,
+            scheduling_policy=str(cfg.coordinator.scheduling_policy),
             max_retries=int(cfg.jobs.max_retries),
-            transfer_only=bool(cfg.jobs.get("transfer_only", False)),
         ),
         heartbeat=HeartbeatConfig(
             interval_sec=int(cfg.heartbeat.interval_sec),
@@ -309,4 +336,3 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
         state_store=state_store,
         verification=verification,
     )
-
