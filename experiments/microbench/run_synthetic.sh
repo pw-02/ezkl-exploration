@@ -109,13 +109,66 @@ results="$campaign/results"
 printf 'Campaign: %s\n' "$campaign"
 trap 'code=$?; if ((code)); then printf "Campaign stopped (exit %s). Logs: %s\n" "$code" "$campaign" >&2; fi' EXIT
 
+# The Section 3 characterization pipeline simplifies the parent ONNX model
+# before partitioning. Reproduce that transformation here so selected partition
+# identities match the source trace instead of splitting the unsimplified model.
+effective_config="$campaign/prepare_config.json"
+"$python_bin" - "$effective_config" "$config" "${models[@]}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+from zkinfer.utils.onnx import simplify_model_if_requested
+
+repo = Path.cwd()
+out = Path(sys.argv[1])
+user_config_path = sys.argv[2]
+models = sys.argv[3:]
+defaults = {
+    "mnist_gan": ("experiments/models/mnist_gan/mnist_gan.onnx",
+                  "experiments/models/mnist_gan/input.json"),
+    "mobilenet_v2": ("experiments/models/mobilenet/mobilenetv2_050_Opset18.onnx",
+                     "experiments/models/mobilenet/input.json"),
+    "nano_gpt_4_layers_64_embd": ("experiments/models/nanoGPT/nano_gpt_4_layers_64_embd.onnx",
+                                  "experiments/models/nanoGPT/input.json"),
+}
+user_config = json.loads(Path(user_config_path).read_text()) if user_config_path else {}
+simplified_dir = out.parent / "simplified_models"
+simplified_dir.mkdir(parents=True, exist_ok=True)
+
+def resolve(path):
+    path = Path(path).expanduser()
+    return path.resolve() if path.is_absolute() else (repo / path).resolve()
+
+effective = {}
+for name in models:
+    entry = user_config.get(name, {})
+    model_path = resolve(entry.get("model", defaults[name][0]))
+    baseline = resolve(entry.get("baseline_input", defaults[name][1]))
+    simplified = simplified_dir / f"{name}.onnx"
+    simplify_model_if_requested(
+        model_path=str(model_path),
+        simplify=True,
+        output_path=str(simplified),
+    )
+    effective[name] = {
+        "model": str(simplified.resolve()),
+        "baseline_input": str(baseline),
+    }
+    if "inputs" in entry:
+        effective[name]["inputs"] = [str(resolve(p)) for p in entry["inputs"]]
+
+out.write_text(json.dumps(effective, indent=2) + "\n")
+PY
+config="$effective_config"
+
 prepare_args=(
     -m experiments.microbench.repeatability prepare
     --source "$source_path" --models "${models[@]}"
     --input-mode perturb --seed "$seed" --repetitions "$repetitions"
     --noise-scale "$noise_scale" --output "$prepared"
+    --config "$config"
 )
-if [[ -n $config ]]; then prepare_args+=(--config "$config"); fi
 if [[ -n $integer_bound ]]; then prepare_args+=(--integer-upper-bound "$integer_bound"); fi
 "$python_bin" "${prepare_args[@]}" 2>&1 | tee "$campaign/prepare.log"
 
