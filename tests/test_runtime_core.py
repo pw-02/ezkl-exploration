@@ -14,9 +14,9 @@ import zkinfer.proto.zkservice_pb2 as pb
 from zkinfer.runtime.data_plane import ArtifactRef
 from zkinfer.runtime.models import NodeResources, ProofJob
 from zkinfer.runtime.node.cache import NodeCache
-from zkinfer.runtime.node.phase_admission import (
-    HistoricalResourceProfiles,
-    ResourceAdmissionController,
+from zkinfer.runtime.node.stage_admission import (
+    StageAdmissionController,
+    StageResourceHistory,
 )
 from zkinfer.runtime.resource_profiles import (
     get_profile_estimates,
@@ -40,21 +40,19 @@ def _job(request_id: str, name: str) -> ProofJob:
     )
 
 
-def _wait_on_resource_admission(root: str, output: mp.Queue) -> None:
-    controller = ResourceAdmissionController(
+def _wait_on_stage_admission(root: str, output: mp.Queue) -> None:
+    controller = StageAdmissionController(
         root_dir=root,
         setup_key="setup-a",
         enabled=True,
-        memory_reserve_gb=0,
-        cpu_budget_percent=100,
         fallback_memory_gb=0.01,
-        fallback_cpu_percent=60,
+        memory_safety_reserve_gb=0,
         poll_interval_s=0.02,
     )
     started = time.perf_counter()
-    with patch("zkinfer.runtime.node.phase_admission.psutil.virtual_memory", return_value=_memory()), \
-            patch("zkinfer.runtime.node.phase_admission.psutil.pid_exists", side_effect=_pid_exists), \
-            patch("zkinfer.runtime.node.phase_admission.process_tree_memory_gb", return_value=0.0):
+    with patch("zkinfer.runtime.node.stage_admission.psutil.virtual_memory", return_value=_memory()), \
+            patch("zkinfer.runtime.node.stage_admission.psutil.pid_exists", side_effect=_pid_exists), \
+            patch("zkinfer.runtime.node.stage_admission.process_tree_memory_gb", return_value=0.0):
         with controller.hold("PROVING") as info:
             output.put((info["wait_time_s"], time.perf_counter() - started))
 
@@ -111,6 +109,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(scheduler.next_job(NodeResources(
             node_id="node", memory_available_gb=10,
         )).inference_request_id, "small")
+
     def test_requests_rotate_before_one_request_monopolizes_queue(self):
         scheduler = JobScheduler("fifo")
         scheduler.add_jobs(
@@ -122,10 +121,8 @@ class SchedulerTests(unittest.TestCase):
             ]
         )
         node = NodeResources(node_id="node", memory_available_gb=64)
-
         first = scheduler.next_job(node)
         second = scheduler.next_job(node)
-
         self.assertIsNotNone(first)
         self.assertIsNotNone(second)
         self.assertNotEqual(first.inference_request_id, second.inference_request_id)
@@ -155,7 +152,6 @@ class SchedulerTests(unittest.TestCase):
             },
             setup_key="setup-a",
         )
-
         scheduler = JobScheduler("resource_aware")
         scheduler.add_jobs([job])
         node = NodeResources(
@@ -163,7 +159,6 @@ class SchedulerTests(unittest.TestCase):
             memory_total_gb=64.0,
             memory_available_gb=10.0,
         )
-
         self.assertIsNotNone(scheduler.next_job(node))
 
     def test_job_is_rejected_when_profile_peak_exceeds_machine_memory(self):
@@ -178,7 +173,6 @@ class SchedulerTests(unittest.TestCase):
             },
             setup_key="setup-a",
         )
-
         scheduler = JobScheduler("resource_aware")
         scheduler.add_jobs([job])
         node = NodeResources(
@@ -186,7 +180,6 @@ class SchedulerTests(unittest.TestCase):
             memory_total_gb=64.0,
             memory_available_gb=20.0,
         )
-
         self.assertIsNone(scheduler.next_job(node))
 
 
@@ -204,7 +197,6 @@ class ResourceProfileTests(unittest.TestCase):
                 },
                 setup_key="setup-a",
             )
-
         estimates = get_profile_estimates(profile)
         self.assertEqual(estimates["samples"], 3)
         self.assertAlmostEqual(estimates["peak_memory_gb"], 12.0)
@@ -231,9 +223,7 @@ class StateStoreMigrationTests(unittest.TestCase):
                     "INSERT INTO jobs VALUES (?, ?, ?, ?, ?)",
                     ("job-1", "request-1", "IN_PROGRESS", "{}", "old-worker"),
                 )
-
             CoordinatorStateStore(str(db_path))
-
             with sqlite3.connect(db_path) as conn:
                 columns = {
                     row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()
@@ -285,6 +275,7 @@ class NodeCacheTests(unittest.TestCase):
                 cache.evict_if_needed()
                 self.assertTrue(cache.setup_ready("key"))
             self.assertEqual(cache._pin_counts, {})
+
     def test_pinned_setup_directory_is_not_evicted(self):
         with tempfile.TemporaryDirectory() as tmp:
             cache = NodeCache(tmp, max_bytes=32)
@@ -293,7 +284,6 @@ class NodeCacheTests(unittest.TestCase):
             (pinned / "data.bin").write_bytes(b"a" * 24)
             time.sleep(0.01)
             (victim / "data.bin").write_bytes(b"b" * 24)
-
             cache.pin_setup("pinned")
             try:
                 cache.evict_if_needed()
@@ -303,99 +293,89 @@ class NodeCacheTests(unittest.TestCase):
                 cache.unpin_setup("pinned")
 
 
-class PhaseAdmissionTests(unittest.TestCase):
+class StageAdmissionTests(unittest.TestCase):
     def setUp(self):
         for target, kwargs in (
             ("psutil.virtual_memory", {"return_value": _memory()}),
             ("psutil.pid_exists", {"side_effect": _pid_exists}),
             ("process_tree_memory_gb", {"return_value": 0.0}),
         ):
-            mocker = patch("zkinfer.runtime.node.phase_admission." + target, **kwargs)
+            mocker = patch("zkinfer.runtime.node.stage_admission." + target, **kwargs)
             mocker.start()
             self.addCleanup(mocker.stop)
 
-    def test_cpu_demand_above_budget_fails_without_waiting(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            controller = ResourceAdmissionController(tmp, "a", True, 8, 80, 1, 100)
-            with self.assertRaisesRegex(RuntimeError, "CPU.*exceeds"):
-                controller.acquire("PROVING")
-
     def test_live_memory_blocks_admission_despite_empty_reservation_ledger(self):
         with tempfile.TemporaryDirectory() as tmp:
-            controller = ResourceAdmissionController(tmp, "a", True, 8, 100, 32, 20)
-            with patch("zkinfer.runtime.node.phase_admission.psutil.virtual_memory", side_effect=[
+            controller = StageAdmissionController(
+                tmp, "a", True, 32, memory_safety_reserve_gb=8
+            )
+            with patch("zkinfer.runtime.node.stage_admission.psutil.virtual_memory", side_effect=[
                 _memory(64, 60), _memory(64, 60), _memory(64, 9), _memory(64, 60),
-            ]), patch("zkinfer.runtime.node.phase_admission.time.sleep") as sleep:
+            ]), patch("zkinfer.runtime.node.stage_admission.time.sleep") as sleep:
                 with controller.hold("PROVING"):
                     self.assertEqual(sleep.call_count, 1)
 
     def test_existing_rss_is_not_charged_twice(self):
         with tempfile.TemporaryDirectory() as tmp:
-            controller = ResourceAdmissionController(tmp, "a", True, 8, 100, 20, 20)
-            with patch("zkinfer.runtime.node.phase_admission.psutil.virtual_memory", return_value=_memory(64, 15)), \
-                    patch("zkinfer.runtime.node.phase_admission.process_tree_memory_gb", return_value=14), \
-                    patch("zkinfer.runtime.node.phase_admission.time.sleep", side_effect=AssertionError("unexpected wait")):
+            controller = StageAdmissionController(
+                tmp, "a", True, 20, memory_safety_reserve_gb=8
+            )
+            with patch("zkinfer.runtime.node.stage_admission.psutil.virtual_memory", return_value=_memory(64, 15)), \
+                    patch("zkinfer.runtime.node.stage_admission.process_tree_memory_gb", return_value=14), \
+                    patch("zkinfer.runtime.node.stage_admission.time.sleep", side_effect=AssertionError("unexpected wait")):
                 with controller.hold("PROVING"):
                     pass
 
     def test_other_reservations_account_for_unallocated_growth(self):
         with tempfile.TemporaryDirectory() as tmp:
-            controller = ResourceAdmissionController(tmp, "a", True, 8, 100, 10, 20)
-            # Only 4 GB is resident, but another phase has reserved 20 GB.
+            controller = StageAdmissionController(
+                tmp, "a", True, 10, memory_safety_reserve_gb=8
+            )
             with patch.object(controller, "_read_reservations", return_value=[
-                {"pid": os.getpid() + 1, "memory_gb": 20, "cpu_percent": 20},
-            ]), patch("zkinfer.runtime.node.phase_admission.psutil.virtual_memory", side_effect=[
+                {"pid": os.getpid() + 1, "memory_gb": 20},
+            ]), patch("zkinfer.runtime.node.stage_admission.psutil.virtual_memory", side_effect=[
                 _memory(64, 60), _memory(64, 60), _memory(64, 29), _memory(64, 60),
-            ]), patch("zkinfer.runtime.node.phase_admission.process_tree_memory_gb", return_value=4), \
-                    patch("zkinfer.runtime.node.phase_admission.time.sleep") as sleep:
+            ]), patch("zkinfer.runtime.node.stage_admission.process_tree_memory_gb", return_value=4), \
+                    patch("zkinfer.runtime.node.stage_admission.time.sleep") as sleep:
                 with controller.hold("PROVING"):
                     self.assertEqual(sleep.call_count, 1)
 
     def test_unknown_job_can_start_with_os_memory_already_in_use(self):
         with tempfile.TemporaryDirectory() as tmp:
-            controller = ResourceAdmissionController(tmp, "a", True, 8, 100, 0, 100)
-            with patch("zkinfer.runtime.node.phase_admission.process_tree_memory_gb", return_value=1), \
-                    patch("zkinfer.runtime.node.phase_admission.time.sleep", side_effect=AssertionError("unexpected wait")):
+            controller = StageAdmissionController(
+                tmp, "a", True, 0, memory_safety_reserve_gb=8
+            )
+            with patch("zkinfer.runtime.node.stage_admission.process_tree_memory_gb", return_value=1), \
+                    patch("zkinfer.runtime.node.stage_admission.time.sleep", side_effect=AssertionError("unexpected wait")):
                 with controller.hold("CALIBRATING") as info:
                     self.assertAlmostEqual(info["memory_gb"], 53)
 
-    def test_missing_cpu_history_uses_fallback(self):
+    def test_partial_fused_history_does_not_drop_unobserved_stage(self):
         with tempfile.TemporaryDirectory() as tmp:
-            profiles = HistoricalResourceProfiles(Path(tmp) / "profiles")
-            profiles.update_from_metrics("a", {"stage_proving_max_memory(GB)": 12})
-            estimate = profiles.estimate("a", "PROVING", 40, 100, .9)
-            self.assertEqual(estimate["cpu_percent"], 100)
-
-    def test_partial_fused_history_does_not_drop_unobserved_phase(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            profiles = HistoricalResourceProfiles(Path(tmp) / "profiles")
-            profiles.update_from_metrics("a", {"stage_key_gen_max_memory(GB)": 12})
-            estimate = profiles.estimate("a", "FUSED_KEYGEN_PROVE", 40, 100, .9)
+            history = StageResourceHistory(Path(tmp) / "profiles")
+            history.update_from_metrics("a", {"stage_key_gen_max_memory(GB)": 12})
+            estimate = history.estimate("a", "FUSED_KEYGEN_PROVE", 40, .9)
             self.assertEqual(estimate["memory_gb"], 40)
 
     def test_resource_reservations_are_shared_across_processes(self):
         with tempfile.TemporaryDirectory() as tmp:
-            controller = ResourceAdmissionController(
+            controller = StageAdmissionController(
                 root_dir=tmp,
                 setup_key="setup-a",
                 enabled=True,
-                memory_reserve_gb=0,
-                cpu_budget_percent=100,
                 fallback_memory_gb=0.01,
-                fallback_cpu_percent=60,
+                memory_safety_reserve_gb=0,
                 poll_interval_s=0.02,
             )
             output: mp.Queue = mp.Queue()
-
             with controller.hold("PROVING"):
                 child = mp.Process(
-                    target=_wait_on_resource_admission,
+                    target=_wait_on_stage_admission,
                     args=(tmp, output),
                 )
                 child.start()
                 time.sleep(0.15)
                 self.assertTrue(output.empty())
-
             child.join(timeout=3)
             self.assertEqual(child.exitcode, 0)
             wait_s, elapsed_s = output.get(timeout=1)
@@ -404,35 +384,31 @@ class PhaseAdmissionTests(unittest.TestCase):
 
     def test_historical_profile_replaces_fallback_estimate(self):
         with tempfile.TemporaryDirectory() as tmp:
-            profiles = HistoricalResourceProfiles(Path(tmp) / "profiles")
-            profiles.update_from_metrics(
+            history = StageResourceHistory(Path(tmp) / "profiles")
+            history.update_from_metrics(
                 "setup-a",
                 {
                     "stage_proving_max_memory(GB)": 12.5,
                     "stage_proving_avg_cpu_machine(%)": 44.0,
                 },
             )
-            estimate = profiles.estimate(
+            estimate = history.estimate(
                 setup_key="setup-a",
                 stage="PROVING",
                 fallback_memory_gb=60.0,
-                fallback_cpu_percent=100.0,
-                percentile=0.90,
+                history_percentile=0.90,
             )
             self.assertEqual(estimate["source"], "historical")
             self.assertAlmostEqual(estimate["memory_gb"], 12.5)
-            self.assertAlmostEqual(estimate["cpu_percent"], 44.0)
 
     def test_admission_can_be_disabled_for_baseline(self):
         with tempfile.TemporaryDirectory() as tmp:
-            controller = ResourceAdmissionController(
+            controller = StageAdmissionController(
                 root_dir=tmp,
                 setup_key="setup-a",
                 enabled=False,
-                memory_reserve_gb=0,
-                cpu_budget_percent=100,
                 fallback_memory_gb=1.0,
-                fallback_cpu_percent=100,
+                memory_safety_reserve_gb=0,
             )
             with controller.hold("PROVING") as info:
                 self.assertFalse(info["enabled"])
@@ -441,4 +417,3 @@ class PhaseAdmissionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
