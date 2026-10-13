@@ -45,21 +45,26 @@ node:
   # This is runtime/scheduling state, not cached model data.
   runtime_state_dir: storage/node/runtime
 
-  # Stage-level resource admission. Historical stage measurements are used when
-  # available; otherwise the whole-job estimate is used conservatively.
+  # Stage-level resource admission. Memory is the primary safety resource.
+  # Historical stage measurements improve packing, while memory_reserve_gb is a
+  # fixed safety margin independent of the learned profile. CPU remains optional
+  # policy input rather than a required predictor; a zero fallback avoids making
+  # unknown CPU demand block otherwise memory-safe work.
   phase_admission:
     enabled: false
     memory_reserve_gb: 8
     cpu_budget_percent: 100
     profile_percentile: 0.90
-    fallback_cpu_percent: 100
+    fallback_cpu_percent: 0
 
 jobs:
   # Global coordinator scheduling policy:
   #   fifo           request-fair queue order
   #   lpt            longest predicted job first within the selected request
   #   cache_aware    prefer setup already resident on the polling node
-  #   resource_aware use stage resource profiles plus cache locality
+  #   resource_aware reject jobs that cannot fit the machine, then use cache
+  #                  locality and duration only as coarse placement preferences;
+  #                  stage-level packing remains node-local
   scheduler: cache_aware
   max_retries: 1
   transfer_only: false
@@ -97,4 +102,3 @@ hydra:
     level: DISABLE
   hydra_logging:
     level: DISABLE
-
