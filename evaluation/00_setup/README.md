@@ -1,5 +1,9 @@
 # Setup and measurement protocol
 
+For exact commands, profile collection and the restartable tmux checklist, start
+with [evaluation/setup.md](../setup.md) and [run_all.sh](../run_all.sh).
+This page describes the controls; it is not itself a script.
+
 ## Hardware and software record
 
 Record commit SHA (including backend/wheel), OS, physical/logical cores, RAM,

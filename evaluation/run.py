@@ -36,10 +36,12 @@ def parser():
     p.add_argument("--verify", action="store_true", help="include runtime proof verification")
     p.add_argument("--setup", choices=["cold", "warm"], default="cold")
     p.add_argument("--setup-dir", type=Path)
+    p.add_argument("--bootstrap-setup", action="store_true",
+                   help="preparation only: allow an empty warm setup directory with sequential, unprofiled execution")
     p.add_argument("--profile-dir", type=Path)
     p.add_argument("--coordinator-profile-dir", type=Path,
                    help="snapshot root containing <setup_key>/{cold_,}resource_profile.json")
-    p.add_argument("--allow-unprofiled", action="store_true", help="smoke tests only; log this choice")
+    p.add_argument("--allow-unprofiled", action="store_true", help="explicit profile collection or smoke test; not a profiled comparison")
     p.add_argument("--reserve-gib", type=float, default=8)
     p.add_argument("--cache-gib", type=float, default=500, help="use identical capacity in all arms")
     p.add_argument("--history-percentile", type=float, default=0.9)
@@ -128,6 +130,11 @@ def copy_profile_snapshots(args, output):
 
 
 def validate(args):
+    if args.bootstrap_setup and not (
+        args.setup == "warm" and args.setup_dir is not None and args.allow_unprofiled
+        and BASELINES[args.baseline]["cap"] == 1 and not BASELINES[args.baseline]["admission"]
+    ):
+        raise ValueError("bootstrap-setup requires warm setup, setup-dir, allow-unprofiled, and a sequential non-admission baseline")
     if args.requests < 1 or args.submit_workers < 1 or args.timeout <= 0:
         raise ValueError("requests, submit-workers and timeout must be positive")
     if args.partition_size is not None and args.partition_size < 1:
@@ -147,7 +154,7 @@ def validate(args):
                 raise ValueError("workloads must be config stems")
             if not (ROOT / "experiments/config/workload" / f"{name}.yaml").is_file():
                 raise ValueError(f"missing workload config: {name}")
-        if args.setup == "warm" and (
+        if args.setup == "warm" and not args.bootstrap_setup and (
             args.setup_dir is None or not args.setup_dir.is_dir() or not any(args.setup_dir.iterdir())
         ):
             raise ValueError("warm runs require --setup-dir with pre-generated matching artifacts")
@@ -243,6 +250,9 @@ def execute(args, plan):
 
 
 def main(argv=None):
+    def interrupted(signum, frame):
+        raise KeyboardInterrupt(f"Interrupted by signal {signum}")
+    signal.signal(signal.SIGTERM, interrupted)
     args = parser().parse_args(argv)
     validate(args)
     plan = build_plan(args)

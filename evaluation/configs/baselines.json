@@ -5,6 +5,7 @@
   "fixed-2": {"partitioning": true, "partition_size": 1, "policy": "resource_aware", "cap": 2, "admission": false, "mode": "stage"},
   "fixed-4": {"partitioning": true, "partition_size": 1, "policy": "resource_aware", "cap": 4, "admission": false, "mode": "stage"},
   "fixed-8": {"partitioning": true, "partition_size": 1, "policy": "resource_aware", "cap": 8, "admission": false, "mode": "stage"},
+  "fixed-16": {"partitioning": true, "partition_size": 1, "policy": "resource_aware", "cap": 16, "admission": false, "mode": "stage"},
   "whole-job": {"partitioning": true, "partition_size": 1, "policy": "resource_aware", "cap": null, "admission": true, "mode": "whole_job"},
   "stage": {"partitioning": true, "partition_size": 1, "policy": "resource_aware", "cap": null, "admission": true, "mode": "stage"},
   "stage-fifo": {"partitioning": true, "partition_size": 1, "policy": "fifo", "cap": null, "admission": true, "mode": "stage"},
