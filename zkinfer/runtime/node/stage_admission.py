@@ -221,7 +221,12 @@ class StageAdmissionController:
         memory_safety_reserve_gb: float = 8.0,
         history_percentile: float = 0.90,
         poll_interval_s: float = 0.25,
+        mode: str = "stage",
     ):
+        if mode not in {"stage", "whole_job"}:
+            raise ValueError("admission mode must be stage or whole_job")
+        self.mode = mode
+        self._whole_job_info: Optional[Dict[str, Any]] = None
         self.root_dir = Path(root_dir)
         self.root_dir.mkdir(parents=True, exist_ok=True)
         self.setup_key = setup_key
@@ -398,7 +403,33 @@ class StageAdmissionController:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     @contextmanager
+    def hold_job(self) -> Iterator[Dict[str, Any]]:
+        """Hold one peak reservation across the entire prover task in baseline mode.
+
+        WHOLE_JOB uses the coordinator's peak estimate as its fallback; with no
+        estimate, the existing conservative available-memory fallback applies.
+        Nested stage holds must neither resize nor release this reservation.
+        """
+        if self.mode != "whole_job" or not self.enabled:
+            yield {"enabled": False, "wait_time_s": 0.0}
+            return
+        if self._whole_job_info is not None:
+            raise RuntimeError("whole-job reservation is already held")
+        info = self.acquire("WHOLE_JOB")
+        self._whole_job_info = info
+        try:
+            yield info
+        finally:
+            self._whole_job_info = None
+            self.release()
+
+    @contextmanager
     def hold(self, stage: str) -> Iterator[Dict[str, Any]]:
+        if self.enabled and self.mode == "whole_job":
+            if self._whole_job_info is None:
+                raise RuntimeError("whole-job admission requires an outer hold_job()")
+            yield {**self._whole_job_info, "stage": stage, "wait_time_s": 0.0}
+            return
         admission = self.acquire(stage)
         try:
             yield admission
