@@ -40,6 +40,7 @@ tmux new -s zkinfer-eval
 export PYTHON=python
 export EVAL_ROOT="$PWD/evaluation/results/paper-day-v2"
 export PROFILE_REPEATS=1
+export PYTHONPATH=/home/pwatters/project/zkinfer:$PYTHONPATH
 ```
 
 The explicit export matters if your shell still has PROFILE_REPEATS=5 from the
@@ -48,7 +49,7 @@ setup/profiling/measurement. The script still requires RAYON_NUM_THREADS explici
 eight below is an example choice, not an optimum:
 
 ```bash
-export RAYON_NUM_THREADS=8
+export RAYON_NUM_THREADS=128
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1

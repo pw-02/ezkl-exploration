@@ -46,7 +46,7 @@ node:
 
 storage:
   reusable_setup:
-    enabled: false
+    enabled: true
     path: storage/setup
 
   request_data:

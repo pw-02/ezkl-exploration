@@ -19,3 +19,5 @@ figures
 transfer_only
 e2e_runs
 _backup
+experiments/microbench_outputs
+halo2_msms.csv

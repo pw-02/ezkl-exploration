@@ -40,7 +40,7 @@ node:
 
   local_cache:
     path: storage/node/cache
-    max_gb: 50
+    max_gb: 5000
 
   # Live stage reservations and node-local historical profiles.
   runtime_state_dir: storage/node/runtime

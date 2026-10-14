@@ -2,12 +2,12 @@
 
 set -euo pipefail
 
-WORKLOAD="${1:-mnist_gan}"
+WORKLOAD="${1:-mobilenet_v2}"
 COORDINATOR_HOST="${2:-127.0.0.1}"
 COORDINATOR_PORT="${3:-50051}"
 STAGE_ADMISSION="${4:-true}"
-MAX_CONCURRENT_JOBS="${MAX_CONCURRENT_JOBS:-1}"
-KEEP_PROOF_ARTIFACTS="${KEEP_PROOF_ARTIFACTS:-false}"
+MAX_CONCURRENT_JOBS="${MAX_CONCURRENT_JOBS:-10}"
+KEEP_PROOF_ARTIFACTS="${KEEP_PROOF_ARTIFACTS:-true}"
 
 if [[ "$STAGE_ADMISSION" != "true" && "$STAGE_ADMISSION" != "false" ]]; then
     echo "Error: stage admission must be true or false."
