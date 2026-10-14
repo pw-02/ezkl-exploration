@@ -198,11 +198,14 @@ def node_command(cfg: DictConfig) -> List[str]:
         f"node.node_id={cfg.node.node_id}",
         f"node.resource_sampling_interval_sec={cfg.node.resource_sampling_interval_sec}",
         f"node.stage_admission.enabled={str(bool(admission.enabled)).lower()}",
+        f"node.stage_admission.mode={admission.get('mode', 'stage')}",
         f"node.stage_admission.memory_safety_reserve_gb={admission.memory_safety_reserve_gb}",
         f"node.stage_admission.history_percentile={admission.history_percentile}",
     ]
     if cfg.node.get("max_concurrent_jobs", None) is not None:
         overrides.append(f"node.max_concurrent_jobs={int(cfg.node.max_concurrent_jobs)}")
+    else:
+        overrides.append("node.max_concurrent_jobs=null")
 
     return [
         sys.executable,

@@ -632,6 +632,7 @@ class NodeSupervisor:
             transfer_metrics=transfer_metrics,
             stage_admission_dir=str(self.stage_admission_dir),
             stage_admission_enabled=self.stage_cfg.enabled,
+            admission_mode=self.stage_cfg.mode,
             memory_safety_reserve_gb=self.stage_cfg.memory_safety_reserve_gb,
             history_percentile=self.stage_cfg.history_percentile,
             predicted_peak_memory_gb=float(lease.predicted_peak_memory_gb or 0.0),

@@ -46,6 +46,7 @@ node:
   runtime_state_dir: storage/node/runtime
 
   stage_admission:
+    mode: stage # stage | whole_job; enabled controls both modes
     enabled: false
     # RAM intentionally left unavailable to proof workloads. This fixed reserve
     # is independent of historical predictions.

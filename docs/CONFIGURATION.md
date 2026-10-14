@@ -71,6 +71,34 @@ node:
 
 `enabled` turns node-local stage admission on or off.
 
+`mode` selects `stage` (the backward-compatible default) or `whole_job`.
+Both modes require `enabled: true`. Whole-job mode reserves the coordinator's
+predicted job peak before the prover pipeline starts and retains it through
+preparation, proving, and output publication, releasing it on success or error.
+Stage callbacks still record timings but cannot resize or release that reservation.
+Artifact materialization in the supervisor precedes this prover reservation.
+Without a positive job estimate, the existing conservative available-memory
+fallback applies; collect matching cold/warm profiles before comparison runs.
+
+Use these configurations for controlled admission comparisons, with the same
+`resource_aware` coordinator policy, artifact state, and memory reserve:
+
+| Configuration | `max_concurrent_jobs` | `stage_admission.enabled` | `stage_admission.mode` |
+| --- | --- | --- | --- |
+| Fixed concurrency (k) | k | false | stage |
+| Whole-job admission | null | true | whole_job |
+| Stage admission | null | true | stage |
+
+For example, run the whole-job baseline with:
+
+```bash
+python -m experiments.run_local_exp coordinator.scheduling_policy=resource_aware node.max_concurrent_jobs=null node.stage_admission.enabled=true node.stage_admission.mode=whole_job
+```
+
+Keep artifact reuse and profiling settings identical across the compared runs.
+The launcher forwards an explicit null job cap so the runtime's sequential
+default does not silently override the experiment.
+
 `memory_safety_reserve_gb` is RAM that zkInfer intentionally leaves unavailable to proof workloads. It is a fixed safety margin and is independent of historical predictions.
 
 `history_percentile` controls the historical stage-memory estimate after enough observations exist. Sparse history uses the observed maximum. The default policy uses memory for admission. CPU is still measured for characterization but is not a configurable admission constraint.

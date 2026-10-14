@@ -54,6 +54,7 @@ class LocalProverTask:
     transfer_metrics: Dict[str, Any] = field(default_factory=dict)
     stage_admission_dir: str = ""
     stage_admission_enabled: bool = True
+    admission_mode: str = "stage"
     memory_safety_reserve_gb: float = 8.0
     history_percentile: float = 0.90
     predicted_peak_memory_gb: float = 0.0
@@ -110,6 +111,7 @@ class StageAwareEZKLProofStages(EZKLProofStages):
         self.admission = admission
         self.admission_metrics: Dict[str, Any] = {
             "stage_admission_enabled": admission.enabled,
+            "admission_mode": admission.mode,
             "stage_admission_wait_time(s)": 0.0,
         }
         self._transition_started = time.perf_counter()
@@ -265,29 +267,46 @@ class ProverTaskRunner:
                     sort_keys=True,
                 )
 
-            ezkl_metrics, _ = proof_stages.run_all(setup_only=False)
-            ezkl_metrics.update(proof_stages.admission_metrics)
-
-            metrics = self._collect_metrics(
-                task=task,
-                resource_usage_file=resource_usage_file,
-                proof_stages=proof_stages,
-                ezkl_metrics=ezkl_metrics,
-            )
-            manifest_ref, publish_metrics = self._publish_job_artifacts(
-                task,
-                proof_stages,
-            )
-            metrics.update(self._flatten_transfer_metrics(task.transfer_metrics))
-            metrics.update(self._flatten_output_metrics(publish_metrics))
-            metrics["prover_process_pid"] = os.getpid()
-            return ProverTaskResult(
-                artifact_manifest_ref=manifest_ref,
-                metrics=metrics,
-                message="Proof computation completed successfully",
-            )
+            # Enter before preparation and retain the reservation through output
+            # publication. The outer finally also releases it after exceptions.
+            if task.stage_admission_enabled and task.admission_mode == "whole_job":
+                proof_stages._update_status("WAITING_FOR_WHOLE_JOB")
+            with proof_stages.admission.hold_job() as job_info:
+                return self._run_admitted(task, resource_usage_file, proof_stages, job_info)
         finally:
             self._stop_process(resource_proc)
+
+    def _run_admitted(
+        self, task: LocalProverTask, resource_usage_file: str,
+        proof_stages: StageAwareEZKLProofStages, job_info: Dict[str, Any],
+    ) -> ProverTaskResult:
+        ezkl_metrics, _ = proof_stages.run_all(setup_only=False)
+        ezkl_metrics.update(proof_stages.admission_metrics)
+        ezkl_metrics["whole_job_admission_wait_time(s)"] = float(
+            job_info.get("wait_time_s", 0.0)
+        )
+        ezkl_metrics["whole_job_admission_predicted_memory(GB)"] = float(
+            job_info.get("memory_gb", 0.0)
+        )
+
+        metrics = self._collect_metrics(
+            task=task,
+            resource_usage_file=resource_usage_file,
+            proof_stages=proof_stages,
+            ezkl_metrics=ezkl_metrics,
+        )
+        manifest_ref, publish_metrics = self._publish_job_artifacts(
+            task,
+            proof_stages,
+        )
+        metrics.update(self._flatten_transfer_metrics(task.transfer_metrics))
+        metrics.update(self._flatten_output_metrics(publish_metrics))
+        metrics["prover_process_pid"] = os.getpid()
+        return ProverTaskResult(
+            artifact_manifest_ref=manifest_ref,
+            metrics=metrics,
+            message="Proof computation completed successfully",
+        )
 
     def _start_resource_logger(self, task: LocalProverTask, status_file: str):
         resource_usage_file = os.path.join(task.output_dir, "resource_usage.csv")
@@ -336,6 +355,7 @@ class ProverTaskRunner:
             root_dir=admission_dir,
             setup_key=task.setup_key,
             enabled=task.stage_admission_enabled,
+            mode=task.admission_mode,
             fallback_memory_gb=task.predicted_peak_memory_gb,
             memory_safety_reserve_gb=task.memory_safety_reserve_gb,
             history_percentile=task.history_percentile,
