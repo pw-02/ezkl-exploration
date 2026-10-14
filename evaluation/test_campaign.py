@@ -14,6 +14,7 @@ def load(name, filename):
 
 c=load('campaign_test','campaign.py')
 r=load('runner_test','run.py')
+b=load('bootstrap_test','bootstrap_setup.py')
 
 class CampaignTests(unittest.TestCase):
     def test_bootstrap_requires_explicit_sequential_preparation(self):
@@ -68,14 +69,56 @@ class CampaignTests(unittest.TestCase):
                 if args.bootstrap_setup:
                     args.setup_dir.mkdir(); (args.setup_dir/'key').mkdir()
                     (args.setup_dir/'key/pk.key').write_text('test artifact')
-            with patch.object(c,'launch',side_effect=fake): c.prepare(a,task)
-            self.assertEqual(len(calls),4)
-            self.assertTrue(calls[0].bootstrap_setup)
-            self.assertIsNone(calls[1].profile_dir)
-            self.assertEqual(calls[2].profile_dir,task/'observation-01/node-state/resource_profiles')
+            seed=root/'shared-setup'; seed.mkdir()
+            with patch.object(c,'launch',side_effect=fake), patch.object(c,'ensure_bootstrap',return_value=seed):
+                c.prepare(a,task)
+            self.assertEqual(len(calls),3)
+            self.assertIsNone(calls[0].profile_dir)
+            self.assertEqual(calls[1].profile_dir,task/'observation-01/node-state/resource_profiles')
             final=json.loads((task/'snapshot/node/node.json').read_text())
             self.assertEqual(len(final['stages']['proving']['observations']),3)
-            self.assertTrue(all(not x.bootstrap_setup for x in calls[1:]))
+            self.assertTrue(all(not x.bootstrap_setup for x in calls))
+            self.assertTrue(all(x.setup_dir==seed for x in calls))
+
+    def test_setup_only_never_generates_witness_or_proof(self):
+        calls=[]
+        class Prover:
+            def calibrate_settings_with_fallback(self): calls.append('settings')
+            def compile_circuit(self): calls.append('compile')
+            def get_srs(self): calls.append('srs')
+            def gen_keys(self): calls.append('keys')
+            def gen_witness(self): raise AssertionError('must not generate a witness')
+            def compute_proof(self): raise AssertionError('must not prove')
+            def run_all(self,*a,**kw): raise AssertionError('must not run the full pipeline')
+        b.setup_stages(Prover())
+        self.assertEqual(calls,['settings','compile','srs','keys'])
+
+    def test_cold_and_warm_share_one_setup_only_bootstrap(self):
+        with tempfile.TemporaryDirectory() as d:
+            a=c.parser().parse_args(['prepare','--id','test','--root',d,'--workload','test','--reserve','8'])
+            self.assertEqual(a.repetitions,1)
+            def fake(command,timeout=None):
+                out=Path(command[command.index('--output')+1]); (out/'setup/key').mkdir(parents=True)
+                for name in b.REQUIRED: (out/'setup/key'/name).write_text('artifact')
+                c.write_json(out/'manifest.json',{'setup_only':True,'proofs_generated':0,'jobs':[{'setup_key':'key'}]})
+            with patch.object(c,'launch',side_effect=fake) as launch:
+                a.condition='cold'; first=c.ensure_bootstrap(a)
+                a.condition='warm'; second=c.ensure_bootstrap(a)
+                self.assertEqual(first,second); self.assertEqual(launch.call_count,1)
+
+    def test_cold_profiling_has_no_primer_and_no_setup_reuse(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); task=root/'task';task.mkdir()
+            a=c.parser().parse_args(['prepare','--id','test','--root',d,'--workload','test',
+                                    '--condition','cold','--reserve','8'])
+            with patch.object(c,'ensure_bootstrap',return_value=root/'seed'), \
+                 patch.object(c,'launch') as launch,patch.object(c,'succeeded',return_value=True), \
+                 patch.object(c,'audit_profiles',return_value=1),patch.object(c,'copy_tree'):
+                c.prepare(a,task)
+            self.assertEqual(launch.call_count,1)
+            command=list(map(str,launch.call_args.args[0]))
+            args=r.parser().parse_args(command[2:])
+            self.assertEqual(args.setup,'cold');self.assertIsNone(args.setup_dir)
 
     def test_warm_audit_rejects_cache_miss(self):
         with tempfile.TemporaryDirectory() as d:

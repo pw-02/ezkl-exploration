@@ -45,18 +45,18 @@ def copy_tree(source, dest):
     dest.mkdir(parents=True)
     subprocess.run(['cp', '-a', '--reflink=auto', str(source) + '/.', str(dest)], check=True)
 
-def launch(command):
+def launch(command, timeout=None):
     print('+ ' + shlex.join(map(str, command)), flush=True)
-    process = subprocess.Popen(list(map(str, command)), cwd=ROOT)
+    process = subprocess.Popen(list(map(str, command)), cwd=ROOT, start_new_session=True)
     try:
-        code = process.wait()
+        code = process.wait(timeout=timeout)
         if code: raise subprocess.CalledProcessError(code, command)
     except BaseException:
         if process.poll() is None:
-            process.terminate()
+            os.killpg(process.pid, signal.SIGTERM)
             try: process.wait(timeout=30)
             except subprocess.TimeoutExpired:
-                process.kill(); process.wait()
+                os.killpg(process.pid, signal.SIGKILL); process.wait()
         raise
 
 def succeeded(output):
@@ -110,7 +110,7 @@ def common(a, output, condition, baseline, requests=1, seed=42, reserve=None):
             '--timeout', str(a.timeout), '--port', str(a.port), '--verify', '--output', output]
 
 def prepare(a, task):
-    """Bootstrap keys once; exclude that cold-on-miss run from warm histories."""
+    """Share a setup-only bootstrap, then collect condition-matched proof history."""
     if ',' in a.workload:
         for model in a.workload.split(','):
             source = a.root/'profiles'/f'{model}-g{a.partition}-{a.condition}'
@@ -120,7 +120,8 @@ def prepare(a, task):
             origin = source/done['attempt']
             for rel in ['snapshot/node','snapshot/coordinator'] + (['setup'] if a.condition == 'warm' else []):
                 dest = task/rel; dest.mkdir(parents=True, exist_ok=True)
-                for entry in (origin/rel).iterdir():
+                source_dir = setup_source(origin) if rel == 'setup' else origin/rel
+                for entry in source_dir.iterdir():
                     if entry.name == 'metadata.json': continue
                     if rel == 'snapshot/node' and entry.suffix != '.json': continue
                     target = dest/entry.name
@@ -129,21 +130,12 @@ def prepare(a, task):
                     else: shutil.copy2(entry,target)
         write_json(task/'snapshot/metadata.json', {'workload':a.workload,'condition':a.condition,'partition':a.partition})
         return
-    seed_setup = task/'setup'
+    seed_setup = ensure_bootstrap(a)
+    write_json(task/'setup_source.json', {'path':str(seed_setup)})
     baseline = 'monolithic' if a.partition == 0 else 'fixed-1'
     last = None
-    if a.condition == 'warm':
-        bootstrap = task/'bootstrap'
-        launch(common(a, bootstrap, 'warm', baseline) + [
-            '--allow-unprofiled', '--bootstrap-setup', '--setup-dir', seed_setup])
-        if not succeeded(bootstrap): raise ValueError('Setup bootstrap failed')
-        if a.discard_copies and (bootstrap/'cache').exists(): shutil.rmtree(bootstrap/'cache')
-        # Bootstrap node/coordinator histories are intentionally NOT copied.
-    else:
-        # Prime SRS/download and backend initialization outside collected history.
-        primer = task/'cold-primer'
-        launch(common(a, primer, 'cold', baseline) + ['--allow-unprofiled'])
-        if not succeeded(primer): raise ValueError('Cold primer failed')
+    # Setup-only bootstrap supplies SRS and reusable artifacts but no observations.
+    # Cold runs do not receive its setup directory and still regenerate setup.
     for rep in range(1, a.repetitions+1):
         out = task/f'observation-{rep:02d}'
         cmd = common(a, out, a.condition, baseline) + ['--allow-unprofiled']
@@ -164,6 +156,36 @@ def prepare(a, task):
 def profile_root(a):
     return a.root/'profiles'/f'{a.workload}-g{a.partition}-{a.condition}'
 
+def setup_source(task):
+    ref=task/'setup_source.json'
+    return Path(read_json(ref)['path']) if ref.is_file() else task/'setup'
+
+def ensure_bootstrap(a):
+    parent=a.root/'bootstrap'/f'{a.workload}-g{a.partition}'
+    signature={'workload':a.workload,'partition':a.partition,'code':code_fingerprint(),
+               'threads':{k:os.getenv(k) for k in THREADS}}
+    parent.mkdir(parents=True,exist_ok=True)
+    record=parent/'bootstrap_plan.json'
+    if record.exists() and read_json(record)!=signature:
+        raise ValueError('Bootstrap configuration changed; use a new campaign root')
+    write_json(record,signature)
+    output=parent/'artifacts'
+    if not (parent/'DONE.json').is_file():
+        launch([sys.executable,ROOT/'evaluation/bootstrap_setup.py','--workload',a.workload,
+                '--partition',str(a.partition),'--output',output],timeout=a.timeout)
+        manifest=read_json(output/'manifest.json')
+        if not manifest.get('setup_only') or manifest.get('proofs_generated')!=0 or not manifest.get('jobs'):
+            raise ValueError('Invalid setup-only bootstrap manifest')
+        write_json(parent/'DONE.json',signature)
+    # Verify all bundles, including on resume; do not silently accept deleted keys.
+    manifest=read_json(output/'manifest.json')
+    for job in manifest['jobs']:
+        for name in ('model.onnx','settings.json','network.compiled','pk.json','vk.json'):
+            path=output/'setup'/job['setup_key']/name
+            if not path.is_file() or path.stat().st_size==0:
+                raise ValueError(f'Missing bootstrap artifact: {path}')
+    return output/'setup'
+
 def execute_cell(a, task):
     profiles = profile_root(a)
     if not (profiles/'DONE.json').is_file():
@@ -180,7 +202,7 @@ def execute_cell(a, task):
     cmd = common(a, out, a.condition, a.baseline, a.requests, a.seed)
     cmd += ['--profile-dir', data/'snapshot/node', '--coordinator-profile-dir', data/'snapshot/coordinator']
     if a.condition == 'warm':
-        copy_tree(data/'setup', task/'trial-setup')
+        copy_tree(setup_source(data), task/'trial-setup')
         cmd += ['--setup-dir', task/'trial-setup']
     if a.arrival == 'poisson':
         pilot = a.root/'runs'/a.pilot
@@ -212,7 +234,7 @@ def parser():
     p.add_argument('--baseline', default='stage')
     p.add_argument('--requests', type=int, default=1)
     p.add_argument('--seed', type=int, default=42)
-    p.add_argument('--repetitions', type=int, default=5)
+    p.add_argument('--repetitions', type=int, default=1)
     p.add_argument('--reserve', type=float, required=True)
     p.add_argument('--cache-gib', type=float, default=500)
     p.add_argument('--sampling', type=float, default=.1)
