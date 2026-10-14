@@ -84,13 +84,14 @@ The first real run must be checked against the measurement protocol before scale
   automatically an admission budget. Use the documented reserve calculation.
 - Profiling and artifact state are different: cold artifacts do not imply unknown
   memory demand. Compare policies using matched precollected profiles.
-- Current runtime limitation: disabling reusable setup also disables coordinator
-  profile loading. Node profiles alone cannot remove the supervisor's unprofiled
-  job startup restriction. Thus fully profiled cold admission comparisons require
-  separating profile loading from setup reuse in a later runtime change. The runner
-  rejects these by default. `--allow-unprofiled` is only an explicitly labeled smoke
-  test, not the controlled cold comparison. Warm snapshots must include coordinator
-  `resource_profile.json` files as well as the node resource_profiles snapshot.
+- Coordinator profiles are independent of setup reuse. Pass
+  `--coordinator-profile-dir /absolute/profile-snapshot` with files organized as
+  `<setup_key>/cold_resource_profile.json` for forced-cold runs, or
+  `<setup_key>/resource_profile.json` for reuse-enabled runs. The runner copies only
+  matching profile files into fresh per-trial storage, never circuit/key artifacts.
+  Node profiles still come from `--profile-dir`; both snapshots must match the
+  setup condition. For warm runs, the coordinator snapshot can default to
+  `--setup-dir` for compatibility with existing resource_profile.json files.
 - Simulation in motivation estimates packing opportunity. Real CPU/storage
   contention must be measured here; do not use simulated times as system results.
 - The local launcher supports one node. Scale-out requires an existing deployment.
@@ -98,6 +99,18 @@ The first real run must be checked against the measurement protocol before scale
   overloaded client injection must not be mistaken for a stable offered load.
 
 Results and logs under `evaluation/results/` are intentionally untracked.
+
+Profiled cold example (use the same snapshots for whole-job and stage):
+
+```bash
+python evaluation/run.py --baseline whole-job --workload mnist_gan --requests 4 --setup cold --profile-dir /absolute/cold-node/resource_profiles --coordinator-profile-dir /absolute/cold-coordinator --execute --output evaluation/results/cold-whole-r1
+```
+
+Collect a cold snapshot with isolated forced-cold runs after this change. Runtime
+defaults save cold profiles alongside setup model files, or use
+`storage.resource_profiles.path` to choose a separate root. Historical cold runs
+that never saved coordinator profiles need new profiling or an explicitly audited
+conversion from their job reports; do not rename warm profiles to cold.
 
 Use `--verify` for correctness-checked runs and record whether verification is
 included in timing. The default follows the runtime's verification-disabled

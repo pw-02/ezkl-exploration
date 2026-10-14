@@ -114,7 +114,7 @@ class EvaluationTests(unittest.TestCase):
             self.assertEqual(summary["statuses"], {"submission_error": 1, "failed": 1, "completed": 2})
             self.assertTrue(all("start_s" in record and "end_s" in record for record in records))
 
-    def test_cold_profiled_run_is_not_silently_mislabeled(self):
+    def test_cold_profiled_run_requires_both_histories_and_copies_no_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             configs = root / "experiments/config/workload"
@@ -122,8 +122,36 @@ class EvaluationTests(unittest.TestCase):
             (configs / "test.yaml").write_text("name: test\n")
             args = runner.parser().parse_args(["--baseline", "stage", "--workload", "test",
                                                "--profile-dir", str(root), "--execute"])
-            with patch.object(runner, "ROOT", root), self.assertRaisesRegex(ValueError, "cold setup disables"):
+            with patch.object(runner, "ROOT", root), self.assertRaisesRegex(ValueError, "matching coordinator profiles"):
                 runner.validate(args)
+            (root / "node.json").write_text('{}')
+            coordinator = root / "coordinator"
+            key = coordinator / "key"
+            key.mkdir(parents=True)
+            (key / "cold_resource_profile.json").write_text('{"cold": true}')
+            (key / "resource_profile.json").write_text('{"warm": true}')
+            (key / "pk.key").write_text('must not be copied')
+            args.coordinator_profile_dir = coordinator
+            with patch.object(runner, "ROOT", root):
+                runner.validate(args)
+            out = root / "trial"
+            runner.copy_profile_snapshots(args, out)
+            copied = list((out / "coordinator-profiles/key").iterdir())
+            self.assertEqual([p.name for p in copied], ["cold_resource_profile.json"])
+            self.assertEqual(json.loads(copied[0].read_text()), {"cold": True})
+            overrides = runner.build_plan(args)["runtime_overrides"]
+            self.assertFalse(overrides["storage.reusable_setup.enabled"])
+            self.assertTrue(overrides["storage.resource_profiles.enabled"])
+
+    def test_warm_profile_selection_does_not_select_cold(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "key").mkdir()
+            for filename in ("resource_profile.json", "cold_resource_profile.json"):
+                (root / "key" / filename).write_text('{}')
+            args = runner.parser().parse_args(["--baseline", "stage", "--setup", "warm",
+                                               "--coordinator-profile-dir", str(root)])
+            self.assertEqual([p.name for p in runner.coordinator_profile_files(args)], ["resource_profile.json"])
 
 
 if __name__ == "__main__":

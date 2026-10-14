@@ -155,6 +155,31 @@ storage:
 
 `request_data` contains request-owned inputs, proofs, witnesses, and manifests.
 
+Resource history is controlled independently of circuit/key reuse:
+
+```yaml
+storage:
+  reusable_setup:
+    enabled: false
+  resource_profiles:
+    enabled: true
+    path: storage/profiles  # null keeps profiles under reusable_setup.path
+```
+
+This configuration regenerates setup for every job while using earlier resource
+measurements for scheduling. Successful cold jobs also update their history.
+Profiles use the storage backend/bucket configured for the runtime. The layout is
+`<profile root>/<setup key>/cold_resource_profile.json` when setup reuse is disabled
+and `<profile root>/<setup key>/resource_profile.json` when it is enabled. The latter
+preserves the existing reuse-enabled path. No fallback loads a warm profile into
+a forced-cold job. Reuse-enabled history may include initial cache misses; prepare
+and snapshot warm-only measurements for controlled warm evaluation.
+
+`resource_profiles.enabled: false` disables coordinator history loading/persistence
+without disabling circuit/key reuse. Node-local stage history remains separately
+managed under `node.runtime_state_dir`; use matching snapshots in experiments.
+Changing `resource_profiles.path` does not copy existing history automatically.
+
 `local_cache` contains node-local materialized copies used to avoid repeated transfer or decompression. It is distinct from shared reusable setup storage.
 
 The lower-level runtime configuration also supports `filesystem` and `s3` backends. For S3, the configured paths are interpreted as prefixes beneath `storage.s3_prefix`.
