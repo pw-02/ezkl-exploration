@@ -182,7 +182,19 @@ class StageResourceHistory:
                 "source": "historical",
             }
 
-        if stage == "FUSED_KEYGEN_PROVE":
+        if stage == "WHOLE_JOB":
+            parts = [estimate_one(name) for name in stages]
+            parts = [item for item in parts if item is not None]
+            if parts:
+                return {
+                    "memory_gb": max(
+                        float(fallback_memory_gb or 0.0),
+                        max(item["memory_gb"] for item in parts),
+                    ),
+                    "samples": min(item["samples"] for item in parts),
+                    "source": "historical_whole_job",
+                }
+        elif stage == "FUSED_KEYGEN_PROVE":
             parts = [estimate_one("KEY_GEN"), estimate_one("PROVING")]
             if all(item is not None for item in parts):
                 return {
@@ -287,10 +299,14 @@ class StageAdmissionController:
         estimate = self.profiles.estimate(
             setup_key=self.setup_key,
             stage=stage,
-            fallback_memory_gb=fallback_memory,
+            fallback_memory_gb=(
+                self.fallback_memory_gb if stage == "WHOLE_JOB" else fallback_memory
+            ),
             history_percentile=self.history_percentile,
         )
         estimate["memory_gb"] = max(0.0, float(estimate.get("memory_gb") or 0.0))
+        if stage == "WHOLE_JOB" and not estimate["memory_gb"]:
+            estimate["memory_gb"] = fallback_memory
         return estimate
 
     def acquire(self, stage: str) -> Dict[str, Any]:
@@ -406,8 +422,9 @@ class StageAdmissionController:
     def hold_job(self) -> Iterator[Dict[str, Any]]:
         """Hold one peak reservation across the entire prover task in baseline mode.
 
-        WHOLE_JOB uses the coordinator's peak estimate as its fallback; with no
-        estimate, the existing conservative available-memory fallback applies.
+        WHOLE_JOB uses the maximum historical stage estimate, retaining a larger
+        coordinator peak when available. With neither source, the conservative
+        available-memory fallback applies.
         Nested stage holds must neither resize nor release this reservation.
         """
         if self.mode != "whole_job" or not self.enabled:

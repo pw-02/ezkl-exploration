@@ -76,6 +76,9 @@ Both modes require `enabled: true`. Whole-job mode reserves the coordinator's
 predicted job peak before the prover pipeline starts and retains it through
 preparation, proving, and output publication, releasing it on success or error.
 Stage callbacks still record timings but cannot resize or release that reservation.
+If node-local stage history exists, whole-job mode uses the maximum estimated
+stage peak, retaining a larger coordinator-provided job estimate when available.
+This lets both admission modes start from the same precollected node profiles.
 Artifact materialization in the supervisor precedes this prover reservation.
 Without a positive job estimate, the existing conservative available-memory
 fallback applies; collect matching cold/warm profiles before comparison runs.
