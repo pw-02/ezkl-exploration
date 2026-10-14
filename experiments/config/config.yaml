@@ -36,6 +36,7 @@ node:
   resource_sampling_interval_sec: 0.25
 
   stage_admission:
+    mode: stage # stage | whole_job; enabled controls both modes
     # false is appropriate for isolated Section 3 characterization runs.
     # Memory is the admission resource. The fixed reserve is independent of
     # historical predictions.
