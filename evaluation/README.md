@@ -6,6 +6,8 @@ it prints plans unless `--execute` is specified. It shares one setup-only bootst
 between conditions and collects one isolated warm profile per job by default.
 The exhaustive checklist is preserved in [run_full.sh](run_full.sh), with its own
 [full evaluation walkthrough](README_full.md).
+For AWS scaling from PowerShell or WSL, use the [AWS deployment guide](aws/README.md)
+and [controller](aws/control.py), with your AMI and S3 settings in [aws/config.json](aws/config.json).
 [run_cluster.sh](run_cluster.sh) lists scale-out
 trials and requires explicit physical-deployment hooks before execution.
 
