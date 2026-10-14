@@ -37,6 +37,8 @@ def parser():
     p.add_argument("--setup", choices=["cold", "warm"], default="cold")
     p.add_argument("--setup-dir", type=Path)
     p.add_argument("--profile-dir", type=Path)
+    p.add_argument("--coordinator-profile-dir", type=Path,
+                   help="snapshot root containing <setup_key>/{cold_,}resource_profile.json")
     p.add_argument("--allow-unprofiled", action="store_true", help="smoke tests only; log this choice")
     p.add_argument("--reserve-gib", type=float, default=8)
     p.add_argument("--cache-gib", type=float, default=500, help="use identical capacity in all arms")
@@ -69,6 +71,8 @@ def build_plan(args):
         "storage.request_data.path": str(output / "request-data"),
         "storage.reusable_setup.path": str(setup),
         "storage.reusable_setup.enabled": args.setup == "warm",
+        "storage.resource_profiles.enabled": True,
+        "storage.resource_profiles.path": str(output / "coordinator-profiles"),
         "verification.enabled": args.verify,
     }
     node = {
@@ -102,6 +106,27 @@ def build_plan(args):
             "commands": {"coordinator": coordinator, "node": worker, "traffic": traffic}}
 
 
+def coordinator_profile_files(args):
+    source = args.coordinator_profile_dir or args.setup_dir
+    if source is None:
+        return []
+    filename = "cold_resource_profile.json" if args.setup == "cold" else "resource_profile.json"
+    # Exactly one setup-key level; do not silently import profiles from other trials.
+    return sorted(source.glob(f"*/{filename}"))
+
+
+def copy_profile_snapshots(args, output):
+    if args.profile_dir:
+        destination = output / "node-state/resource_profiles"
+        destination.mkdir(parents=True)
+        for source in args.profile_dir.glob("*.json"):
+            shutil.copy2(source, destination / source.name)
+    for source in coordinator_profile_files(args):
+        destination = output / "coordinator-profiles" / source.parent.name / source.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+
 def validate(args):
     if args.requests < 1 or args.submit_workers < 1 or args.timeout <= 0:
         raise ValueError("requests, submit-workers and timeout must be positive")
@@ -128,10 +153,10 @@ def validate(args):
             raise ValueError("warm runs require --setup-dir with pre-generated matching artifacts")
         if BASELINES[args.baseline]["admission"] and args.profile_dir is None and not args.allow_unprofiled:
             raise ValueError("admission experiments require --profile-dir (or --allow-unprofiled for a smoke test)")
-        if BASELINES[args.baseline]["admission"] and args.setup == "cold" and not args.allow_unprofiled:
-            raise ValueError("cold setup disables coordinator profile loading in the current runtime; use warm for controlled comparisons, or --allow-unprofiled for an explicitly unprofiled smoke test")
-        if args.setup == "warm" and not args.allow_unprofiled and not list(args.setup_dir.rglob("resource_profile.json")):
-            raise ValueError("warm comparisons require coordinator resource_profile.json files in the setup snapshot as well as node profiles")
+        if (BASELINES[args.baseline]["admission"] or args.setup == "warm") and not args.allow_unprofiled and not coordinator_profile_files(args):
+            raise ValueError("profiled comparisons require matching coordinator profiles via --coordinator-profile-dir (or --setup-dir), in addition to node --profile-dir")
+        if args.coordinator_profile_dir is not None and not coordinator_profile_files(args):
+            raise ValueError("coordinator-profile-dir contains no profiles for the selected setup condition")
         if args.profile_dir is not None and not list(args.profile_dir.glob("*.json")):
             raise ValueError("profile-dir must contain resource profile JSON files")
 
@@ -159,11 +184,7 @@ def execute(args, plan):
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", args.port))
     output.mkdir(parents=True, exist_ok=False)
-    if args.profile_dir:
-        destination = output / "node-state/resource_profiles"
-        destination.mkdir(parents=True)
-        for source in args.profile_dir.glob("*.json"):
-            shutil.copy2(source, destination / source.name)
+    copy_profile_snapshots(args, output)
     revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True,
                               capture_output=True, check=False)
     plan.update(arguments=vars(args), git_sha=revision.stdout.strip(),
