@@ -80,6 +80,11 @@ storage:
     # Request-owned inputs, proofs, witnesses, and manifests.
     path: storage/requests
 
+  resource_profiles:
+    # Independent of compiled-circuit / key reuse. Null keeps profiles alongside setup.
+    enabled: true
+    path: null
+
   s3_bucket: null
   s3_prefix: zkinfer
 
