@@ -10,9 +10,9 @@ Predeclare the sweep and keep small/negative gains.
 
 Set --reserve-gib to measured host total minus desired budget; see 00_setup.
 This is an accounting-budget experiment, not an OS memory-limit experiment.
-Use warm setup for the runnable controlled comparison (add --setup warm and
---setup-dir). Profiled cold comparison is planned but requires the profile-loading
-decoupling described in 00_setup; the runner rejects it by default.
+Both cold and warm comparisons are supported. For cold, add
+--coordinator-profile-dir with matching cold profiles to the commands below.
+For warm, add --setup warm --setup-dir and matching node/coordinator snapshots.
 
 ```bash
 python evaluation/run.py --baseline whole-job --workload mnist_gan --requests 8 --reserve-gib 499 --profile-dir /absolute/profiles/resource_profiles
