@@ -4,7 +4,8 @@
 [run_all.sh](run_all.sh) is the targeted, resumable one-day first-pass checklist;
 it prints plans unless `--execute` is specified. It shares one setup-only bootstrap
 between conditions and collects one isolated warm profile per job by default.
-The exhaustive checklist is preserved in [run_full.sh](run_full.sh).
+The exhaustive checklist is preserved in [run_full.sh](run_full.sh), with its own
+[full evaluation walkthrough](README_full.md).
 [run_cluster.sh](run_cluster.sh) lists scale-out
 trials and requires explicit physical-deployment hooks before execution.
 

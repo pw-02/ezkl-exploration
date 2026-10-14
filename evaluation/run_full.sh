@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Editable experiment checklist. Comment out any prep/cell line below.
-# Default is PLAN ONLY. See evaluation/setup.md before --execute.
+# Default is PLAN ONLY. See evaluation/README_full.md before --execute.
 set -Eeuo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 PYTHON="${PYTHON:-python}"
@@ -15,7 +15,7 @@ PORT="${PORT:-50051}"
 DISCARD_COPIES="${DISCARD_COPIES:-1}"
 MODE="${1:---plan}"
 if [[ "$MODE" != --plan && "$MODE" != --execute ]]; then
-  echo "Usage: SECTION=profiles|serving|memory|scheduling|arrival|granularity|decomposition|all bash evaluation/run_all.sh [--plan|--execute]" >&2
+  echo "Usage: SECTION=profiles|serving|memory|scheduling|arrival|granularity|decomposition|all bash evaluation/run_full.sh [--plan|--execute]" >&2
   exit 2
 fi
 if [[ "$MODE" == --execute ]]; then
