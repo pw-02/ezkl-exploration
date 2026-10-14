@@ -14,8 +14,10 @@ not a fixed admission requirement. Do not infer thread allocation from CPU perce
    inputs/settings/setup conditions. Never train on future measured executions.
 2. Snapshot the resource_profiles directory. Give each policy/trial the same initial
    snapshot; record online profile updates. Do not let one baseline train the next.
-   Also snapshot the coordinator's resource_profile.json files stored alongside
-   reusable artifacts. Node profiles alone do not populate coordinator job estimates.
+   Also snapshot coordinator profiles: <setup_key>/cold_resource_profile.json for
+   forced-cold execution, <setup_key>/resource_profile.json for reuse-enabled
+   execution. Profiles can live independently of artifacts. Node profiles alone
+   do not populate coordinator job estimates.
 3. Cold runs use no reusable artifacts. Warm runs have matching setup already
    prepared. Specify whether copies reside locally on every worker or in shared
    storage. Artifact warmth does not mean OS page-cache warmth.
@@ -55,10 +57,10 @@ Use identical reserves across fixed, whole-job and stage variants.
 
 ## Before trusting a run
 
-Controlled cold admission runs are currently blocked: disabling reusable setup
-also prevents RequestBuilder from reading coordinator profiles. The runner will
-require --allow-unprofiled for such smoke runs. Separating profile availability
-from artifact availability is a prerequisite to claiming a profiled cold comparison.
+For controlled cold runs, supply both --profile-dir (node history) and
+--coordinator-profile-dir (matching cold history). The runtime reads those
+estimates with reusable setup disabled, while workers still regenerate setup.
+The runner copies only condition-matched coordinator profile files, not artifacts.
 
 Check config, stage boundaries, setup hits, profile source, job count, verification
 success, expected node count, nonzero admission waits where applicable, reservation
