@@ -2,6 +2,10 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import io
+import zipfile
+import subprocess
+import sys
 import unittest
 from unittest.mock import Mock, patch
 
@@ -31,6 +35,50 @@ class Tests(unittest.TestCase):
     def test_campaign_path_traversal_rejected(self):
         self.c['campaign']='../../old-results'
         with self.assertRaises(ValueError): control.validate(self.c)
+
+    def test_launcher_repair_rejects_runtime_changes(self):
+        def bundle(files):
+            b=io.BytesIO()
+            with zipfile.ZipFile(b,'w') as z:
+                for name,value in files.items(): z.writestr(name,value)
+            return b.getvalue()
+        old=bundle({'evaluation/aws/coordinator.py':'old','zkinfer/runtime/coordinator.py':'same'})
+        new=bundle({'evaluation/aws/coordinator.py':'fixed','zkinfer/runtime/coordinator.py':'same'})
+        self.assertEqual(control.launcher_only_changes(old,new),['evaluation/aws/coordinator.py'])
+        bad=bundle({'evaluation/aws/coordinator.py':'fixed','zkinfer/runtime/coordinator.py':'changed'})
+        with self.assertRaises(ValueError): control.launcher_only_changes(old,bad)
+
+    def test_failed_coordinator_reports_log_before_workers_start(self):
+        with tempfile.TemporaryDirectory() as d:
+            log=Path(d)/'coordinator.log';log.write_text('Primary config module not found')
+            with patch.object(remote.subprocess,'run',return_value=Mock(stdout='failed\n')), patch.object(remote.socket,'create_connection') as connect:
+                with self.assertRaisesRegex(RuntimeError,'Primary config module'):
+                    remote.wait_for_coordinator('unit',50051,log)
+                connect.assert_not_called()
+
+    def test_wrapper_composes_directory_config_with_real_hydra(self):
+        try: import hydra
+        except ImportError: self.skipTest('hydra-core required for config regression test')
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); wrapper=root/'evaluation/aws/coordinator.py';wrapper.parent.mkdir(parents=True)
+            wrapper.write_text((HERE/'coordinator.py').read_text())
+            config=root/'zkinfer/config';config.mkdir(parents=True)
+            (config/'config.yaml').write_text('coordinator:\n  host: localhost\n  port: 50051\n')
+            # Stub only the expensive server imports. Hydra itself composes a
+            # real config directory without __init__.py and handles CLI overrides.
+            code='''import sys,types,runpy
+m=types.ModuleType('zkinfer.runtime.coordinator')
+m.Coordinator=type('Coordinator',(),{'_record_node_locked':lambda *a:None})
+sys.modules[m.__name__]=m
+g=types.ModuleType('zkinfer.runtime.coordinator_grpc')
+g.serve=types.SimpleNamespace(__wrapped__=lambda cfg: print('BOUND',cfg.coordinator.host,cfg.coordinator.port))
+sys.modules[g.__name__]=g
+sys.argv=[sys.argv[1],'coordinator.host=0.0.0.0','coordinator.port=50123']
+runpy.run_path(sys.argv[0],run_name='__main__')
+'''
+            r=subprocess.run([sys.executable,'-c',code,str(wrapper)],cwd=root,text=True,capture_output=True)
+            self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+            self.assertIn('BOUND 0.0.0.0 50123',r.stdout)
 
     def test_trial_order_rotates(self):
         self.c['trials']=2

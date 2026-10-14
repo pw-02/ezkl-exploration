@@ -192,6 +192,29 @@ volumes and AMIs separately only when you no longer need them.
 
 ## Troubleshooting before spending time on proofs
 
+### Repair the initial Hydra coordinator startup error
+
+If `coordinator.log` says `Primary config module 'zkinfer.config' not found`,
+the original evaluation wrapper failed before serving requests. Stop the old
+controller if it is still running, then on the controller host run:
+
+```bash
+git pull --ff-only
+conda activate zk
+python evaluation/aws/control.py recover --execute
+python evaluation/aws/control.py repair-launcher --execute
+python evaluation/aws/control.py run --execute
+```
+
+`repair-launcher` preserves setup and profiles. It requires unchanged campaign
+settings, no completed measured cells, and changes restricted to the AWS launcher
+files. It verifies the old source bundle and records the migration in S3 before
+updating the frozen source hash. It does not bypass the normal guard for changed
+runtime code, workload inputs or experiment settings. The next run installs the
+fixed launcher on the existing campaign instances; no new AMI is needed.
+The coordinator now loads an absolute configuration directory and its service
+must listen successfully before workers are started.
+
 - **SSM not Online:** inspect `/var/log/cloud-init-output.log`; check
   `sudo snap services amazon-ssm-agent` or `sudo systemctl status amazon-ssm-agent`.
   Check the attached IAM instance profile and outbound HTTPS routing.

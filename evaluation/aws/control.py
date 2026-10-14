@@ -68,6 +68,19 @@ def source_bundle():
     return data,hashlib.sha256(data).hexdigest()
 
 
+def launcher_only_changes(old, new):
+    def contents(data):
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            return {n:z.read(n) for n in z.namelist()}
+    before,after=contents(old),contents(new)
+    changed={n for n in before.keys()|after.keys() if before.get(n)!=after.get(n)}
+    allowed={'evaluation/aws/control.py','evaluation/aws/coordinator.py',
+             'evaluation/aws/remote.py','evaluation/aws/test_control.py','evaluation/aws/README.md'}
+    if changed-allowed:
+        raise ValueError('Repair would change experiment/runtime inputs: '+str(sorted(changed-allowed)))
+    return sorted(changed)
+
+
 def shell_command(c, code):
     """Select the existing Conda installation; never invoke interactive conda activate."""
     candidates = [c['conda_executable']] if c['conda_executable'] else [
@@ -303,6 +316,31 @@ class Controller:
         path.unlink(); cmdpath.unlink(missing_ok=True)
         print('Interrupted attempt retained; next run uses a fresh attempt. Instances remain running.')
 
+    def repair_launcher(self):
+        # A narrow migration for the initial Hydra startup failure. No completed
+        # results or runtime/profile changes may be carried across this repair.
+        if (self.local/'active.json').exists():
+            raise RuntimeError('Run recover --execute first')
+        key=self.prefix+'/campaign.json'
+        old=json.loads(self.s3.get_object(Bucket=self.c['bucket'],Key=key)['Body'].read())
+        config=dict(self.c)
+        if not config['subnet_id']: config['subnet_id']=old['config']['subnet_id']
+        if config!=old['config']: raise ValueError('Configuration differs; launcher repair cannot change settings')
+        if self.s3.list_objects_v2(Bucket=self.c['bucket'],Prefix=self.prefix+'/completed/',MaxKeys=1).get('KeyCount',0):
+            raise ValueError('Campaign has completed cells; use a new campaign instead')
+        data,digest=source_bundle()
+        old_data=self.s3.get_object(Bucket=self.c['bucket'],Key=self.prefix+'/source/'+old['source_sha256']+'.zip')['Body'].read()
+        if hashlib.sha256(old_data).hexdigest()!=old['source_sha256']:
+            raise ValueError('Stored source bundle hash mismatch')
+        changed=launcher_only_changes(old_data,data)
+        self.s3.put_object(Bucket=self.c['bucket'],Key=self.prefix+'/source/'+digest+'.zip',Body=data)
+        record={'previous':old,'changed_files':changed,'new_source_sha256':digest}
+        self.s3.put_object(Bucket=self.c['bucket'],Key=self.prefix+'/repairs/'+uuid.uuid4().hex+'.json',Body=json.dumps(record).encode())
+        updated={'config':config,'source_sha256':digest}
+        self.s3.put_object(Bucket=self.c['bucket'],Key=key,Body=json.dumps(updated).encode())
+        write(self.local/'campaign.json',updated)
+        print('Launcher repaired; retained existing AWS profiles and setup. Run run --execute next.')
+
     def stop(self):
         ids=[i['InstanceId'] for i in self.instances() if i['State']['Name'] in {'pending','running'}]
         if ids: self.ec2.stop_instances(InstanceIds=ids)
@@ -311,7 +349,7 @@ class Controller:
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action',choices=['init','launch','run','status','recover','stop'])
+    p.add_argument('action',choices=['init','launch','run','status','recover','repair-launcher','stop'])
     p.add_argument('--config',type=Path,default=HERE/'config.json')
     p.add_argument('--profile',help='AWS CLI profile name; omit for default credential chain')
     p.add_argument('--nodes',type=int,default=1)
@@ -331,6 +369,7 @@ def main():
     elif a.action=='status': print(json.dumps(controller.instances(),default=str,indent=2))
     elif a.action=='stop': controller.stop()
     elif a.action=='recover': controller.recover()
+    elif a.action=='repair-launcher': controller.repair_launcher()
     else: controller.run()
 
 
