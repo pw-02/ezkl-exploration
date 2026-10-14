@@ -111,6 +111,22 @@ class WholeJobAdmissionTests(unittest.TestCase):
             with self.controller(fallback_memory_gb=65).hold_job():
                 pass
 
+    def test_whole_job_uses_node_history_without_coordinator_estimate(self):
+        controller = self.controller(fallback_memory_gb=0)
+        controller.profiles.update_from_metrics("job", {
+            "stage_preparation_max_memory(GB)": 1,
+            "stage_proving_max_memory(GB)": 40,
+        })
+        with controller.hold_job() as info:
+            self.assertEqual(info["memory_gb"], 40)
+            self.assertEqual(info["source"], "historical_whole_job")
+
+    def test_whole_job_keeps_larger_coordinator_estimate(self):
+        controller = self.controller(fallback_memory_gb=45)
+        controller.profiles.update_from_metrics("job", {"stage_proving_max_memory(GB)": 40})
+        with controller.hold_job() as info:
+            self.assertEqual(info["memory_gb"], 45)
+
     def test_competing_process_waits_until_job_finishes(self):
         ctx = multiprocessing.get_context("fork")
         attempted, entered, release = (ctx.Event() for _ in range(3))
