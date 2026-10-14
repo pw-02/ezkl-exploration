@@ -65,10 +65,13 @@ class RequestBuilder:
                 model_write_time = time.perf_counter() - started
                 total_model_store_time += model_write_time
 
-            resource_profile_path = (
-                os.path.join(setup_ref.uri, "resource_profile.json")
-                if setup_store.enabled and not transfer_only else None
-            )
+            # Scheduling history is reusable even when circuit/PK/VK reuse is off.
+            # Keep forced-cold observations separate from reuse-enabled history.
+            resource_profile_path = None
+            if setup_store.resource_profiles_enabled and not transfer_only:
+                profile_root = setup_store.resource_profiles_root_dir or setup_store.root_dir
+                filename = "resource_profile.json" if setup_store.enabled else "cold_resource_profile.json"
+                resource_profile_path = os.path.join(profile_root, setup_key, filename)
             profiling_data = (
                 self._load_resource_profile(partition.name, resource_profile_path, setup_store)
                 if resource_profile_path else {}
