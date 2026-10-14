@@ -56,6 +56,8 @@ class SetupStoreConfig:
     root_dir: str
     s3_bucket: Optional[str]
     s3_prefix: str
+    resource_profiles_enabled: bool = True
+    resource_profiles_root_dir: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -134,12 +136,17 @@ def _resolve_setup_store_config(cfg: DictConfig) -> SetupStoreConfig:
     reusable_setup = cfg.storage.reusable_setup
     enabled = bool(reusable_setup.get("enabled", False))
     setup_path = str(reusable_setup.get("path", "storage/setup"))
+    profiles = cfg.storage.get("resource_profiles", {})
+    profiles_enabled = bool(profiles.get("enabled", True))
+    profiles_path = str(profiles.get("path") or setup_path)
 
     if backend == "filesystem":
         return SetupStoreConfig(
             enabled=enabled,
             backend="filesystem",
             root_dir=str(_resolve_path(setup_path)),
+            resource_profiles_enabled=profiles_enabled,
+            resource_profiles_root_dir=str(_resolve_path(profiles_path)),
             s3_bucket=None,
             s3_prefix="",
         )
@@ -151,6 +158,10 @@ def _resolve_setup_store_config(cfg: DictConfig) -> SetupStoreConfig:
             enabled=enabled,
             backend="s3",
             root_dir=full_prefix,
+            resource_profiles_enabled=profiles_enabled,
+            resource_profiles_root_dir="/".join(
+                part for part in (base_prefix, profiles_path.strip("/")) if part
+            ),
             s3_bucket=cfg.storage.s3_bucket,
             s3_prefix=full_prefix,
         )
@@ -229,6 +240,20 @@ def build_runtime_config(cfg: DictConfig, process_role: Optional[str] = None) ->
 
     request_store = _resolve_request_store_config(cfg)
     setup_store = _resolve_setup_store_config(cfg)
+    profiles_root = setup_store.resource_profiles_root_dir
+    if setup_store.resource_profiles_enabled and profiles_root:
+        if request_store.backend == "filesystem":
+            request_path = Path(request_store.root_dir).resolve()
+            profile_path = Path(profiles_root).resolve()
+            overlaps = (request_path == profile_path or request_path in profile_path.parents
+                        or profile_path in request_path.parents)
+        else:
+            request_path = request_store.root_dir.rstrip("/")
+            profile_path = profiles_root.rstrip("/")
+            overlaps = (request_path == profile_path or request_path.startswith(profile_path + "/")
+                        or profile_path.startswith(request_path + "/"))
+        if overlaps:
+            raise ValueError("Resource profiles and request-data roots must be separate")
     if request_store.backend == "filesystem":
         request_root = Path(request_store.root_dir).resolve()
         setup_root = Path(setup_store.root_dir).resolve()
