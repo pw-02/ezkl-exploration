@@ -12,13 +12,12 @@ Cold: reusable setup disabled. Warm: matching reusable artifacts exist locally
 before timing. Keep SRS availability the same. Local reuse means loading local
 files, not retaining native proving objects in memory.
 
-The profiled stage-cold command below is a planned cell, currently rejected by the
-runner: coordinator profile loading must first be decoupled from artifact reuse.
-For an immediately runnable isolated reuse comparison, use partitioned-sequential
-for both cold and warm. Do not relabel an unprofiled cold run as an admission ablation.
+Supply matching coordinator and node profiles for each condition. Loading cold
+profiles does not enable artifact reuse. The runner isolates profile copies per
+trial. For an isolated reuse diagnostic, use partitioned-sequential for both arms.
 
 ```bash
-python evaluation/run.py --baseline stage --workload mnist_gan --setup cold --profile-dir /absolute/cold/resource_profiles
+python evaluation/run.py --baseline stage --workload mnist_gan --setup cold --profile-dir /absolute/cold/resource_profiles --coordinator-profile-dir /absolute/cold-coordinator
 python evaluation/run.py --baseline stage --workload mnist_gan --setup warm --setup-dir /absolute/trial/setup --profile-dir /absolute/warm/resource_profiles
 ```
 
