@@ -1,9 +1,11 @@
 # zkInfer evaluation
 
 **Start here:** [step-by-step setup and exact commands](setup.md).
-[run_all.sh](run_all.sh) is the editable, resumable local experiment checklist;
-it prints plans unless `--execute` is specified. It collects isolated cold/warm
-profiles before measurements. [run_cluster.sh](run_cluster.sh) lists scale-out
+[run_all.sh](run_all.sh) is the targeted, resumable one-day first-pass checklist;
+it prints plans unless `--execute` is specified. It shares one setup-only bootstrap
+between conditions and collects one isolated warm profile per job by default.
+The exhaustive checklist is preserved in [run_full.sh](run_full.sh).
+[run_cluster.sh](run_cluster.sh) lists scale-out
 trials and requires explicit physical-deployment hooks before execution.
 
 This directory is the experiment protocol, not a collection of measured results.

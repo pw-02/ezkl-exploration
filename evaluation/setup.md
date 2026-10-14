@@ -1,269 +1,216 @@
-# Run the evaluation step by step
+# Targeted evaluation: setup once, profile once, then measure
 
-**Yes: collect profiles before running the admission comparisons.** This file
-is the executable walkthrough; [00_setup/README.md](00_setup/README.md) explains
-the measurement protocol. You do not execute Markdown. Execute `run_all.sh`.
+The default `run_all.sh` is now a **targeted first pass**, not the exhaustive
+campaign. The old large list is retained as `run_full.sh`.
 
-`run_all.sh` contains a long, explicit list of preparation and experiment calls.
-Comment out any line you do not want. It defaults to printing a plan. Adding
-`--execute` launches real proofs and can take days for the full matrix.
+## What changed
 
-## 1. Use the evaluation server and your working backend environment
+- One **shared setup-only bootstrap per model/partitioning**: calibration, circuit
+  compilation, SRS preparation and key generation. No witness or proof generation.
+- Bootstrap runs in separate per-partition processes and retains its artifacts.
+  Completed partition setup is checkpointed, so an interrupted bootstrap can resume.
+- **One full profiling request per selected setup condition** by default
+  (`PROFILE_REPEATS=1`). A request covers every partition, not one selected job.
+- No cold primer and no second warm bootstrap. Cold and warm profiling share the
+  bootstrap artifacts/SRS; cold execution deliberately regenerates its own setup.
+- Default measured runs: **warm setup**, N=1 and N=4, fixed-8/whole-job/stage,
+  one trial, for MNIST GAN, NanoGPT (4L), then MobileNetV2.
+- Cold comparisons, memory sensitivity, fixed-k sweeps and repetitions are
+  commented optional lines. Poisson/mixed/granularity sweeps are in run_full.sh.
 
-Run from your existing checkout on the dual-EPYC server, not this chat sandbox.
-Use the virtual environment/custom EZKL wheel that already proves your models.
-Do not replace that wheel with a generic pip release just to run this checklist.
+This gives 18 measured cells plus three setup-only bootstraps and three isolated
+warm profiling requests. It is a priority list, not a promise that all work fits
+within one day. Actual proof time depends on the backend and thread settings.
+The script has a 23-hour execution budget per invocation by default; a cutoff
+can interrupt the active cell, which is retained as an incomplete attempt.
+
+## 1. Update and use a fresh campaign directory
+
+Stop the old script with Ctrl-C and wait for its child processes to finish before
+pulling changes. Do not run both campaigns concurrently on the experimental host.
+Keep old outputs; this update does not delete or relabel the old cold-primer runs.
+
+From your repository root, in the environment with your working custom EZKL wheel:
 
 ```bash
 git switch sacdad27
 git pull --ff-only
 tmux new -s zkinfer-eval
-# Activate your existing zkInfer virtual environment here.
+# Activate your existing environment if needed.
 export PYTHON=python
-export EVAL_ROOT="$PWD/evaluation/results/paper-v1"
+export EVAL_ROOT="$PWD/evaluation/results/paper-day-v2"
+export PROFILE_REPEATS=1
 ```
 
-Choose and fix the actual thread settings you want to evaluate. For example,
-the following chooses eight Rayon threads per prover (a protocol choice, not a
-claim that eight is optimal). Keep the settings identical for profiles and runs:
+The explicit export matters if your shell still has PROFILE_REPEATS=5 from the
+old instructions. Use the SAME thread configuration you intend to evaluate for
+setup/profiling/measurement. The script still requires RAYON_NUM_THREADS explicitly;
+eight below is an example choice, not an optimum:
 
 ```bash
 export RAYON_NUM_THREADS=8
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
-export PROFILE_REPEATS=5
-export CACHE_GIB=500
-export SAMPLING=0.1
-export TIMEOUT=172800
 ```
 
-Record your custom EZKL wheel/commit separately. `preflight.py` records Python,
-package versions, model/input hashes, CPU/RAM and thread environment. It rejects
-reuse of a campaign directory after those recorded properties change. The
-campaign also checks runtime/config source hashes. Changing the Bash checklist
-to comment out lines is fine; changing backend, inputs, thread settings, proving
-configuration or runtime source calls for a new campaign root and new profiles.
+If you already chose different settings, keep those instead. Do not change them
+between profiles and measured runs. Preflight records versions, CPU/RAM,
+model/input hashes and these environment variables; record custom wheel identity
+separately. Source/config hashes also protect against mixing incompatible runs.
 
-## 2. Preview the checklist; start with one workload
+## 2. Preview, then run
 
 ```bash
-SECTION=profiles ONLY='mnist_gan-g1-*' bash evaluation/run_all.sh --plan
-SECTION=serving ONLY='burst-mnist_gan-warm-*-n1-r1' bash evaluation/run_all.sh --plan
-```
-
-No proofs or output directories are created in plan mode. The local script is
-for Linux/GNU Bash and GNU `cp` (uses copy-on-write when available). Plans assume
-755 GiB target RAM (`PLAN_HOST_GIB` overrides this); execution detects actual RAM.
-
-## 3. Collect MNIST profiles and setup artifacts
-
-```bash
-SECTION=profiles ONLY='mnist_gan-g1-*' bash evaluation/run_all.sh --execute
-```
-
-For each setup condition this runs **one request at a time, with one active proof
-job per node**, admission disabled, and nearly full host memory (8 GiB reserved):
-
-1. **Cold:** run an unmeasured primer to fetch required SRS/initialize the backend;
-   discard its histories. Then run five independent requests, forcing setup
-   regeneration each time and accumulating only their resource observations.
-2. **Warm:** first run an unmeasured bootstrap that generates reusable artifacts.
-   Discard both of its histories, since it is a cache-miss execution. Then run five
-   independent requests that reuse the artifacts. Their fresh node caches load
-   artifacts from local files. Require proving-key cache-hit metrics for every job.
-3. Save independent coordinator and node history snapshots. Five requests cover
-   every proof job in the model, not just the three selected repeatability jobs.
-   These profiling requests are excluded from serving results.
-
-Both histories matter: the coordinator uses job-level estimates for placement;
-the node uses stage estimates for admission. A node snapshot alone is insufficient.
-Warm/cold describe artifact availability, not OS page-cache state. These scripts
-do not flush OS caches. Preparation uses the workload's configured input fixture;
-it is not the separate varying-input repeatability microbenchmark.
-
-Files are under:
-
-```text
-paper-v1/profiles/mnist_gan-g1-cold/DONE.json
-paper-v1/profiles/mnist_gan-g1-cold/attempt-001/snapshot/node/
-paper-v1/profiles/mnist_gan-g1-cold/attempt-001/snapshot/coordinator/
-paper-v1/profiles/mnist_gan-g1-warm/attempt-001/snapshot/
-paper-v1/profiles/mnist_gan-g1-warm/attempt-001/setup/
-```
-
-`DONE.json` identifies the successful attempt. Do not rename warm histories to
-cold or use bootstrap histories as warm observations. Preparation fails if any
-request fails, if reports/profiles are absent, or if warm key reuse is not observed.
-Inspect actual stage boundaries in those reports; preparation does not split a
-backend call into independently controllable stages.
-
-## 4. Run the first real comparison and inspect it
-
-```bash
-SECTION=serving ONLY='burst-mnist_gan-warm-*-n1-r1' bash evaluation/run_all.sh --execute
-```
-
-This runs fixed-8, whole-job and stage admission, one request each, with a
-256 GiB accounting budget. The script calculates reserve = host RAM - budget;
-do not hardcode 755 minus budget if the host reports a different total.
-Every run enables runtime proof verification and keeps its cost in the completion
-boundary. It has fresh coordinator/node state and independent initial profiles.
-Warm artifacts are copied into trial-owned storage before timing; job-level local
-cache restoration remains inside the measured pipeline.
-
-Inspect `runs/<ID>/attempt-001/run/`:
-
-- `plan.json`: exact commands, settings, commit and thread environment.
-- `run_status.json` and `traffic/summary.json`: all requested completions, failures,
-  median latency and batch makespan. A success marker requires all requests complete.
-- `traffic/requests.jsonl`: individual timings, status, submission lag and workload.
-- `requests/**/reports/job_report.csv`: setup hits, actual memory, stage sampling,
-  predicted memory and admission waiting. Confirm the expected 12 MNIST jobs.
-- `requests/**/reports/request_report.csv`: request timings and verification time.
-- `coordinator.log`, `node.log`, `traffic.log`: failures and process diagnostics.
-
-Check that the backend actually exposes the stages claimed by the paper. For
-correctness claims, also check the verifier/manifest outputs; verification enabled
-alone does not imply every desired cross-partition semantic check is configured.
-
-## 5. Collect the remaining histories, then run the chosen blocks
-
-```bash
-SECTION=profiles bash evaluation/run_all.sh --execute
-SECTION=serving ONLY='burst-mnist_gan-warm-*' bash evaluation/run_all.sh --execute
-```
-
-Completed MNIST preparation automatically skips. The other models get separate
-snapshots; mixed-workload snapshots combine the three prepared models without
-running a new training workload. After checking the first workload, run:
-
-```bash
-SECTION=serving bash evaluation/run_all.sh --execute
-SECTION=memory bash evaluation/run_all.sh --execute
-SECTION=scheduling bash evaluation/run_all.sh --execute
-SECTION=arrival bash evaluation/run_all.sh --execute
-SECTION=granularity bash evaluation/run_all.sh --execute
-# Optional expensive reruns; preserve OOM results rather than hiding them:
-SECTION=decomposition bash evaluation/run_all.sh --execute
-```
-
-Or run the whole editable checklist from top to bottom:
-
-```bash
+bash evaluation/run_all.sh --plan
 bash evaluation/run_all.sh --execute
 ```
 
-There are hundreds of measured cells in the exhaustive list. It is a checklist,
-not a recommendation to run everything before looking at the first result.
-Use `SECTION`/`ONLY`, or comment out lines. Section names can be comma-separated.
+The script finishes each model's profiling and six measured cells before moving
+to the next model, so useful results arrive early. MobileNetV2 is last because
+earlier measurements were slower, not because of its measured improvement.
+Report all attempted configurations, including failures and time-budget cutoffs.
 
-| Block | Runs | Paper use |
-|---|---|---|
-| profiles | Isolated cold/warm histories for all primary jobs | Preparation only |
-| serving | 1/4/8/16 requests; fixed-8/whole-job/stage; 3 trials; cold/warm; individual and mixed models | Main burst results |
-| memory | 64/128 GiB; N=16; whole-job/stage; cold/warm | Admission mechanism; reuse 256 GiB serving runs |
-| scheduling | FIFO/LPT under stage admission; fixed-1/2/4/16; N=16 warm | Scheduling and fixed-concurrency sensitivity; reuse stage/fixed-8 serving runs |
-| arrival | Independent whole-job pilot; 64 Poisson arrivals at 0.25/0.5/0.75/1/1.25 times pilot rate | Offered-load performance |
-| granularity | Warm profiles for g=2/4/8, then stage N=1/16 | Partition sensitivity; g=1 comes from serving |
-| decomposition | Monolithic profiles, then mono/partitioned-sequential cold/warm N=1 | Optional matched refresh of legacy results |
-
-Reuse results use stage N=1/8 cold/warm serving runs. Ordinary component timing
-uses their reports; no duplicate experiment is necessary. For stochastic traffic,
-each repetition shares seed/model sequence across policies. Baseline order rotates
-between trials rather than always executing the same policy first.
-
-Poisson rates are requests/second, derived from an independent whole-job batch
-pilot, and are identical across policies. This pilot rate is only a reference:
-inspect backlog and arrival-window completions before claiming sustainable capacity.
-The existing summary rate includes the final drain. Long schedules can exceed
-TIMEOUT: raise it for the campaign before starting, or use a new ID/root when
-changing completed-cell settings. Do not silently count unsubmitted requests as
-successful throughput.
-
-## 6. Detach, restart, and skip failures
-
-Detach tmux with **Ctrl-b then d**; reconnect with:
+To start with MNIST only:
 
 ```bash
-tmux attach -t zkinfer-eval
+ONLY='*mnist_gan*' bash evaluation/run_all.sh --execute
 ```
 
-Stop the active local run with Ctrl-C and wait for cleanup. Run the same command
-again: successful task IDs skip, while interrupted/failed tasks get `attempt-002`,
-etc. Existing attempts are never overwritten. Preparation retries the whole
-preparation task rather than adopting partially collected histories. If a cell
-is genuinely infeasible/OOM, retain its failure record, comment out that line,
-and resume. Do not create DONE.json manually or summarize successful retries
-while suppressing failed attempts.
-
-Default `DISCARD_COPIES=1` removes only a successful measured run's copied setup
-directory and node cache, and successful preparation runs' disposable node caches.
-It retains original setup seeds, updated histories,
-proof outputs, raw request reports and logs. Set `DISCARD_COPIES=0` to retain
-those copies too. Copy-on-write is used where supported; otherwise copying large
-keys needs substantial disk space. Raw proofs and failed attempts also accumulate.
-No global caches are deleted. Do not run independent campaigns simultaneously on
-the same experimental host; the lock protects only the selected campaign root.
-
-## 7. AWS scale-out uses physical deployments, not the local runner
-
-Preview the full editable cloud list:
+Or run preparation and the first comparison separately:
 
 ```bash
-bash evaluation/run_cluster.sh --plan
+SECTION=profiles ONLY='mnist_gan-g1-warm' bash evaluation/run_all.sh --execute
+SECTION=serving ONLY='burst-mnist_gan-warm-*-n1-r1' bash evaluation/run_all.sh --execute
 ```
 
-`run_cluster.sh` contains whole-job/stage, 1/2/4/8/10 physical nodes, N=1/16,
-three models and three repetitions. It drives `traffic.py` only after an explicit
-deployment hook has prepared the requested cluster. We cannot fill in your SSH
-hosts, S3 bucket/prefix, remote environment or per-worker profile paths from the
-information available here. It intentionally refuses --execute without hooks.
+You can comment out any `prep` or `cell` line in run_all.sh. Completed cells skip
+automatically. Failed/interrupted cells get a new attempt directory; existing
+reports are retained. Bootstrap resumes completed partitions separately.
 
-Hook interface (both executables receive these five arguments):
+## 3. Where the artifacts and profiles live
+
+For MNIST, relative to EVAL_ROOT:
 
 ```text
-BASELINE NODE_COUNT WORKLOAD TRIAL OUTPUT_DIRECTORY
+bootstrap/mnist_gan-g1/artifacts/setup/<setup_key>/
+    model.onnx
+    settings.json
+    network.compiled
+    pk.json
+    vk.json
+
+profiles/mnist_gan-g1-warm/attempt-001/
+    setup_source.json
+    observation-01/
+    snapshot/node/
+    snapshot/coordinator/
 ```
 
-`CLUSTER_PREPARE` must start/reset exactly that many distinct physical workers,
-use a unique node_id on each, configure the requested stage/whole-job mode and
-common per-worker budget/thread settings, initialize matching **AWS-collected**
-profiles and warm S3 setup state, enable verification, and wait for registration.
-It must write `OUTPUT_DIRECTORY/deployment.json` recording actual hosts/instance
-IDs, commit/backend, overrides, budget, artifact/profile sources, coordinator
-placement and verification setting. EPYC histories are not assumed to match AWS.
-`CLUSTER_STOP` must stop only the runtime processes for that trial and collect
-remote reports. It need not terminate EC2 instances. It is called on exit, even
-when preparation/traffic fails. Supply absolute executable paths:
+This setup-only path retains **uncompressed pk.json**, which the worker's
+existing restore path accepts. It avoids the additional bootstrap compression
+pass. A setup_source.json points to the shared bootstrap; setup is no longer
+duplicated under each preparation task.
+
+Bootstrap creates **no coordinator/node resource profiles**. The one full warm
+profiling request creates both. Proving must execute at least once to observe
+proving-stage memory; setup-only execution cannot supply that information.
+Warm profiling checks proving-key reuse and positive measured memory for every
+setup key. Node and coordinator histories start empty, independent of bootstrap.
+
+For optional cold profiling, the SAME bootstrap is reused, but its directory
+is not passed as reusable setup to cold jobs. Those jobs regenerate setup and
+prove once to collect cold history. Their temporary keys are not republished
+into the retained bootstrap.
+
+## 4. Inspect the first measured run
+
+Under `runs/<ID>/attempt-001/run/`:
+
+- `plan.json`: commands, overrides, commit, thread settings.
+- `run_status.json` and `traffic/summary.json`: completion/failure counts and timings.
+- `traffic/requests.jsonl`: individual request outcomes, latency and submission lag.
+- `requests/**/reports/job_report.csv`: setup hits, stage memory and admission waits.
+- `requests/**/reports/request_report.csv`: request and verification timings.
+- `node.log`, `coordinator.log`, `traffic.log`: failures and diagnostics.
+
+Runtime verification remains enabled for measured/profile runs. Bootstrap
+generates no proofs to verify; correctness is checked on the subsequent requests.
+Check verifier manifests and intended partition-boundary semantics as well.
+
+Warm trials start with setup available in local files and a fresh worker cache:
+local restoration remains part of measured execution. They are not a prefilled
+worker-cache experiment. Cold/warm do not describe OS page-cache state.
+All local policies receive the same accounting budget; hardware CPU capacity stays
+fixed. This is runtime accounting, not a physical/cgroup RAM limit.
+
+## 5. Defaults and time limits
+
+| Setting | Targeted default | Meaning |
+|---|---:|---|
+| PROFILE_REPEATS | 1 | Full profiling requests per workload/setup |
+| CACHE_GIB | 500 | Worker disk-cache budget, not RAM |
+| SAMPLING | 0.1 | Memory/CPU sample interval in seconds |
+| TIMEOUT | 21600 | Six-hour limit for an individual run/bootstrap |
+| CAMPAIGN_SECONDS | 82800 | 23-hour wall-clock budget per script invocation |
+| DISCARD_COPIES | 1 | Remove successful runs' disposable caches/setup copies |
+| RAYON_NUM_THREADS | Explicitly required | Backend thread setting, not job concurrency |
+
+Previously exported values override shell defaults. To select the time limits
+explicitly:
 
 ```bash
-export CLUSTER_TARGET='YOUR_COORDINATOR_HOST:50051'
-export CLUSTER_PREPARE='/absolute/path/to/your/prepare_cluster.sh'
-export CLUSTER_STOP='/absolute/path/to/your/stop_and_collect_cluster.sh'
-export EVAL_ROOT="$PWD/evaluation/results/aws-v1"
-bash evaluation/run_cluster.sh --execute
+export TIMEOUT=21600
+export CAMPAIGN_SECONDS=82800
 ```
 
-Cloud DONE markers are simple completion checks, not a deployment fingerprint.
-Use a new EVAL_ROOT when changing hooks, infrastructure, profiles or configuration.
-The prepare hook is responsible for validating the actual node count and readiness.
+The campaign deadline sends an interrupt and allows cleanup. A deadline-aborted
+run is incomplete; do not classify it as an OOM or silently drop it from reports.
+Resuming starts a new wall-clock allowance and skips successful cells. Use a new
+ID/root when changing the settings of completed cells. Set CAMPAIGN_SECONDS=0
+only if you intentionally want no overall limit.
 
-## What is not silently automated
+Default cleanup retains bootstrap seeds, snapshots, raw reports, proof outputs,
+plans and logs. It removes only successful attempts' disposable worker caches and
+measured setup copies. Bootstrap artifacts and retained failed attempts can still
+consume substantial disk space. Copy-on-write is used where supported.
 
-- TinyBERT: no workload YAML on this branch. Add its verified ONNX/input paths first.
-  NanoGPT 10L has example commented checklist entries.
-- Worker failure injection/recovery: needs the real cloud deployment and trigger.
-- Exact scheduling/admission-check CPU overhead: requires instrumentation beyond
-  the existing component/admission-wait reports; waiting time is not check overhead.
-- Controlled 0.9x/1.1x estimate perturbation: needs an explicit estimator test hook.
-- Second-backend results: the current runner is EZKL-specific.
+## 6. Extend only if time remains
 
-These remain optional experiments, not fabricated results. No real proof or AWS
-workload was executed while authoring this automation; run and inspect step 4
-before expanding. Tests cover orchestration and state isolation, not backend speed.
+Uncomment optional cold/profile and N=4 memory-sensitivity lines after completing
+the warm comparisons. Repetitions r2/r3 are more useful for quantifying variation
+than claiming precision from one trial. Use the exhaustive list explicitly:
+
+```bash
+SECTION=profiles,serving bash evaluation/run_full.sh --plan
+```
+
+run_full.sh still contains the larger three-trial protocol, now using one initial
+profiling request by default and the shared setup-only bootstrap. It is NOT the
+one-day default. Keep a consistent EVAL_ROOT if intentionally reusing compatible
+profiles; default full/day roots are separate.
+
+AWS scale-out remains in run_cluster.sh and requires your physical deployment
+hooks. TinyBERT still needs its workload YAML. Worker failure injection,
+controlled estimate perturbation and fine-grained scheduler/check overhead need
+their dedicated instrumentation; this update does not pretend those experiments
+have run.
+
+## What to say in the paper
+
+One initial profile is a sparse-history admission experiment, not evidence of
+repeatability. Describe it as one prior isolated execution per job and condition.
+The first-pass measured cells have ONE trial: do not show trial-range error bars
+or say they are three-run averages. Repeat selected cells later if possible.
+The earlier repeated-input memory microbenchmark remains a separate experiment.
+
+## Validation
 
 ```bash
 python -m unittest discover -s evaluation -p 'test_*.py' -v
-bash -n evaluation/run_all.sh evaluation/run_cluster.sh
+bash -n evaluation/run_all.sh evaluation/run_full.sh evaluation/run_cluster.sh
 ```
+
+Tests check setup-only stage selection, shared cold/warm bootstrap, profile
+isolation, checkpoint/resume and failure accounting. No real proof benchmark or
+AWS workload was executed while authoring this update.
