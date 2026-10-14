@@ -46,6 +46,22 @@ def unit_name(c, attempt, role):
     return 'zkinfer-eval-' + key + '-' + role
 
 
+def wait_for_coordinator(unit, port, log, timeout=60):
+    until = time.monotonic() + timeout
+    while time.monotonic() < until:
+        state = subprocess.run(['sudo','systemctl','is-active',unit],
+                               text=True,capture_output=True)
+        if state.stdout.strip() not in {'active','activating'}:
+            detail = log.read_text(errors='replace')[-12000:] if log.exists() else 'No coordinator log'
+            raise RuntimeError('Coordinator exited before readiness:\n'+detail)
+        try:
+            with socket.create_connection(('127.0.0.1',port),timeout=0.5):
+                return
+        except OSError:
+            time.sleep(0.5)
+    raise TimeoutError('Coordinator did not listen on port '+str(port))
+
+
 def main(payload):
     import boto3
     import psutil
@@ -181,6 +197,8 @@ def main(payload):
         launch += ['--setenv=PYTHONPATH='+str(ROOT), '--setenv=PATH='+str(Path(sys.executable).parent)+':/usr/local/bin:/usr/bin:/bin',
                    '--setenv=ZKINFER_READY_FILE='+str(out/'registered.json'), *command]
         subprocess.run(launch, check=True)
+        if role == 'coordinator':
+            wait_for_coordinator(unit,c['port'],out/'coordinator.log')
         return
     if action == 'traffic':
         until = time.monotonic()+180
