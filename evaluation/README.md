@@ -1,5 +1,11 @@
 # zkInfer evaluation
 
+**Start here:** [step-by-step setup and exact commands](setup.md).
+[run_all.sh](run_all.sh) is the editable, resumable local experiment checklist;
+it prints plans unless `--execute` is specified. It collects isolated cold/warm
+profiles before measurements. [run_cluster.sh](run_cluster.sh) lists scale-out
+trials and requires explicit physical-deployment hooks before execution.
+
 This directory is the experiment protocol, not a collection of measured results.
 Run from the repository root with the project's normal EZKL/runtime environment.
 The main contribution tested here is serving partitioned proofs on shared resources.
@@ -23,7 +29,7 @@ separately so improvements are not attributed to the wrong mechanism.
 | Experiment | Configurations to compare |
 | --- | --- |
 | Decomposition | monolithic, partitioned-sequential |
-| Concurrent serving | fixed-1, fixed-2, fixed-4, fixed-8, whole-job, stage |
+| Concurrent serving | fixed-8, whole-job, stage; sensitivity: fixed-1/2/4/8/16 |
 | Memory-budget sensitivity | whole-job, stage |
 | Scheduling | stage-fifo, stage-lpt, stage (resource_aware) |
 | Scale-out | whole-job and stage, each at every node count |
@@ -43,7 +49,7 @@ FIFO is request-fair FIFO, not a globally request-oblivious queue.
 - `traffic.py`: submits bursts or seeded Poisson arrivals to an already running
   coordinator, recording every request including errors and timeouts.
 - Each subsection has a `matrix.json` describing its planned sweep. These matrices
-  are protocols, not an automatic launcher for an expensive full sweep.
+  are protocols. `run_all.sh` supplies an explicit editable checklist for execution.
 
 Start with a dry run:
 
