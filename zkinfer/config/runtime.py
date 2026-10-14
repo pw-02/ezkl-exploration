@@ -22,6 +22,7 @@ class StageAdmissionConfig:
     enabled: bool
     memory_safety_reserve_gb: float
     history_percentile: float
+    mode: str = "stage"
 
 
 @dataclass(frozen=True)
@@ -181,7 +182,11 @@ def _resolve_verification_config(cfg: DictConfig) -> VerificationConfig:
 
 def _resolve_stage_admission_config(cfg: DictConfig) -> StageAdmissionConfig:
     admission = cfg.node.get("stage_admission", {})
+    mode = str(admission.get("mode", "stage"))
+    if mode not in {"stage", "whole_job"}:
+        raise ValueError("node.stage_admission.mode must be stage or whole_job")
     return StageAdmissionConfig(
+        mode=mode,
         enabled=bool(admission.get("enabled", True)),
         memory_safety_reserve_gb=max(
             0.0,
