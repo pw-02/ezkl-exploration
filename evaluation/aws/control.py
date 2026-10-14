@@ -75,7 +75,8 @@ def launcher_only_changes(old, new):
     before,after=contents(old),contents(new)
     changed={n for n in before.keys()|after.keys() if before.get(n)!=after.get(n)}
     allowed={'evaluation/aws/control.py','evaluation/aws/coordinator.py',
-             'evaluation/aws/remote.py','evaluation/aws/test_control.py','evaluation/aws/README.md'}
+             'evaluation/aws/remote.py','evaluation/aws/test_control.py','evaluation/aws/README.md',
+             'evaluation/setup.md'}
     if changed-allowed:
         raise ValueError('Repair would change experiment/runtime inputs: '+str(sorted(changed-allowed)))
     return sorted(changed)
