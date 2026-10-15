@@ -69,10 +69,13 @@ python evaluation/run.py --baseline fixed-2 --workload mnist_gan --requests 1 --
 ```
 
 For profiled warm admission comparisons, prepare matched artifacts and node-local
-resource profiles first, then use fresh per-trial copies of both:
+resource profiles first. The campaign runner references the shared bootstrap setup
+directly for every matching warm trial; it does **not** make a full per-trial copy
+of compiled circuits and proving keys. Node-local cache state and profile snapshots
+remain fresh per trial:
 
 ```bash
-python evaluation/run.py --baseline whole-job --workload mnist_gan --requests 4 --setup warm --setup-dir /absolute/trial/setup --profile-dir /absolute/profiles/resource_profiles --execute --output evaluation/results/warm-whole-r1
+python evaluation/run.py --baseline whole-job --workload mnist_gan --requests 4 --setup warm --setup-dir /absolute/bootstrap/setup --profile-dir /absolute/profiles/resource_profiles --execute --output evaluation/results/warm-whole-r1
 ```
 
 Repeat with `--baseline stage`, a separate output directory, and equivalent cache
@@ -80,6 +83,11 @@ and profile snapshots. `--profile-dir` must contain profile JSON files; the runn
 copies them into a fresh node state directory. It does not warm an experiment
 silently. Warm mode requires an existing nonempty setup directory; verify actual
 cache hits in the reports because directory existence alone is insufficient.
+
+The shared bootstrap is setup state, not experiment state. Individual trials still
+own their resource-history copies, node cache, logs, request data, proof outputs,
+and traffic results. The worker restores reusable setup from the bootstrap into its
+fresh local cache as part of measured execution.
 
 To test the same requests on a running multi-node deployment, use `traffic.py`
 directly. The scripts do not provision cloud machines, alter cgroups, or inject
