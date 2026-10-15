@@ -9,6 +9,10 @@ campaign. The old large list is retained as `run_full.sh`.
   compilation, SRS preparation and key generation. No witness or proof generation.
 - Bootstrap runs in separate per-partition processes and retains its artifacts.
   Completed partition setup is checkpointed, so an interrupted bootstrap can resume.
+- Measured warm trials now **reference the bootstrap setup directly** instead of
+  creating a second physical copy of every compiled circuit and proving key.
+  Node-local cache state, resource histories, logs, request data and proof outputs
+  remain isolated per attempt.
 - **One full profiling request per selected setup condition** by default
   (`PROFILE_REPEATS=1`). A request covers every partition, not one selected job.
 - No cold primer and no second warm bootstrap. Cold and warm profiling share the
@@ -106,12 +110,33 @@ profiles/mnist_gan-g1-warm/attempt-001/
     observation-01/
     snapshot/node/
     snapshot/coordinator/
+
+runs/<ID>/attempt-001/
+    setup_source.json        # points to the shared bootstrap setup
+    run/
+        cache/               # fresh node-local cache for this attempt
+        node-state/
+        coordinator-profiles/
+        requests/
+        traffic/
 ```
 
 This setup-only path retains **uncompressed pk.json**, which the worker's
 existing restore path accepts. It avoids the additional bootstrap compression
-pass. A setup_source.json points to the shared bootstrap; setup is no longer
-duplicated under each preparation task.
+pass. `setup_source.json` records the shared bootstrap location; measured warm
+trials do not create `trial-setup` copies anymore.
+
+The distinction is deliberate:
+
+- **Bootstrap setup artifacts** are immutable reusable inputs for matching warm
+  trials and may be shared across those trials.
+- **Node cache state, resource histories, request data, logs and proof outputs**
+  belong to one attempt and remain separate.
+
+A warm worker still restores the setup into its own fresh node cache. This means
+local restore/decompression cost remains part of the measured run, while the
+campaign no longer spends another 288+ GiB merely duplicating the shared setup
+before the run starts.
 
 Bootstrap creates **no coordinator/node resource profiles**. The one full warm
 profiling request creates both. Proving must execute at least once to observe
@@ -119,10 +144,11 @@ proving-stage memory; setup-only execution cannot supply that information.
 Warm profiling checks proving-key reuse and positive measured memory for every
 setup key. Node and coordinator histories start empty, independent of bootstrap.
 
-For optional cold profiling, the SAME bootstrap is reused, but its directory
-is not passed as reusable setup to cold jobs. Those jobs regenerate setup and
-prove once to collect cold history. Their temporary keys are not republished
-into the retained bootstrap.
+For optional cold profiling, the SAME bootstrap is retained for the campaign,
+but its directory is not passed as reusable setup to cold jobs. Those jobs
+regenerate setup and prove once to collect cold history. Their generated state
+lives in that run's own node cache/request output and is not used to replace the
+retained bootstrap.
 
 ## 4. Inspect the first measured run
 
@@ -139,9 +165,9 @@ Runtime verification remains enabled for measured/profile runs. Bootstrap
 generates no proofs to verify; correctness is checked on the subsequent requests.
 Check verifier manifests and intended partition-boundary semantics as well.
 
-Warm trials start with setup available in local files and a fresh worker cache:
-local restoration remains part of measured execution. They are not a prefilled
-worker-cache experiment. Cold/warm do not describe OS page-cache state.
+Warm trials start from the same shared bootstrap setup but with a fresh worker
+cache. Local restoration remains part of measured execution. They are not a
+prefilled-worker-cache experiment. Cold/warm do not describe OS page-cache state.
 All local policies receive the same accounting budget; hardware CPU capacity stays
 fixed. This is runtime accounting, not a physical/cgroup RAM limit.
 
@@ -154,7 +180,7 @@ fixed. This is runtime accounting, not a physical/cgroup RAM limit.
 | SAMPLING | 0.1 | Memory/CPU sample interval in seconds |
 | TIMEOUT | 21600 | Six-hour limit for an individual run/bootstrap |
 | CAMPAIGN_SECONDS | 82800 | 23-hour wall-clock budget per script invocation |
-| DISCARD_COPIES | 1 | Remove successful runs' disposable caches/setup copies |
+| DISCARD_COPIES | 1 | Remove successful attempts' disposable worker caches |
 | RAYON_NUM_THREADS | Explicitly required | Backend thread setting, not job concurrency |
 
 Previously exported values override shell defaults. To select the time limits
@@ -171,10 +197,11 @@ Resuming starts a new wall-clock allowance and skips successful cells. Use a new
 ID/root when changing the settings of completed cells. Set CAMPAIGN_SECONDS=0
 only if you intentionally want no overall limit.
 
-Default cleanup retains bootstrap seeds, snapshots, raw reports, proof outputs,
-plans and logs. It removes only successful attempts' disposable worker caches and
-measured setup copies. Bootstrap artifacts and retained failed attempts can still
-consume substantial disk space. Copy-on-write is used where supported.
+Default cleanup retains bootstrap seeds, profile snapshots, raw reports, proof
+outputs, plans and logs. It removes only successful attempts' disposable worker
+caches. It never deletes the bootstrap setup referenced by `setup_source.json`.
+Bootstrap artifacts and retained failed attempts can still consume substantial
+disk space.
 
 ## 6. Extend only if time remains
 
