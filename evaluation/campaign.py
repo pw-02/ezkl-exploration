@@ -202,8 +202,20 @@ def execute_cell(a, task):
     cmd = common(a, out, a.condition, a.baseline, a.requests, a.seed)
     cmd += ['--profile-dir', data/'snapshot/node', '--coordinator-profile-dir', data/'snapshot/coordinator']
     if a.condition == 'warm':
-        copy_tree(setup_source(data), task/'trial-setup')
-        cmd += ['--setup-dir', task/'trial-setup']
+        # Reuse the immutable bootstrap setup directly.  The worker still restores
+        # it into this trial's fresh node cache, so local cache state remains
+        # isolated without physically duplicating the shared proving keys first.
+        # Completed warm setup bundles are never republished by NodeSupervisor;
+        # any per-run cache/profile/output state stays under this attempt's run/.
+        seed_setup = setup_source(data).resolve()
+        if not seed_setup.is_dir() or not any(seed_setup.iterdir()):
+            raise ValueError(f'Warm setup source is missing or empty: {seed_setup}')
+        write_json(task/'setup_source.json', {
+            'path': str(seed_setup),
+            'shared': True,
+            'purpose': 'read-only bootstrap setup reused by measured warm trial',
+        })
+        cmd += ['--setup-dir', seed_setup]
     if a.arrival == 'poisson':
         pilot = a.root/'runs'/a.pilot
         marker = read_json(pilot/'DONE.json')
@@ -218,10 +230,9 @@ def execute_cell(a, task):
     launch(cmd)
     if not succeeded(out): raise ValueError('Trial incomplete; retained for failure analysis')
     if a.discard_copies:
-        # Only fresh copies created inside THIS attempt; retain requests, raw reports,
-        # proof outputs, updated profiles, plans and logs. Never delete the seed.
-        for path in (task/'trial-setup', out/'cache'):
-            if path.exists(): shutil.rmtree(path)
+        # The bootstrap setup is shared and must never be deleted here.  Only
+        # disposable per-attempt node cache state is removed after success.
+        if (out/'cache').exists(): shutil.rmtree(out/'cache')
 
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
