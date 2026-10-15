@@ -15,6 +15,7 @@ CACHE_GIB="${CACHE_GIB:-500}"
 SAMPLING="${SAMPLING:-0.1}"
 PORT="${PORT:-50051}"
 DISCARD_COPIES="${DISCARD_COPIES:-1}"
+PRUNE_RUN_SETUP="${PRUNE_RUN_SETUP:-1}" # after successful verification, outside timing
 MODE="${1:---plan}"
 if [[ "$MODE" != --plan && "$MODE" != --execute ]]; then
   echo "Usage: SECTION=profiles|serving|memory|scheduling|arrival|granularity|decomposition|all bash evaluation/run_all.sh [--plan|--execute]" >&2
@@ -60,6 +61,9 @@ cell() {
   shift 9
   selected "$group" "$id" || return 0
   invoke run --id "$id" --workload "$model" --partition "$g" --condition "$condition" --baseline "$baseline" --requests "$n" --reserve "$(reserve_for "$budget")" --seed "$((4100+trial))" "$@"
+  if [[ "$MODE" == --execute && "$PRUNE_RUN_SETUP" == 1 ]]; then
+    "$PYTHON" evaluation/maintenance/prune_run_setup.py --root "$EVAL_ROOT" --run-id "$id" --execute
+  fi
 }
 # Columns: group ID workload granularity setup baseline requests budget_GiB trial
 # Each line is one resumable task. DONE.json is the automatic checkmark.
