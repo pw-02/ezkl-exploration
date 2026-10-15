@@ -116,10 +116,6 @@ def main(payload):
         except Exception as exc:
             if getattr(exc,'response',{}).get('Error',{}).get('Code') not in {'404','NoSuchKey','NotFound'}: raise
         profile_root = root/'preparation'
-        import_prefix = c.get('setup_imports', {}).get(model)
-        if import_prefix:
-            from evaluation.aws.setup_import import install
-            install(s3, bucket, import_prefix, model, profile_root)
         command = [sys.executable, 'evaluation/campaign.py', 'prepare', '--root', str(profile_root),
                    '--id', model+'-g1-warm', '--workload', model, '--partition', '1',
                    '--condition', 'warm', '--reserve', '8', '--repetitions', '1',
@@ -143,9 +139,6 @@ def main(payload):
         for p in task.rglob('*'):
             if p.is_file() and (p.suffix in {'.csv', '.log'} or p.name in {'metadata.json','plan.json','summary.json','run_status.json'}):
                 s3.upload_file(str(p), bucket, seed+'/reports/'+p.relative_to(task).as_posix())
-        provenance = profile_root/'bootstrap'/f'{model}-g1'/'import_provenance.json'
-        if provenance.is_file():
-            s3.upload_file(str(provenance), bucket, seed+'/import_provenance.json')
         s3.put_object(Bucket=bucket, Key=seed+'/DONE.json', Body=json.dumps(done).encode())
         return
     attempt = payload['attempt']
