@@ -86,8 +86,16 @@ cache hits in the reports because directory existence alone is insufficient.
 
 The shared bootstrap is setup state, not experiment state. Individual trials still
 own their resource-history copies, node cache, logs, request data, proof outputs,
-and traffic results. The worker restores reusable setup from the bootstrap into its
-fresh local cache as part of measured execution.
+and traffic results. Complete, uncompressed filesystem setup bundles are read
+directly from the bootstrap with an explicit read-only prover guard. They are
+never copied into the worker cache or included in its eviction/accounting.
+Incomplete, compressed-only, and remote bundles retain the private restore path.
+Reports distinguish shared reuse with `transfer_setup_shared_read_only` and
+`transfer_setup_bytes_reused_shared`; it is not counted as downloaded bytes.
+
+This removes setup-restore I/O from local warm execution. Keep earlier results'
+original provenance and do not treat before/after end-to-end timings as identical
+storage conditions. Campaign fingerprint checks remain enabled.
 
 To test the same requests on a running multi-node deployment, use `traffic.py`
 directly. The scripts do not provision cloud machines, alter cgroups, or inject
@@ -146,3 +154,4 @@ Harness tests cover reproducible arrivals, consistent baseline settings, failure
 accounting, dry-run behavior, and a mocked coordinator RPC lifecycle. Admission
 tests cover real competing processes with controlled memory readings. Neither
 test suite substitutes for an end-to-end proof smoke test on the evaluation host.
+

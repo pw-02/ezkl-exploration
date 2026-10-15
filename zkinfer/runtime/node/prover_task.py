@@ -48,6 +48,7 @@ class LocalProverTask:
     output_prefix: str
     output_backend: str
     output_s3_bucket: str = ""
+    setup_read_only: bool = False
     resource_sampling_interval_sec: float = 1.0
     model_materialize_time_s: float = 0.0
     input_materialize_time_s: float = 0.0
@@ -368,6 +369,7 @@ class ProverTaskRunner:
             proving_cache_overwrite=False,
             proving_cache_type="filesystem",
             proving_cache_root_dir=task.setup_dir,
+            proving_cache_read_only=task.setup_read_only,
             proving_cache_s3_bucket=None,
             proving_cache_s3_prefix=None,
             status_file=status_file,
@@ -649,6 +651,8 @@ class ProverTaskRunner:
             "transfer_setup_bytes_downloaded": int(
                 setup.get("bytes_downloaded", 0) or 0
             ),
+            "transfer_setup_shared_read_only": bool(setup.get("shared_read_only", False)),
+            "transfer_setup_bytes_reused_shared": int(setup.get("bytes_reused_shared", 0) or 0),
             "transfer_setup_bytes_from_local_cache": int(
                 setup.get("bytes_from_local_cache", 0) or 0
             ),
@@ -673,3 +677,4 @@ class ProverTaskRunner:
                 metrics.get("output_publish_time(s)", 0.0) or 0.0
             ),
         }
+

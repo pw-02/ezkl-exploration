@@ -33,6 +33,7 @@ class EZKLProofStages:
         local_tmp_dir: Optional[str] = None,
         srs_dir: Optional[str] = None,
         logger: Optional[logging.Logger] = None,
+        proving_cache_read_only: bool = False,
     ):
         import ezkl
 
@@ -46,6 +47,12 @@ class EZKLProofStages:
         self.configure_ezkl_env(artifact_dir)
         self.proving_cache_enabled = proving_cache_enabled
         self.proving_cache_overwrite = proving_cache_overwrite
+        self.proving_cache_read_only = proving_cache_read_only
+        if proving_cache_read_only and (
+            not proving_cache_enabled or proving_cache_type != "filesystem"
+            or proving_cache_overwrite or not proving_cache_root_dir
+        ):
+            raise ValueError("Read-only setup requires an existing filesystem cache without overwrite")
         self.proving_cache_type = proving_cache_type
         self.proving_cache_root_dir = proving_cache_root_dir
         self.proving_cache_s3_bucket = proving_cache_s3_bucket
@@ -63,7 +70,13 @@ class EZKLProofStages:
         else:
             setup_dir = self.tmp_dir
 
-        os.makedirs(setup_dir, exist_ok=True)
+        if self.proving_cache_read_only:
+            for name in ("settings.json", "network.compiled", "pk.json", "vk.json"):
+                path = Path(setup_dir) / name
+                if not path.is_file() or path.stat().st_size == 0:
+                    raise FileNotFoundError(f"Read-only setup artifact missing or empty: {path}")
+        else:
+            os.makedirs(setup_dir, exist_ok=True)
         os.makedirs(self.tmp_dir, exist_ok=True)
 
         self.settings_path = os.path.join(setup_dir, "settings.json")
@@ -144,6 +157,10 @@ class EZKLProofStages:
         return module
 
     def _try_load_from_cache(self, local_path: str, filename: str) -> Tuple[bool, float]:
+        if self.proving_cache_read_only:
+            if not os.path.isfile(local_path) or os.path.getsize(local_path) == 0:
+                raise FileNotFoundError(f"Read-only setup artifact missing or empty: {local_path}")
+            return True, 0.0
         if not self.proving_cache_enabled:
             return False, 0.0
 
@@ -176,6 +193,10 @@ class EZKLProofStages:
         return time.perf_counter() - start
 
     def _try_load_keys_from_cache(self) -> Tuple[bool, float]:
+        if self.proving_cache_read_only:
+            for path in (self.pk_path, self.vk_path):
+                self._try_load_from_cache(path, os.path.basename(path))
+            return True, 0.0
         if not self.proving_cache_enabled:
             return False, 0.0
 
@@ -208,6 +229,8 @@ class EZKLProofStages:
             return json.load(f)
 
     def _save_settings(self, settings: Dict[str, Any]) -> None:
+        if self.proving_cache_read_only:
+            raise RuntimeError("Cannot modify read-only setup settings")
         with open(self.settings_path, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=2)
 
@@ -465,6 +488,8 @@ class EZKLProofStages:
 
     def setup_and_compute_proof(self) -> Dict[str, float]:
         """Cold path: generate keys and prove without re-reading the new PK."""
+        if self.proving_cache_read_only:
+            raise RuntimeError("Cannot generate keys in read-only setup")
         if not self.srs_path:
             self.srs_path = self._resolve_srs_path()
 
@@ -623,4 +648,5 @@ class EZKLProofStages:
 
         self._update_status("DONE")
         return metrics, self.ezkl_settings_dict
+
 

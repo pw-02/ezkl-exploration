@@ -487,7 +487,7 @@ class NodeSupervisor:
             if not self.cfg.setup_store.enabled:
                 result = self._run_prover_subprocess(local_task)
                 setup_publish_metrics = {}
-            elif self.cache.setup_ready(local_task.setup_key):
+            elif local_task.setup_read_only or self.cache.setup_ready(local_task.setup_key):
                 result = self._run_prover_subprocess(local_task)
                 setup_publish_metrics = {}
             else:
@@ -619,6 +619,7 @@ class NodeSupervisor:
             model_path=model_path,
             input_path=input_path,
             setup_dir=setup_dir,
+            setup_read_only=bool(setup_metrics.get("shared_read_only", False)),
             tmp_dir=str(tmp_dir),
             output_dir=str(output_dir),
             output_prefix=output_ref.uri or str(output_dir),
@@ -709,3 +710,4 @@ def main(cfg: DictConfig) -> None:
 
 if __name__ == "__main__":
     main()
+

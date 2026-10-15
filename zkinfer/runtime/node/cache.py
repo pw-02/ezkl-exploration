@@ -253,6 +253,27 @@ class NodeCache:
         }
 
         with self._setup_lock(setup_key):
+            # Complete filesystem bundles are immutable canonical setup, not
+            # node-owned cache entries. Never copy, touch, or evict their files.
+            if shared_setup_ref.backend == "filesystem" and not shared_setup_ref.is_empty:
+                shared_dir = Path(shared_setup_ref.uri).resolve()
+                if all(
+                    (shared_dir / name).is_file() and (shared_dir / name).stat().st_size > 0
+                    for name in self.SETUP_FILES
+                ):
+                    metrics["setup_dir"] = str(shared_dir)
+                    metrics["shared_read_only"] = True
+                    metrics["bytes_reused_shared"] = 0
+                    for name in self.SETUP_FILES:
+                        size = (shared_dir / name).stat().st_size
+                        metrics["bytes_reused_shared"] += size
+                        metrics["files"][name] = {
+                            "cache_hit": False, "downloaded": False,
+                            "bytes": size, "source": "shared_filesystem",
+                        }
+                    metrics["restore_time(s)"] = time.perf_counter() - started
+                    return str(shared_dir), metrics
+
             local_setup_dir = Path(self.setup_dir(setup_key))
             metrics["setup_dir"] = str(local_setup_dir)
 
@@ -474,4 +495,5 @@ class NodeCache:
             os.utime(path, (now, now))
         except FileNotFoundError:
             pass
+
 
