@@ -33,7 +33,7 @@ node:
 
   # Sampling interval for resource_usage.csv. Stage-transition timestamps are
   # recorded separately and do not depend on this interval.
-  resource_sampling_interval_sec: 0.25
+  resource_sampling_interval_sec: 1.0
 
   stage_admission:
     mode: stage # stage | whole_job; enabled controls both modes
@@ -58,7 +58,7 @@ storage:
 
   local_cache:
     path: storage/node/cache
-    max_gb: 50
+    max_gb: 500
 
 output:
   # Copy proof/witness/setup artifacts into experiments/runs for debugging.
@@ -68,7 +68,7 @@ output:
   # Keep canonical request-owned inputs/proofs under storage.request_data.path
   # after the experiment finishes. Reusable setup and experiment records are
   # never removed by this cleanup.
-  keep_request_data: false
+  keep_request_data: True
 
 launch:
   coordinator_host: localhost

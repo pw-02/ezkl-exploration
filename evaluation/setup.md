@@ -41,10 +41,12 @@ git switch sacdad27
 git pull --ff-only
 tmux new -s zkinfer-eval
 # Activate your existing environment if needed.
+conda activate zk
 export PYTHON=python
-export EVAL_ROOT="$PWD/evaluation/results/paper-day-v2"
+export EVAL_ROOT="$PWD/evaluation/results/paper-day-v4"
 export PROFILE_REPEATS=1
 export PYTHONPATH=/home/pwatters/project/zkinfer:$PYTHONPATH
+export RAYON_NUM_THREADS=16
 ```
 
 The explicit export matters if your shell still has PROFILE_REPEATS=5 from the
@@ -69,6 +71,7 @@ separately. Source/config hashes also protect against mixing incompatible runs.
 ```bash
 bash evaluation/run_all.sh --plan
 bash evaluation/run_all.sh --execute
+
 ```
 
 The script finishes each model's profiling and six measured cells before moving
@@ -80,6 +83,8 @@ To start with MNIST only:
 
 ```bash
 ONLY='*mnist_gan*' bash evaluation/run_all.sh --execute
+ONLY='*nano_gpt_4_layers_64_embd*' bash evaluation/run_all.sh --execute
+ONLY='*mobilenet_v2*' bash evaluation/run_all.sh --execute
 ```
 
 Or run preparation and the first comparison separately:
@@ -87,6 +92,7 @@ Or run preparation and the first comparison separately:
 ```bash
 SECTION=profiles ONLY='mnist_gan-g1-warm' bash evaluation/run_all.sh --execute
 SECTION=serving ONLY='burst-mnist_gan-warm-*-n1-r1' bash evaluation/run_all.sh --execute
+SECTION=serving ONLY='burst-mobilenet_v2-warm-*-n1-r1' bash evaluation/run_all.sh --execute
 ```
 
 You can comment out any `prep` or `cell` line in run_all.sh. Completed cells skip

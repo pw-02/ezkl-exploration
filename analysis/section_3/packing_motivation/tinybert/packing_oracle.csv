@@ -1,0 +1,3 @@
+memory_model,memory_model_label,selection,selected_source_jobs,selected_job_ids,phases,memory_budget_gb,status,optimality_proven,minimum_makespan_s,states_visited,reason,optimal_speedup_vs_job_peak,optimal_makespan_saved_percent
+job_peak,Job peak,highest_peak_memory,8,sub_model_4_c6bf7913;sub_model_56_b942f9a0;sub_model_106_95402d27;sub_model_49_00a31d42;sub_model_99_f0540d26;sub_model_68_fa788d23;sub_model_37_a8a95bc0;sub_model_22_d5153d6b,8,64.0,complete,True,912.658,74140,,1.0,0.0
+stage_peak,Current stage,highest_peak_memory,8,sub_model_4_c6bf7913;sub_model_56_b942f9a0;sub_model_106_95402d27;sub_model_49_00a31d42;sub_model_99_f0540d26;sub_model_68_fa788d23;sub_model_37_a8a95bc0;sub_model_22_d5153d6b,35,64.0,timeout,False,,,search exceeded 30.0s,,

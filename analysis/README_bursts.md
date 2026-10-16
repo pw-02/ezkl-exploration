@@ -4,17 +4,32 @@ Run from the repository root with NumPy and Matplotlib installed:
 
 ```bash
 python analysis/plot_bursts.py \
-  --sources evaluation/results/paper-day-v2 /path/to/bert-campaign \
+  --sources evaluation/results/paper-day-v2 evaluation/results/paper-day-v3 \
   --models bert mobilenet_v2 nano_gpt_4_layers_64_embd \
   --output figures/evaluation/burst_serving
 ```
+
+```bash
+python analysis/plot_bursts.py \
+  --sources evaluation/results/paper-day-v2 evaluation/results/paper-day-v3 \
+  --models bert mobilenet_v2 nano_gpt_4_layers_64_embd \
+  --output figures/evaluation/burst_serving
+```
+
 
 You can instead pass individual completed cells (shell globs are expanded by Bash):
 
 ```bash
 python analysis/plot_bursts.py \
   --sources evaluation/results/paper-day-v2/runs/burst-*-b128-r1 \
-            /path/to/bert-campaign/runs/burst-bert-*-b128-r1 \
+            evaluation/results/paper-day-v3/runs/burst-bert-*-b128-r1 \
+  --output figures/evaluation/burst_serving_b128
+```
+
+```bash
+python analysis/plot_bursts.py \
+  --sources evaluation/results/paper-day-v2/runs/burst-*-b128-r1 \
+            evaluation/results/paper-day-v3/runs/burst-bert-*-b128-r1 \
   --output figures/evaluation/burst_serving_b128
 ```
 

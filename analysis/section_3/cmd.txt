@@ -1,0 +1,24 @@
+python analysis/section_3/packing_motivation.py \
+  --runs-dir experiments/runs/2026-10-15_12-48-52_bert_admission-false-cold-0.25/requests \
+  --output-dir analysis/section_3/packing_motivation/tinybert \
+  --memory-budget-gb 64 \
+  --replicas 1,2,4,8,16,32,64,128
+
+python analysis/section_3/packing_motivation.py \
+  --runs-dir experiments/runs/2026-10-14_04-30-39_mobilenet_v2_admission-true/requests \
+  --output-dir analysis/section_3/packing_motivation/mobilenet_v2 \
+  --memory-budget-gb 64 \
+  --replicas 1,2,4,8,16,32,64,128
+
+python analysis/section_3/packing_motivation.py \
+  --runs-dir experiments/runs/<NANOGPT_RUN>/requests \
+  --output-dir analysis/section_3/packing_motivation/nanogpt_4l \
+  --memory-budget-gb 64 \
+  --replicas 1,2,4,8,16,32
+
+
+  for d in tinybert mobilenet_v2 nanogpt_4l; do
+  echo "===== $d ====="
+  column -s, -t < analysis/section_3/packing_motivation/$d/packing_scaling.csv
+  echo
+done

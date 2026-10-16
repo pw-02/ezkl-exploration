@@ -121,7 +121,7 @@ cell serving burst-bert-warm-fixed-8-n4-b128-r1 bert 1 warm fixed-8 4 128 1
 cell serving burst-bert-warm-fixed-8-n8-b128-r1 bert 1 warm fixed-8 8 128 1
 cell serving burst-bert-warm-fixed-8-n16-b128-r1 bert 1 warm fixed-8 16 128 1
 
-prep profiles mobilenet_v2 1 warm
+# prep profiles mobilenet_v2 1 warm
 cell serving burst-mobilenet_v2-warm-fixed-8-n1-b128-r1 mobilenet_v2 1 warm fixed-8 1 128 1
 cell serving burst-mobilenet_v2-warm-whole-job-n1-b128-r1 mobilenet_v2 1 warm whole-job 1 128 1
 cell serving burst-mobilenet_v2-warm-stage-n1-b128-r1 mobilenet_v2 1 warm stage 1 128 1

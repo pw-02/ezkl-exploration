@@ -73,7 +73,7 @@ storage:
 
   reusable_setup:
     # Reuse settings/circuit/PK/VK generated for the same setup identity.
-    enabled: false
+    enabled: true
     path: storage/setup
 
   request_data:

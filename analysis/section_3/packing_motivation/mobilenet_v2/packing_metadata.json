@@ -1,0 +1,28 @@
+{
+  "heuristic": "offline_memory_fit",
+  "interpretation": "Opportunity analysis only. The scaling replay is not the production zkInfer scheduler. Exact rows are optimal only when optimality_proven=true.",
+  "memory_budget_gb": 64.0,
+  "memory_models": [
+    "job_peak",
+    "stage_peak"
+  ],
+  "oracle_max_phases": 64,
+  "oracle_selection": "highest_peak_memory",
+  "oracle_source_jobs": 8,
+  "oracle_time_limit_s": 30.0,
+  "replicas": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32,
+    64,
+    128
+  ],
+  "request_regex": "",
+  "runs_dir": "/data/shared/pwatters/project/zkinfer/experiments/runs/2026-10-14_04-30-39_mobilenet_v2_admission-true/requests",
+  "source_jobs": 99,
+  "source_requests": 1,
+  "workload_filter": ""
+}

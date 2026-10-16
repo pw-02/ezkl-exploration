@@ -5,7 +5,7 @@
   "subnet_id": "",
   "instance_profile": "zkinfer-eval-worker",
   "instance_type": "m6a.4xlarge",
-  "root_volume_gib": 1000,
+  "root_volume_gib": 250,
   "associate_public_ip": true,
   "bucket": "zkinfer",
   "campaign": "aws-scale-v1",
