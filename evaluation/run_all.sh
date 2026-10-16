@@ -74,66 +74,90 @@ cell() {
 
 # TARGETED WARM SERVING: finish each model before preparing the next.
 # One setup-only bootstrap + ONE full warm profiling request per model.
-# No cold primer. No bootstrap proof or witness. N=1 and N=4; one measured trial.
+# No cold primer. No bootstrap proof or witness. N=1, 4, 8 and 16; one measured trial at 128 GiB.
 # MobileNetV2 is last because its earlier runs were much longer; report all models
 # actually completed, and do not select models based on whether they show gains.
 
 prep profiles mnist_gan 1 warm
-cell serving burst-mnist_gan-warm-whole-job-n1-r1 mnist_gan 1 warm whole-job 1 256 1
-cell serving burst-mnist_gan-warm-stage-n1-r1 mnist_gan 1 warm stage 1 256 1
-cell serving burst-mnist_gan-warm-fixed-8-n1-r1 mnist_gan 1 warm fixed-8 1 256 1
-cell serving burst-mnist_gan-warm-whole-job-n4-r1 mnist_gan 1 warm whole-job 4 256 1
-cell serving burst-mnist_gan-warm-stage-n4-r1 mnist_gan 1 warm stage 4 256 1
-cell serving burst-mnist_gan-warm-fixed-8-n4-r1 mnist_gan 1 warm fixed-8 4 256 1
+cell serving burst-mnist_gan-warm-whole-job-n1-b128-r1 mnist_gan 1 warm whole-job 1 128 1
+cell serving burst-mnist_gan-warm-stage-n1-b128-r1 mnist_gan 1 warm stage 1 128 1
+cell serving burst-mnist_gan-warm-fixed-8-n1-b128-r1 mnist_gan 1 warm fixed-8 1 128 1
+cell serving burst-mnist_gan-warm-whole-job-n4-b128-r1 mnist_gan 1 warm whole-job 4 128 1
+cell serving burst-mnist_gan-warm-whole-job-n8-b128-r1 mnist_gan 1 warm whole-job 8 128 1
+cell serving burst-mnist_gan-warm-whole-job-n16-b128-r1 mnist_gan 1 warm whole-job 16 128 1
+cell serving burst-mnist_gan-warm-stage-n4-b128-r1 mnist_gan 1 warm stage 4 128 1
+cell serving burst-mnist_gan-warm-stage-n8-b128-r1 mnist_gan 1 warm stage 8 128 1
+cell serving burst-mnist_gan-warm-stage-n16-b128-r1 mnist_gan 1 warm stage 16 128 1
+cell serving burst-mnist_gan-warm-fixed-8-n4-b128-r1 mnist_gan 1 warm fixed-8 4 128 1
+cell serving burst-mnist_gan-warm-fixed-8-n8-b128-r1 mnist_gan 1 warm fixed-8 8 128 1
+cell serving burst-mnist_gan-warm-fixed-8-n16-b128-r1 mnist_gan 1 warm fixed-8 16 128 1
 
 prep profiles nano_gpt_4_layers_64_embd 1 warm
-cell serving burst-nano_gpt_4_layers_64_embd-warm-stage-n1-r1 nano_gpt_4_layers_64_embd 1 warm stage 1 256 1
-cell serving burst-nano_gpt_4_layers_64_embd-warm-fixed-8-n1-r1 nano_gpt_4_layers_64_embd 1 warm fixed-8 1 256 1
-cell serving burst-nano_gpt_4_layers_64_embd-warm-whole-job-n1-r1 nano_gpt_4_layers_64_embd 1 warm whole-job 1 256 1
-cell serving burst-nano_gpt_4_layers_64_embd-warm-stage-n4-r1 nano_gpt_4_layers_64_embd 1 warm stage 4 256 1
-cell serving burst-nano_gpt_4_layers_64_embd-warm-fixed-8-n4-r1 nano_gpt_4_layers_64_embd 1 warm fixed-8 4 256 1
-cell serving burst-nano_gpt_4_layers_64_embd-warm-whole-job-n4-r1 nano_gpt_4_layers_64_embd 1 warm whole-job 4 256 1
+cell serving burst-nano_gpt_4_layers_64_embd-warm-stage-n1-b128-r1 nano_gpt_4_layers_64_embd 1 warm stage 1 128 1
+cell serving burst-nano_gpt_4_layers_64_embd-warm-fixed-8-n1-b128-r1 nano_gpt_4_layers_64_embd 1 warm fixed-8 1 128 1
+cell serving burst-nano_gpt_4_layers_64_embd-warm-whole-job-n1-b128-r1 nano_gpt_4_layers_64_embd 1 warm whole-job 1 128 1
+cell serving burst-nano_gpt_4_layers_64_embd-warm-stage-n4-b128-r1 nano_gpt_4_layers_64_embd 1 warm stage 4 128 1
+cell serving burst-nano_gpt_4_layers_64_embd-warm-stage-n8-b128-r1 nano_gpt_4_layers_64_embd 1 warm stage 8 128 1
+cell serving burst-nano_gpt_4_layers_64_embd-warm-stage-n16-b128-r1 nano_gpt_4_layers_64_embd 1 warm stage 16 128 1
+cell serving burst-nano_gpt_4_layers_64_embd-warm-fixed-8-n4-b128-r1 nano_gpt_4_layers_64_embd 1 warm fixed-8 4 128 1
+cell serving burst-nano_gpt_4_layers_64_embd-warm-fixed-8-n8-b128-r1 nano_gpt_4_layers_64_embd 1 warm fixed-8 8 128 1
+cell serving burst-nano_gpt_4_layers_64_embd-warm-fixed-8-n16-b128-r1 nano_gpt_4_layers_64_embd 1 warm fixed-8 16 128 1
+cell serving burst-nano_gpt_4_layers_64_embd-warm-whole-job-n4-b128-r1 nano_gpt_4_layers_64_embd 1 warm whole-job 4 128 1
+cell serving burst-nano_gpt_4_layers_64_embd-warm-whole-job-n8-b128-r1 nano_gpt_4_layers_64_embd 1 warm whole-job 8 128 1
+cell serving burst-nano_gpt_4_layers_64_embd-warm-whole-job-n16-b128-r1 nano_gpt_4_layers_64_embd 1 warm whole-job 16 128 1
 
 # TinyBERT uses the bert.yaml configuration stem; its model name is tiny_bert.
 prep profiles bert 1 warm
-cell serving burst-bert-warm-whole-job-n1-r1 bert 1 warm whole-job 1 256 1
-cell serving burst-bert-warm-stage-n1-r1 bert 1 warm stage 1 256 1
-cell serving burst-bert-warm-fixed-8-n1-r1 bert 1 warm fixed-8 1 256 1
-cell serving burst-bert-warm-whole-job-n4-r1 bert 1 warm whole-job 4 256 1
-cell serving burst-bert-warm-stage-n4-r1 bert 1 warm stage 4 256 1
-cell serving burst-bert-warm-fixed-8-n4-r1 bert 1 warm fixed-8 4 256 1
+cell serving burst-bert-warm-whole-job-n1-b128-r1 bert 1 warm whole-job 1 128 1
+cell serving burst-bert-warm-stage-n1-b128-r1 bert 1 warm stage 1 128 1
+cell serving burst-bert-warm-fixed-8-n1-b128-r1 bert 1 warm fixed-8 1 128 1
+cell serving burst-bert-warm-whole-job-n4-b128-r1 bert 1 warm whole-job 4 128 1
+cell serving burst-bert-warm-whole-job-n8-b128-r1 bert 1 warm whole-job 8 128 1
+cell serving burst-bert-warm-whole-job-n16-b128-r1 bert 1 warm whole-job 16 128 1
+cell serving burst-bert-warm-stage-n4-b128-r1 bert 1 warm stage 4 128 1
+cell serving burst-bert-warm-stage-n8-b128-r1 bert 1 warm stage 8 128 1
+cell serving burst-bert-warm-stage-n16-b128-r1 bert 1 warm stage 16 128 1
+cell serving burst-bert-warm-fixed-8-n4-b128-r1 bert 1 warm fixed-8 4 128 1
+cell serving burst-bert-warm-fixed-8-n8-b128-r1 bert 1 warm fixed-8 8 128 1
+cell serving burst-bert-warm-fixed-8-n16-b128-r1 bert 1 warm fixed-8 16 128 1
 
 prep profiles mobilenet_v2 1 warm
-cell serving burst-mobilenet_v2-warm-fixed-8-n1-r1 mobilenet_v2 1 warm fixed-8 1 256 1
-cell serving burst-mobilenet_v2-warm-whole-job-n1-r1 mobilenet_v2 1 warm whole-job 1 256 1
-cell serving burst-mobilenet_v2-warm-stage-n1-r1 mobilenet_v2 1 warm stage 1 256 1
-cell serving burst-mobilenet_v2-warm-fixed-8-n4-r1 mobilenet_v2 1 warm fixed-8 4 256 1
-cell serving burst-mobilenet_v2-warm-whole-job-n4-r1 mobilenet_v2 1 warm whole-job 4 256 1
-cell serving burst-mobilenet_v2-warm-stage-n4-r1 mobilenet_v2 1 warm stage 4 256 1
+cell serving burst-mobilenet_v2-warm-fixed-8-n1-b128-r1 mobilenet_v2 1 warm fixed-8 1 128 1
+cell serving burst-mobilenet_v2-warm-whole-job-n1-b128-r1 mobilenet_v2 1 warm whole-job 1 128 1
+cell serving burst-mobilenet_v2-warm-stage-n1-b128-r1 mobilenet_v2 1 warm stage 1 128 1
+cell serving burst-mobilenet_v2-warm-fixed-8-n4-b128-r1 mobilenet_v2 1 warm fixed-8 4 128 1
+cell serving burst-mobilenet_v2-warm-fixed-8-n8-b128-r1 mobilenet_v2 1 warm fixed-8 8 128 1
+cell serving burst-mobilenet_v2-warm-fixed-8-n16-b128-r1 mobilenet_v2 1 warm fixed-8 16 128 1
+cell serving burst-mobilenet_v2-warm-whole-job-n4-b128-r1 mobilenet_v2 1 warm whole-job 4 128 1
+cell serving burst-mobilenet_v2-warm-whole-job-n8-b128-r1 mobilenet_v2 1 warm whole-job 8 128 1
+cell serving burst-mobilenet_v2-warm-whole-job-n16-b128-r1 mobilenet_v2 1 warm whole-job 16 128 1
+cell serving burst-mobilenet_v2-warm-stage-n4-b128-r1 mobilenet_v2 1 warm stage 4 128 1
+cell serving burst-mobilenet_v2-warm-stage-n8-b128-r1 mobilenet_v2 1 warm stage 8 128 1
+cell serving burst-mobilenet_v2-warm-stage-n16-b128-r1 mobilenet_v2 1 warm stage 16 128 1
 
 # OPTIONAL: enable only after the primary warm comparison finishes.
 # Cold profiles reuse the SAME bootstrap, but run full forced-cold proving once.
 # prep profiles mnist_gan 1 cold
-# cell cold burst-mnist_gan-cold-whole-job-n4-r1 mnist_gan 1 cold whole-job 4 256 1
-# cell cold burst-mnist_gan-cold-stage-n4-r1 mnist_gan 1 cold stage 4 256 1
+# cell cold burst-mnist_gan-cold-whole-job-n4-b128-r1 mnist_gan 1 cold whole-job 4 128 1
+# cell cold burst-mnist_gan-cold-stage-n4-b128-r1 mnist_gan 1 cold stage 4 128 1
 # cell memory memory-mnist_gan-warm-whole-job-b128-r1 mnist_gan 1 warm whole-job 4 128 1
 # cell memory memory-mnist_gan-warm-stage-b128-r1 mnist_gan 1 warm stage 4 128 1
-# cell scheduling fixed1-mnist-r1 mnist_gan 1 warm fixed-1 4 256 1
-# cell scheduling fixed4-mnist-r1 mnist_gan 1 warm fixed-4 4 256 1
-# cell scheduling fixed16-mnist-r1 mnist_gan 1 warm fixed-16 4 256 1
+# cell scheduling fixed1-mnist-b128-r1 mnist_gan 1 warm fixed-1 4 128 1
+# cell scheduling fixed4-mnist-b128-r1 mnist_gan 1 warm fixed-4 4 128 1
+# cell scheduling fixed16-mnist-b128-r1 mnist_gan 1 warm fixed-16 4 128 1
 # OPTIONAL REPLICATION: same N=4 cells with trial 2, then trial 3 if time remains.
-# cell repeats burst-mnist_gan-warm-stage-n4-r2 mnist_gan 1 warm stage 4 256 2
-# cell repeats burst-mnist_gan-warm-fixed-8-n4-r2 mnist_gan 1 warm fixed-8 4 256 2
-# cell repeats burst-mnist_gan-warm-whole-job-n4-r2 mnist_gan 1 warm whole-job 4 256 2
-# cell repeats burst-nano_gpt_4_layers_64_embd-warm-stage-n4-r2 nano_gpt_4_layers_64_embd 1 warm stage 4 256 2
-# cell repeats burst-nano_gpt_4_layers_64_embd-warm-fixed-8-n4-r2 nano_gpt_4_layers_64_embd 1 warm fixed-8 4 256 2
-# cell repeats burst-nano_gpt_4_layers_64_embd-warm-whole-job-n4-r2 nano_gpt_4_layers_64_embd 1 warm whole-job 4 256 2
-# cell repeats burst-bert-warm-stage-n4-r2 bert 1 warm stage 4 256 2
-# cell repeats burst-bert-warm-fixed-8-n4-r2 bert 1 warm fixed-8 4 256 2
-# cell repeats burst-bert-warm-whole-job-n4-r2 bert 1 warm whole-job 4 256 2
-# cell repeats burst-mobilenet_v2-warm-stage-n4-r2 mobilenet_v2 1 warm stage 4 256 2
-# cell repeats burst-mobilenet_v2-warm-fixed-8-n4-r2 mobilenet_v2 1 warm fixed-8 4 256 2
-# cell repeats burst-mobilenet_v2-warm-whole-job-n4-r2 mobilenet_v2 1 warm whole-job 4 256 2
+# cell repeats burst-mnist_gan-warm-stage-n4-b128-r2 mnist_gan 1 warm stage 4 128 2
+# cell repeats burst-mnist_gan-warm-fixed-8-n4-b128-r2 mnist_gan 1 warm fixed-8 4 128 2
+# cell repeats burst-mnist_gan-warm-whole-job-n4-b128-r2 mnist_gan 1 warm whole-job 4 128 2
+# cell repeats burst-nano_gpt_4_layers_64_embd-warm-stage-n4-b128-r2 nano_gpt_4_layers_64_embd 1 warm stage 4 128 2
+# cell repeats burst-nano_gpt_4_layers_64_embd-warm-fixed-8-n4-b128-r2 nano_gpt_4_layers_64_embd 1 warm fixed-8 4 128 2
+# cell repeats burst-nano_gpt_4_layers_64_embd-warm-whole-job-n4-b128-r2 nano_gpt_4_layers_64_embd 1 warm whole-job 4 128 2
+# cell repeats burst-bert-warm-stage-n4-b128-r2 bert 1 warm stage 4 128 2
+# cell repeats burst-bert-warm-fixed-8-n4-b128-r2 bert 1 warm fixed-8 4 128 2
+# cell repeats burst-bert-warm-whole-job-n4-b128-r2 bert 1 warm whole-job 4 128 2
+# cell repeats burst-mobilenet_v2-warm-stage-n4-b128-r2 mobilenet_v2 1 warm stage 4 128 2
+# cell repeats burst-mobilenet_v2-warm-fixed-8-n4-b128-r2 mobilenet_v2 1 warm fixed-8 4 128 2
+# cell repeats burst-mobilenet_v2-warm-whole-job-n4-b128-r2 mobilenet_v2 1 warm whole-job 4 128 2
 
 # Exhaustive Poisson/mixed/scaling/granularity sweeps: run_full.sh / run_cluster.sh.
 # They are intentionally NOT part of the one-day default.
