@@ -1,0 +1,5 @@
+name: tiny_bert
+onnx_file: experiments/models/bert/bert_tiny.onnx
+input_file: experiments/models/bert/bert_tiny_input.json
+input_shapes:
+  input: [1, 96]

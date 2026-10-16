@@ -94,6 +94,15 @@ cell serving burst-nano_gpt_4_layers_64_embd-warm-stage-n4-r1 nano_gpt_4_layers_
 cell serving burst-nano_gpt_4_layers_64_embd-warm-fixed-8-n4-r1 nano_gpt_4_layers_64_embd 1 warm fixed-8 4 256 1
 cell serving burst-nano_gpt_4_layers_64_embd-warm-whole-job-n4-r1 nano_gpt_4_layers_64_embd 1 warm whole-job 4 256 1
 
+# TinyBERT uses the bert.yaml configuration stem; its model name is tiny_bert.
+prep profiles bert 1 warm
+cell serving burst-bert-warm-whole-job-n1-r1 bert 1 warm whole-job 1 256 1
+cell serving burst-bert-warm-stage-n1-r1 bert 1 warm stage 1 256 1
+cell serving burst-bert-warm-fixed-8-n1-r1 bert 1 warm fixed-8 1 256 1
+cell serving burst-bert-warm-whole-job-n4-r1 bert 1 warm whole-job 4 256 1
+cell serving burst-bert-warm-stage-n4-r1 bert 1 warm stage 4 256 1
+cell serving burst-bert-warm-fixed-8-n4-r1 bert 1 warm fixed-8 4 256 1
+
 prep profiles mobilenet_v2 1 warm
 cell serving burst-mobilenet_v2-warm-fixed-8-n1-r1 mobilenet_v2 1 warm fixed-8 1 256 1
 cell serving burst-mobilenet_v2-warm-whole-job-n1-r1 mobilenet_v2 1 warm whole-job 1 256 1
@@ -119,6 +128,9 @@ cell serving burst-mobilenet_v2-warm-stage-n4-r1 mobilenet_v2 1 warm stage 4 256
 # cell repeats burst-nano_gpt_4_layers_64_embd-warm-stage-n4-r2 nano_gpt_4_layers_64_embd 1 warm stage 4 256 2
 # cell repeats burst-nano_gpt_4_layers_64_embd-warm-fixed-8-n4-r2 nano_gpt_4_layers_64_embd 1 warm fixed-8 4 256 2
 # cell repeats burst-nano_gpt_4_layers_64_embd-warm-whole-job-n4-r2 nano_gpt_4_layers_64_embd 1 warm whole-job 4 256 2
+# cell repeats burst-bert-warm-stage-n4-r2 bert 1 warm stage 4 256 2
+# cell repeats burst-bert-warm-fixed-8-n4-r2 bert 1 warm fixed-8 4 256 2
+# cell repeats burst-bert-warm-whole-job-n4-r2 bert 1 warm whole-job 4 256 2
 # cell repeats burst-mobilenet_v2-warm-stage-n4-r2 mobilenet_v2 1 warm stage 4 256 2
 # cell repeats burst-mobilenet_v2-warm-fixed-8-n4-r2 mobilenet_v2 1 warm fixed-8 4 256 2
 # cell repeats burst-mobilenet_v2-warm-whole-job-n4-r2 mobilenet_v2 1 warm whole-job 4 256 2
